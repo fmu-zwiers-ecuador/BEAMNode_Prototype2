@@ -19,7 +19,7 @@ import json
 import sys
 from picamera2 import Picamera2
 
-CONFIG_PATH = "/home/pi/BEAMNode_Prototype1/scripts/node/config.json"
+CONFIG_PATH = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
 
 # ---------------- Config Helper ---------------- #
 
@@ -41,7 +41,7 @@ def set_config_flag(path, section, key, value):
 
 # ---------------- Logging Setup ---------------- #
 
-PRIMARY_LOG_DIR = "/home/pi/BEAMNode_Prototype1/logs"
+PRIMARY_LOG_DIR = "/home/pi/BEAMNode_Prototype2/logs"
 FALLBACK_LOG_DIR = "/tmp/beam_logs"
 
 def get_log_dir():

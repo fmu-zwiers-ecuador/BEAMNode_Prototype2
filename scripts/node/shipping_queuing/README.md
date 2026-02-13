@@ -17,7 +17,7 @@ All scheduling is automated via cron jobs configured by `setup_beam_cron.sh`.
 
 ## 📁 Directory Structure
 ```
-BEAMNode_Prototype1/
+BEAMNode_Prototype2/
 └── scripts/
     └── node/
         └── shipping_queuing/
@@ -121,7 +121,7 @@ Fully automatic setup script:
 
 ### 1. Ensure scripts are in:
 ```
-/home/pi/BEAMNode_Prototype1/scripts/node/shipping_queuing/
+/home/pi/BEAMNode_Prototype2/scripts/node/shipping_queuing/
 ```
 
 ### 2. Run the setup script:
@@ -137,8 +137,8 @@ crontab -l
 
 Expected output:
 ```
-*/10 * * * * /usr/bin/python3 /home/pi/BEAMNode_Prototype1/scripts/node/shipping_queuing/ping_nodes_10min.py
-0 19 * * * /usr/bin/python3 /home/pi/BEAMNode_Prototype1/scripts/node/shipping_queuing/retryqueue.py
+*/10 * * * * /usr/bin/python3 /home/pi/BEAMNode_Prototype2/scripts/node/shipping_queuing/ping_nodes_10min.py
+0 19 * * * /usr/bin/python3 /home/pi/BEAMNode_Prototype2/scripts/node/shipping_queuing/retryqueue.py
 ```
 
 ---

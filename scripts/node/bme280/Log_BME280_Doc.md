@@ -9,7 +9,7 @@
 *  **Mentor/Reviewer:** Dr. Paul Zwiers / Raiz Mohammed  
 *  **Date Started / Completed:** September 29th, 2025 \-  October 10th, 2025  
 *  **Status:** Done:   
-*  **GitHub Link:** [*https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1/scripts/node/bme280/log_env_data.py*](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1/tree/main/scripts/bme280)
+*  **GitHub Link:** [*https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1/scripts/node/bme280/log_env_data.py*](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2/tree/main/scripts/bme280)
 
 ---
 
@@ -157,7 +157,7 @@ print("Pressure (hPa):",  sensor.pressure)
 
 **8\) References \***
 
-* Links to GitHub repo, docs, guides, or other resources: [https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1)
+* Links to GitHub repo, docs, guides, or other resources: [https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2)
 
 * [**https://forums.raspberrypi.com/search.php?keywords=json+file+bme280\&sid=603063906e27ef0fe9017deac3157f9f**](https://forums.raspberrypi.com/search.php?keywords=json+file+bme280&sid=603063906e27ef0fe9017deac3157f9f) **\-** Raspberrypi forums for help with JSON script
 

@@ -1,9 +1,9 @@
 #!/bin/bash
 # BEAMNode Project - Supervisor Queue Installation (Scheduled for 2PM)
-# Location: /home/pi/BEAMNode_Prototype1/installation_bash/set_retryservice.sh
+# Location: /home/pi/BEAMNode_Prototype2/installation_bash/set_retryservice.sh
 
 # 1. Configuration
-PROJECT_ROOT="/home/pi/BEAMNode_Prototype1"
+PROJECT_ROOT="/home/pi/BEAMNode_Prototype2"
 QUEUE_SCRIPT="$PROJECT_ROOT/scripts/node/shipping_queuing/retryqueue.py"
 SERVICE_NAME="retryqueue"
 LOG_DIR="/home/pi/logs"

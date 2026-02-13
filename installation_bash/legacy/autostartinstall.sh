@@ -1,9 +1,9 @@
 #!/bin/bash
 # BEAMNode Project - Node 5 Autostart Installation
-# Location: /home/pi/BEAMNode_Prototype1/autostartinstall.sh
+# Location: /home/pi/BEAMNode_Prototype2/autostartinstall.sh
 
 # 1. Configuration
-PROJECT_ROOT="/home/pi/BEAMNode_Prototype1"
+PROJECT_ROOT="/home/pi/BEAMNode_Prototype2"
 NODE_DIR="$PROJECT_ROOT/scripts/node"
 SERVICE_SRC="$PROJECT_ROOT/beamnode.service"
 SERVICE_NAME="beamnode.service"

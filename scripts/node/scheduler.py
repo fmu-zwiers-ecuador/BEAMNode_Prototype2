@@ -10,8 +10,8 @@ import subprocess
 import time
 from datetime import datetime, timedelta
 
-CONFIG_PATH = "/home/pi/BEAMNode_Prototype1/scripts/node/config.json"
-NODE_DIR = "/home/pi/BEAMNode_Prototype1/scripts/node/"
+CONFIG_PATH = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
+NODE_DIR = "/home/pi/BEAMNode_Prototype2/scripts/node/"
 LOG_FILE = "/home/pi/logs/scheduler.log"
 
 FILE_NAMES = {

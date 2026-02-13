@@ -33,8 +33,8 @@
 
 Run the following commands in order:
 
-* **sudo rm -rf BEAMNode_Prototype1** This deletes the current respository on the supervisor
+* **sudo rm -rf BEAMNode_Prototype2** This deletes the current respository on the supervisor
 * **sudo bash ./enable_wifi.sh** Enables wifi on the supervisor so it is able to fine the new repository from the internet
-* **git clone https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1** Clones the new repository onto the supervisor
+* **git clone https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2** Clones the new repository onto the supervisor
 * **sudo reboot now** This reboots the pi so that when it comes back on, it disconnects from wifi and connects back to BATMAN
 

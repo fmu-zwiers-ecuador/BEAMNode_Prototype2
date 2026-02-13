@@ -4,7 +4,7 @@
 
 # --- CONFIGURATION (Update these variables) ---
 INSTALLER_SCRIPT="installation_bash/autostartinstall.sh"
-REPO_DIR="BEAMNode_Prototype1"
+REPO_DIR="BEAMNode_Prototype2"
 USER="pi" 
 
 # IMPORTANT: Update these IP addresses

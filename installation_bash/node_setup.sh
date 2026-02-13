@@ -18,11 +18,11 @@ sudo apt install -y \
   batctl
 
 # Create required data + log roots for the node runtime
-sudo mkdir -p /home/pi/data /home/pi/shipping /home/pi/logs /home/pi/BEAMNode_Prototype1/logs
-sudo chown -R pi:pi /home/pi/data /home/pi/shipping /home/pi/logs /home/pi/BEAMNode_Prototype1/logs
+sudo mkdir -p /home/pi/data /home/pi/shipping /home/pi/logs /home/pi/BEAMNode_Prototype2/logs
+sudo chown -R pi:pi /home/pi/data /home/pi/shipping /home/pi/logs /home/pi/BEAMNode_Prototype2/logs
 
 # Upgrade pip tooling (system-wide). --break-system-packages is for Debian/RPi OS policy.
-sudo python3 -m pip install --upgrade pip setuptools wheel --break-system-packages
+# sudo python3 -m pip install --upgrade pip setuptools wheel --break-system-packages
 
 # Adafruit + sensors
 sudo python3 -m pip install --break-system-packages \
@@ -38,17 +38,17 @@ sudo python3 -m pip install --break-system-packages \
 #   pip3 install pyaudio
 # (ideally inside a venv).  [oai_citation:1‡piwheels.org](https://www.piwheels.org/project/pyaudio/?utm_source=chatgpt.com)
 
-sudo apt upgrade -y
+#sudo apt upgrade -y
 
 
 # ======================================
 # === PART 2: Autostart installation ===
 # ======================================
 
-# Location: /home/pi/BEAMNode_Prototype1/autostartinstall.sh
+# Location: /home/pi/BEAMNode_Prototype2/autostartinstall.sh
 
 # 1. Configuration
-PROJECT_ROOT="/home/pi/BEAMNode_Prototype1"
+PROJECT_ROOT="/home/pi/BEAMNode_Prototype2"
 NODE_DIR="$PROJECT_ROOT/scripts/node"
 SERVICE_SRC="$PROJECT_ROOT/beamnode.service"
 SERVICE_NAME="beamnode.service"
@@ -105,7 +105,7 @@ fi
 
 # --- CONFIGURATION ---
 # Paths derived from the BEAMNode Project structure
-PROJECT_ROOT="/home/pi/BEAMNode_Prototype1"
+PROJECT_ROOT="/home/pi/BEAMNode_Prototype2"
 SCRIPTS_DIR="$PROJECT_ROOT/scripts/node"
 LOGS_DIR="/home/pi/logs"
 

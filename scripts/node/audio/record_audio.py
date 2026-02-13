@@ -37,7 +37,7 @@ except Exception:
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 # Load config
-config_path = "/home/pi/BEAMNode_Prototype1/scripts/node/config.json"
+config_path = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
 with open(config_path, "r") as f:
     config = json.load(f)
 

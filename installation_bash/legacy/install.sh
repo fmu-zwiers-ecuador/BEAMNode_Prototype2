@@ -9,8 +9,8 @@ sudo apt install -y \
   batctl
 
 # Create required data + log roots for the node runtime
-sudo mkdir -p /home/pi/data /home/pi/shipping /home/pi/logs /home/pi/BEAMNode_Prototype1/logs
-sudo chown -R pi:pi /home/pi/data /home/pi/shipping /home/pi/logs /home/pi/BEAMNode_Prototype1/logs
+sudo mkdir -p /home/pi/data /home/pi/shipping /home/pi/logs /home/pi/BEAMNode_Prototype2/logs
+sudo chown -R pi:pi /home/pi/data /home/pi/shipping /home/pi/logs /home/pi/BEAMNode_Prototype2/logs
 
 # Upgrade pip tooling (system-wide). --break-system-packages is for Debian/RPi OS policy.
 sudo python3 -m pip install --upgrade pip setuptools wheel --break-system-packages

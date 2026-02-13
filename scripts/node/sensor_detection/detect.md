@@ -9,7 +9,7 @@
 * **Mentor/Reviewer:** Dr. Paul Zwiers / Raiz Mohammed  
 * **Date Started / Completed:** September 15th, 2025 \-  September 26th, 2025  
 * **Status:** Done  
-* **GitHub Link:** [testlux.py](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1/blob/main/scripts/testlux.py), [detect.py](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1/blob/main/detect.py)
+* **GitHub Link:** [testlux.py](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2/blob/main/scripts/testlux.py), [detect.py](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2/blob/main/detect.py)
 
 ---
 
@@ -106,5 +106,5 @@ def get\_devices(adds):
 
 * [https://docs.circuitpython.org/projects/tsl2591/en/stable/api.html](https://docs.circuitpython.org/projects/tsl2591/en/stable/api.html) \- API reference for the TSL2591
 
-* [https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1) \- The main repository 
+* [https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2) \- The main repository 
 

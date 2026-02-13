@@ -56,8 +56,8 @@ After the data is written, the file is available for transfer into the shipping 
 * **Mentor/Reviewer:** Dr. Paul Zwiers / Raiz Mohammed  
 * **Date Started / Completed for this documentation:** January 23rd, 2026 \- January 27th, 2026
 * **Status:** Done  
-* **GitHub Link:** [*https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1/scripts/node/bme280/log_env_data.py*](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1/tree/main/scripts/bme280/log_env_data.py)
-[*https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1/scripts/node/bme280/log_env_data.py*](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1/tree/main/scripts/sensor_detection)
+* **GitHub Link:** [*https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1/scripts/node/bme280/log_env_data.py*](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2/tree/main/scripts/bme280/log_env_data.py)
+[*https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1/scripts/node/bme280/log_env_data.py*](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2/tree/main/scripts/sensor_detection)
 ---
 
 **1\) Summary**
@@ -204,7 +204,7 @@ pip3 install adafruit-circuitpython-tsl2591 --break-system-packages
 
 **7\) References**
 
-* Links to GitHub repo, docs, guides, or other resources: [https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1)
+* Links to GitHub repo, docs, guides, or other resources: [https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2)
 
 * [**https://forums.raspberrypi.com/search.php?keywords=json+file+bme280\&sid=603063906e27ef0fe9017deac3157f9f**](https://forums.raspberrypi.com/search.php?keywords=json+file+bme280&sid=603063906e27ef0fe9017deac3157f9f) **\-** Raspberrypi forums for help with JSON script
 

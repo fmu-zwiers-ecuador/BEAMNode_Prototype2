@@ -9,7 +9,7 @@
 *  **Mentor/Reviewer:** Dr. Paul Zwiers / Raiz Mohammed  
 *  **Date Started / Completed:** October 27th, 2025 \-  November 1st, 2025  
 *  **Status:** Done:   
-*  **GitHub Link:** [*https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1/tree/main/scripts/node*](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1/tree/main/scripts/node)  
+*  **GitHub Link:** [*https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1/tree/main/scripts/node*](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2/tree/main/scripts/node)  
 * 
 
 ---
@@ -134,7 +134,7 @@ After each run, used cat config.json to confirm all detected sensors switched to
 
 **8\) References \***
 
-* Links to GitHub repo, docs, guides, or other resources: [https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1)
+* Links to GitHub repo, docs, guides, or other resources: [https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2)
 
 * [**https://forums.raspberrypi.com/search.php?keywords=json+file+bme280\&sid=603063906e27ef0fe9017deac3157f9f**](https://forums.raspberrypi.com/search.php?keywords=json+file+bme280&sid=603063906e27ef0fe9017deac3157f9f) **\-** Raspberrypi forums for help with JSON script
 

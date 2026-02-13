@@ -9,7 +9,7 @@
 *  **Mentor/Reviewer:** Dr. Paul Zwiers / Raiz Mohammed  
 *  **Date Started / Completed:** November 3rd, 2025 \-  November 13rd, 2025  
 *  **Status:** Done:   
-*  **GitHub Link:** [*https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1/tree/main/scripts/node*](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1/tree/main/scripts/node)  
+*  **GitHub Link:** [*https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1/tree/main/scripts/node*](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2/tree/main/scripts/node)  
 * 
 
 ---
@@ -202,7 +202,7 @@ After running all scripts and fixes, I confirmed:
 
 **8\) References** 
 
-* Links to GitHub repo, docs, guides, or other resources: [https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1)
+* Links to GitHub repo, docs, guides, or other resources: [https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2)
 
 * [**https://forums.raspberrypi.com/**](https://forums.raspberrypi.com/)**\-** For specific help with Ras Pi Issues
 

@@ -2,7 +2,7 @@
 
 # --- CONFIGURATION ---
 # Paths derived from the BEAMNode Project structure
-PROJECT_ROOT="/home/pi/BEAMNode_Prototype1"
+PROJECT_ROOT="/home/pi/BEAMNode_Prototype2"
 SCRIPTS_DIR="$PROJECT_ROOT/scripts/node"
 LOGS_DIR="/home/pi/logs"
 

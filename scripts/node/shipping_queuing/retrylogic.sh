@@ -14,7 +14,7 @@
 ###
 ### ============================================================
 
-BASE_DIR="/home/pi/BEAMNode_Prototype1/scripts/node/shipping_queuing"
+BASE_DIR="/home/pi/BEAMNode_Prototype2/scripts/node/shipping_queuing"
 PING_PY="$BASE_DIR/ping_nodes_10min.py"
 RETRY_PY="$BASE_DIR/retryqueue.py"
 

@@ -9,7 +9,7 @@
 * **Mentor/Reviewer**: Dr. Paul Zwiers / Raiz Mohammed  
 * **Date Started** / Completed: December 8 \- December 12 2025  
 * **Status:** Done  
-* **GitHub Link:** [https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1)[https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1/tree/main/scripts/node](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1/tree/main/scripts/node)  
+* **GitHub Link:** [https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2)[https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1/tree/main/scripts/node](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2/tree/main/scripts/node)  
 * 
 
 ---
@@ -203,7 +203,7 @@ Key snippet \#2: Simple AudioMoth detection using `lsusb`
 
 **8\) References** 
 
-* [https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1)
+* [https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2)
 
 * [https://www.openacousticdevices.info/audiomoth](https://www.openacousticdevices.info/audiomoth)
 

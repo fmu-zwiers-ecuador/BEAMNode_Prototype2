@@ -7,7 +7,7 @@
 * **Mentor/Reviewer:** Raiz Mohammed  
 * **Date Started / Completed:** 2/5/2026 – 2/9/2026  
 * **Status:** Done  
-* **GitHub Link:** [set\_retryservice.sh](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1/blob/main/installation_bash/set_retryservice.sh)
+* **GitHub Link:** [set\_retryservice.sh](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2/blob/main/installation_bash/set_retryservice.sh)
 
 ---
 
@@ -67,6 +67,6 @@ Unit=retryqueue.service
 
 ### **8\) References**
 
-* [BEAMNode Prototype 1 Repo](https://www.google.com/search?q=https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1/)  
+* [BEAMNode Prototype 1 Repo](https://www.google.com/search?q=https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2/)  
 * [ArchWiki: Systemd Timers](https://wiki.archlinux.org/title/Systemd/Timers)
 

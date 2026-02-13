@@ -37,7 +37,7 @@ Every hour, the log_lux_data.py script runs, and it stores the output(the lux da
 * **Mentor/Reviewer:** Dr. Paul Zwiers / Raiz Mohammed  
 * **Date Started / Completed:** September 29th, 2025 \-  October 11th, 2025  
 * **Status:** Done  
-* **GitHub Link:** [log\_lux\_data.py](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1/blob/main/scripts/tsl2591/log_lux_data.py) 
+* **GitHub Link:** [log\_lux\_data.py](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2/blob/main/scripts/tsl2591/log_lux_data.py) 
 
 ---
 
@@ -164,7 +164,7 @@ pip3 install adafruit-circuitpython-tsl2591 --break-system-packages
 
 * [https://docs.circuitpython.org/projects/tsl2591/en/stable/api.html](https://docs.circuitpython.org/projects/tsl2591/en/stable/api.html) \- API reference for the TSL2591
 
-* [https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1) \- The main repository
+* [https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2) \- The main repository
 
 * [https://www.w3schools.com/python/module\_os.asp?ref=escape.tech](https://www.w3schools.com/python/module_os.asp?ref=escape.tech) \- API reference for the python os library 
 

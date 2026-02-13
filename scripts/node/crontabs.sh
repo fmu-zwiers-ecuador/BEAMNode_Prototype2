@@ -6,7 +6,7 @@ PI_USER="pi"
 PI_GROUP="pi"
 
 PY="/usr/bin/python3"
-BASE="/home/pi/BEAMNode_Prototype1/scripts/node"
+BASE="/home/pi/BEAMNode_Prototype2/scripts/node"
 LOG_DIR="/home/pi/logs"
 
 SCHEDULER="$BASE/scheduler.py"

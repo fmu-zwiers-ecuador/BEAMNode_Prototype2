@@ -5,7 +5,7 @@
 * **Mentor/Reviewer:** Dr. Zwiers and Raiz Mohammed  
 * **Date Started / Completed:** February 5th **\-** February 6th  
 * **Status:** Done  
-* **GitHub Link:** [retryqueue.py](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1/blob/main/scripts/node/shipping_queuing/retryqueue.py)
+* **GitHub Link:** [retryqueue.py](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2/blob/main/scripts/node/shipping_queuing/retryqueue.py)
 
 ---
 
@@ -166,6 +166,6 @@ This script requests and queues data from nodes via mDNS.
 
 **8\) References**
 
-* Github: [https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1/](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1/) 
+* Github: [https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1/](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2/) 
 
 * Generating an SSH key tutorial: [https://www.unixtutorial.org/how-to-generate-ed25519-ssh-key/](https://www.unixtutorial.org/how-to-generate-ed25519-ssh-key/) 

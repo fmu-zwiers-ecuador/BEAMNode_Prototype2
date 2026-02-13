@@ -147,7 +147,7 @@ def detect\_imx219\_picamera2():
 
 **8\) References**
 
-* Links to GitHub repo, docs, guides, or other resources: [https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1)
+* Links to GitHub repo, docs, guides, or other resources: [https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2)
 
 * **https://forums.raspberrypi.com/viewtopic.php?t=216176\#p1329465 \-** Raspberrypi forums for help with JSON script
 

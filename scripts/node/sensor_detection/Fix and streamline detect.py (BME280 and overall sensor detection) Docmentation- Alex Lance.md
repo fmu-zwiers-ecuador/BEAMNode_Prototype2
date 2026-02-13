@@ -143,7 +143,7 @@ print("=== Detection Complete \===")
 
 **8\) References**
 
-* Links to GitHub repo, docs, guides, or other resources: [https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype1)
+* Links to GitHub repo, docs, guides, or other resources: [https://github.com/fmu-zwiers-ecuador/BEAMNode\_Prototype1](https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2)
 
 * [https://pinout.xyz/](https://pinout.xyz/) \- An interactive guide for learning all of the pins on the pi
 

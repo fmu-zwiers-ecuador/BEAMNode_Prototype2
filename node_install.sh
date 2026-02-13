@@ -23,7 +23,7 @@ echo "Setting up BEAMNode service to run on startup..."
 echo "**************************************************"
 
 sudo chmod +x ./installation_bash/autostartinstall.sh
-sudo chown -R pi:pi /home/pi/BEAMNode_Prototype1/logs
+sudo chown -R pi:pi /home/pi/BEAMNode_Prototype2/logs
 sudo bash ./installation_bash/autostartinstall.sh
 
 # batman installation
