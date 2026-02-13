@@ -21,5 +21,5 @@ batctl if add wlan0
 ip link set up dev bat0
 
 # Assign static IP address to bat0
-ip addr add 192.168.x.x/24 dev bat0  
-# Example: ip addr add 192.168.1.2/24 dev bat0
+ip addr add 10.42.0.x/16 dev bat0  
+# Example: ip addr add 10.42.0.2/16 dev bat0

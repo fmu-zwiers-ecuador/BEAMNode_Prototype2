@@ -16,8 +16,8 @@ NETWORK_NAME=${NETWORK_NAME:-myadhoc}
 read -p "Enter frequency in MHz (e.g. 2412 for channel 1) [2412]: " FREQUENCY
 FREQUENCY=${FREQUENCY:-2412}
 
-read -p "Enter static IP for bat0 (e.g. 192.168.1.2/24) [192.168.1.2/24]: " STATIC_IP
-STATIC_IP=${STATIC_IP:-192.168.1.2/24}
+read -p "Enter static IP for bat0 (e.g. 10.42.0.2/16) [10.42.0.2/16]: " STATIC_IP
+STATIC_IP=${STATIC_IP:-10.42.0.2/16}
 
 echo
 echo "Using configuration:"
@@ -94,5 +94,4 @@ echo
 echo "✅ BATMAN-adv setup complete!"
 echo "To verify, run: sudo systemctl status batman.service"
 echo "Then check mesh neighbors with: sudo batctl n"
-
 

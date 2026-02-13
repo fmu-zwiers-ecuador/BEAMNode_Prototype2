@@ -22,4 +22,4 @@ sudo ip link set up dev bat0
 
 #Assign IP address
 
-sudo ip addr add 192.168.1.20/24 dev bat0
+sudo ip addr add 10.42.0.30/16 dev bat0
