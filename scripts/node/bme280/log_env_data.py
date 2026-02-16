@@ -47,14 +47,13 @@ file_path = os.path.join(directory, file_name)
 
 # --- TIME CALCULATIONS ---
 now_utc = datetime.now(timezone.utc)
-now_local = now_utc.astimezone() # Automatically uses the Pi's local timezone
-local_tz_name = now_local.tzname()
+now_local = now_utc.astimezone() 
 
-# New record
+# New record with the separate fields
 env_json_data = {
-    "timestamp_utc": now_utc.isoformat(),
-    "timestamp_local": now_local.isoformat(), # The "Local Time" timestamp
-    "timezone": local_tz_name,
+    "timestamp_utc": now_utc.isoformat(),        # UTC Timestamp
+    "local_time": now_local.strftime("%Y-%m-%d %H:%M:%S"), # Local clock time
+    "timezone": now_local.tzname(),              # The specific zone name
     "temperature_C": temperature,
     "humidity_percent": humidity,
     "pressure_hPa": pressure
@@ -78,10 +77,5 @@ try:
     with open(file_path, "w") as f:
         json.dump(data, f, indent=4)
 
-    if global_config.get("print_debug", True):
-        print(f"--- Data Logged to {file_name} ---")
-        print(f"UTC Time:   {now_utc.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"Local Time: {now_local.strftime('%Y-%m-%d %H:%M:%S')} ({local_tz_name})")
-        print(f"----------------------------------")
-except Exception as e:
-    print(f"Error saving env data: {e}")
+except Exception:
+    pass
