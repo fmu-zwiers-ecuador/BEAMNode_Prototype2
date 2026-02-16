@@ -1,4 +1,3 @@
-
 import spidev
 import json
 from datetime import datetime, timezone
@@ -29,7 +28,7 @@ node_id = global_config.get("node_id", "unknown-node")
 spi_config = bme_config.get("spi", {})
 CS_PIN = getattr(board, spi_config.get("cs_pin", "D5"))
 spi = busio.SPI(board.SCK, board.MOSI, board.MISO)
-cs  = DigitalInOut(CS_PIN)
+cs = DigitalInOut(CS_PIN)
 
 # Initialize BME280
 baudrate = spi_config.get("baudrate", 100000)
@@ -46,9 +45,16 @@ os.makedirs(directory, exist_ok=True)
 file_name = bme_config.get("file_name", "env_data.json")
 file_path = os.path.join(directory, file_name)
 
+# --- TIME CALCULATIONS ---
+now_utc = datetime.now(timezone.utc)
+now_local = now_utc.astimezone() # Automatically uses the Pi's local timezone
+local_tz_name = now_local.tzname()
+
 # New record
 env_json_data = {
-    "timestamp": datetime.now(timezone.utc).isoformat(),
+    "timestamp_utc": now_utc.isoformat(),
+    "timestamp_local": now_local.isoformat(), # The "Local Time" timestamp
+    "timezone": local_tz_name,
     "temperature_C": temperature,
     "humidity_percent": humidity,
     "pressure_hPa": pressure
@@ -73,7 +79,9 @@ try:
         json.dump(data, f, indent=4)
 
     if global_config.get("print_debug", True):
-        print(f"Env data appended to {file_name} at {datetime.now(timezone.utc)}")
+        print(f"--- Data Logged to {file_name} ---")
+        print(f"UTC Time:   {now_utc.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Local Time: {now_local.strftime('%Y-%m-%d %H:%M:%S')} ({local_tz_name})")
+        print(f"----------------------------------")
 except Exception as e:
     print(f"Error saving env data: {e}")
-
