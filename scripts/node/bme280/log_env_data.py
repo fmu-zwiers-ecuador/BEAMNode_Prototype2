@@ -18,6 +18,7 @@ with open(config_path, "r") as f:
 bme_config = config["bme280"]
 global_config = config["global"]
 
+# Check if sensor is enabled
 if not bme_config.get("enabled", True):
     exit(0)
 
@@ -33,21 +34,22 @@ cs = DigitalInOut(CS_PIN)
 baudrate = spi_config.get("baudrate", 100000)
 sensor = basic.Adafruit_BME280_SPI(spi, cs, baudrate=baudrate)
 
+# Read values
 temperature = float(sensor.temperature)
 humidity = float(sensor.humidity)
 pressure = float(sensor.pressure)
 
-# Path Setup
+# Directory and file for logs
 directory = os.path.join(global_config.get("base_dir", os.path.join(project_root, "data")), bme_config.get("directory", "bme280"))
 os.makedirs(directory, exist_ok=True)
 file_name = bme_config.get("file_name", "env_data.json")
 file_path = os.path.join(directory, file_name)
 
-# --- TIME CALCULATIONS ---
+# --- NEW TIME CALCULATIONS ---
 now_utc = datetime.now(timezone.utc)
 now_local = now_utc.astimezone() 
 
-# New record with 3 distinct time fields
+# New record with the specific fields you requested
 env_json_data = {
     "timestamp_utc": now_utc.isoformat(),
     "timestamp_local": now_local.strftime("%Y-%m-%d %H:%M:%S"),
@@ -75,8 +77,8 @@ try:
     with open(file_path, "w") as f:
         json.dump(data, f, indent=4)
 
-    if global_config.get("print_debug", True):
-        print(f"Recorded at: {env_json_data['timestamp_local']} {env_json_data['timezone']}")
+    # All print statements have been removed for a silent execution
 
-except Exception as e:
-    print(f"Error: {e}")
+except Exception:
+    # Silent fail or you can log to a separate error file if needed
+    pass
