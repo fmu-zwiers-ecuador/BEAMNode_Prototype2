@@ -79,9 +79,9 @@ if [ -f "$SERVICE_SRC" ]; then
     
     # Start the service now
     sudo systemctl restart "$SERVICE_NAME"
-    echo "✅ Service $SERVICE_NAME installed and started."
+    echo "Service $SERVICE_NAME installed and started."
 else
-    echo "❌ ERROR: Could not find $SERVICE_SRC"
+    echo "ERROR: Could not find $SERVICE_SRC"
     echo "Please ensure beamnode.service is in $PROJECT_ROOT"
     exit 1
 fi
@@ -90,11 +90,11 @@ fi
 echo "[4/4] Verifying system status..."
 if systemctl is-active --quiet "$SERVICE_NAME"; then
     echo "------------------------------------------------"
-    echo "🎉 SUCCESS: Installation Complete!"
+    echo "SUCCESS: Installation Complete!"
     echo "The Launcher is now running in the background."
     echo "------------------------------------------------"
 else
-    echo "⚠️ Service installed but failed to start."
+    echo "Service installed but failed to start."
     echo "Check logs with: journalctl -u $SERVICE_NAME -f"
 fi
 
@@ -194,6 +194,6 @@ echo "[4/4] Starting BATMAN service ..."
 sudo systemctl start batman.service
 
 echo
-echo "✅ BATMAN-adv setup complete!"
+echo "BATMAN-adv setup complete!"
 echo "To verify, run: sudo systemctl status batman.service"
 echo "Then check mesh neighbors with: sudo batctl n"
