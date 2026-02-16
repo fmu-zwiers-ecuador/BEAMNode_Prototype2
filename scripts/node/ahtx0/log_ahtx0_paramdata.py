@@ -1,4 +1,3 @@
-
 import json
 from datetime import datetime, timezone
 import os
@@ -9,27 +8,21 @@ try:
     import board
     import adafruit_ahtx0
 except ImportError as e:
-    print(f"ERROR: Failed to import hardware library: {e}. Ensure 'board' and 'adafruit_ahtx0' are installed if running on device.")
+    # Kept as a pass/silent because we want no terminal output
+    pass
 
 # -----------------------------
 # Configuration File Path and Loading
 # -----------------------------
 CONFIG_FILE = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
 
-
 def get_config_data():
     """Load configuration from CONFIG_FILE, returning {} on error."""
     try:
         with open(CONFIG_FILE, 'r') as f:
             return json.load(f)
-    except FileNotFoundError:
-        print(f"ERROR: Configuration file '{CONFIG_FILE}' not found. Cannot load configuration.")
-    except json.JSONDecodeError:
-        print(f"ERROR: Configuration file '{CONFIG_FILE}' is not valid JSON. Cannot load configuration.")
-    except Exception as e:
-        print(f"ERROR: An unexpected error occurred during config loading: {e}. Cannot load configuration.")
-    return {}
-
+    except Exception:
+        return {}
 
 # Load Configuration and get AHT specific parameters
 full_config = get_config_data()
@@ -38,7 +31,6 @@ aht_cfg = full_config.get("aht", {})
 
 # Skip if disabled in config
 if not aht_cfg.get("enabled", False):
-    print("AHT sensor disabled in config; exiting.")
     raise SystemExit(0)
 
 NODE_ID = global_cfg.get("node_id", "beam-node-01")
@@ -50,10 +42,9 @@ sensor_dir = aht_cfg.get("directory", "aht")
 file_name = aht_cfg.get("file_name", "aht_env.json")
 file_path = os.path.join(base_dir, sensor_dir, file_name)
 
-# --- Initialize variables to None (indicating unread/failed state) ---
+# --- Initialize variables ---
 temperature = None
 humidity = None
-pressure = None
 
 # -----------------------------
 # Initialize the AHTx0 sensor and read values
@@ -64,48 +55,42 @@ try:
 
     temperature = float(sensor.temperature)
     humidity = float(sensor.relative_humidity)
-    pressure = None  # AHTx0 has no pressure sensor
-except NameError as e:
-    print(f"CRITICAL ERROR: Hardware libraries not found. Cannot read sensor: {e}.")
-except Exception as e:
-    print(f"CRITICAL ERROR: Sensor initialization failed: {e}. Check wiring and I2C connection.")
-
-# -----------------------------
-# CHECK IF DATA IS VALID BEFORE PROCEEDING
-# -----------------------------
-if temperature is None or humidity is None:
-    print("WARNING: Skipping data save because sensor read failed. Check previous logs for errors.")
+except Exception:
     raise SystemExit(0)
 
 # -----------------------------
-# New record structure (Only executes if data is NOT None)
+# NEW TIME CALCULATIONS
+# -----------------------------
+now_utc = datetime.now(timezone.utc)
+now_local = now_utc.astimezone()
+
+# -----------------------------
+# Updated record structure
 # -----------------------------
 env_json_data = {
-    "timestamp": datetime.now(timezone.utc).isoformat(),
+    "timestamp_utc": now_utc.isoformat(),
+    "local_time": now_local.strftime("%Y-%m-%d %H:%M:%S"),
+    "timezone": now_local.tzname(),
     "temperature_C": temperature,
     "humidity_percent": humidity,
-    "pressure_hPa": pressure
+    "pressure_hPa": None  # AHTx0 has no pressure sensor
 }
 
 # -----------------------------
-# Save to JSON file (Improved robustness)
+# Save to JSON file
 # -----------------------------
 try:
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
     data = {}
 
-    # 1. Check if file exists and load it
     if os.path.exists(file_path):
         with open(file_path, "r") as json_file:
             try:
                 data = json.load(json_file)
-            except json.JSONDecodeError:
-                print(f"WARNING: '{file_path}' is corrupted or empty. Starting new JSON structure.")
-            except Exception as e:
-                print(f"ERROR: Could not read existing data: {e}. Starting new JSON structure.")
+            except Exception:
+                data = {}
 
-    # 2. Ensure base structure and update metadata fields
     if not isinstance(data, dict):
         data = {}
 
@@ -114,17 +99,11 @@ try:
 
     if "records" not in data or not isinstance(data["records"], list):
         data["records"] = []
-        print("WARNING: 'records' array was missing or invalid. Initializing new records list.")
 
-    # 3. Append the new record
     data["records"].append(env_json_data)
 
-    # 4. Write back to disk
     with open(file_path, "w") as json_file:
         json.dump(data, json_file, indent=4)
 
-    if global_cfg.get("print_debug", True):
-        print(f"AHT data appended to {file_path}")
-
-except Exception as e:
-    print(f"ERROR: Failed to write AHT data: {e}")
+except Exception:
+    pass
