@@ -18,7 +18,6 @@ with open(config_path, "r") as f:
 bme_config = config["bme280"]
 global_config = config["global"]
 
-# Check if sensor is enabled
 if not bme_config.get("enabled", True):
     exit(0)
 
@@ -34,12 +33,11 @@ cs = DigitalInOut(CS_PIN)
 baudrate = spi_config.get("baudrate", 100000)
 sensor = basic.Adafruit_BME280_SPI(spi, cs, baudrate=baudrate)
 
-# Read values
 temperature = float(sensor.temperature)
 humidity = float(sensor.humidity)
 pressure = float(sensor.pressure)
 
-# Directory and file for logs
+# Path Setup
 directory = os.path.join(global_config.get("base_dir", os.path.join(project_root, "data")), bme_config.get("directory", "bme280"))
 os.makedirs(directory, exist_ok=True)
 file_name = bme_config.get("file_name", "env_data.json")
@@ -47,14 +45,13 @@ file_path = os.path.join(directory, file_name)
 
 # --- TIME CALCULATIONS ---
 now_utc = datetime.now(timezone.utc)
-now_local = now_utc.astimezone() # Automatically uses the Pi's local timezone
-local_tz_name = now_local.tzname()
+now_local = now_utc.astimezone() 
 
-# New record
+# New record with 3 distinct time fields
 env_json_data = {
     "timestamp_utc": now_utc.isoformat(),
-    "timestamp_local": now_local.isoformat(), # The "Local Time" timestamp
-    "timezone": local_tz_name,
+    "timestamp_local": now_local.strftime("%Y-%m-%d %H:%M:%S"),
+    "timezone": now_local.tzname(),
     "temperature_C": temperature,
     "humidity_percent": humidity,
     "pressure_hPa": pressure
@@ -79,9 +76,7 @@ try:
         json.dump(data, f, indent=4)
 
     if global_config.get("print_debug", True):
-        print(f"--- Data Logged to {file_name} ---")
-        print(f"UTC Time:   {now_utc.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"Local Time: {now_local.strftime('%Y-%m-%d %H:%M:%S')} ({local_tz_name})")
-        print(f"----------------------------------")
+        print(f"Recorded at: {env_json_data['timestamp_local']} {env_json_data['timezone']}")
+
 except Exception as e:
-    print(f"Error saving env data: {e}")
+    print(f"Error: {e}")
