@@ -1,13 +1,8 @@
 """
 Motion-Triggered Camera Logger for BEAM
-Author: Gabriel Gonzales, Raiz Mohammed
-Date: 2025-10-20
-
-Detects motion on GPIO pin (default: 4) and captures images using PiCamera2.
-All parameters are loaded from config.json. Images and JSON metadata are saved
-under /home/pi/data/camera/.
+Updated: Added local timestamp and timezone logging for consistency.
+Authors: Gabriel Gonzalez, Raiz Mohammed, and Jackson Roberts
 """
-
 
 import os
 import json
@@ -27,8 +22,6 @@ with open(config_path, "r") as f:
 
 global_config = config.get("global", {})
 cam_config = config.get("camera", {})
-
-
 
 node_id = global_config.get("node_id", "unknown-node")
 base_dir = global_config.get("base_dir", os.path.join(project_root, "data"))
@@ -59,7 +52,6 @@ time.sleep(1)  # allow sensor to warm up
 if global_config.get("print_debug", True):
     print(f"[BEAM] Motion camera armed on GPIO {gpio_pin}, waiting for movement...")
 
-i = 0
 cooldown = cam_config.get("cooldown_sec", 1)
 
 # -----------------------------
@@ -67,9 +59,16 @@ cooldown = cam_config.get("cooldown_sec", 1)
 # -----------------------------
 while True:
     pir.wait_for_motion()
-    timestamp = datetime.now(timezone.utc).isoformat()
+    
+    # --- UPDATED TIME CALCULATIONS ---
+    now_utc = datetime.now(timezone.utc)
+    now_local = now_utc.astimezone()
+    
+    timestamp_iso = now_utc.isoformat()
+    # Sanitize timestamp for filename (remove colons/dots for better OS compatibility)
+    file_ts = now_utc.strftime("%Y%m%d_%H%M%SZ")
 
-    filename = f"{cam_config.get('file_prefix', 'motionpic_')}{timestamp}.jpg"
+    filename = f"{cam_config.get('file_prefix', 'motionpic_')}{file_ts}.jpg"
     file_path = os.path.join(directory, filename)
 
     if global_config.get("print_debug", True):
@@ -78,9 +77,11 @@ while True:
     # Capture image
     picam.capture_file(file_path)
 
-    # Log metadata
+    # --- UPDATED RECORD STRUCTURE ---
     record = {
-        "timestamp": timestamp,
+        "timestamp_utc": timestamp_iso,
+        "local_time": now_local.strftime("%Y-%m-%d %H:%M:%S"),
+        "timezone": now_local.tzname(),
         "file": file_path
     }
 
@@ -102,7 +103,7 @@ while True:
             json.dump(data, f, indent=4)
 
     except Exception as e:
-        print(f"[ERROR] Failed to save image log: {e}")
+        if global_config.get("print_debug", True):
+            print(f"[ERROR] Failed to save image log: {e}")
 
-    i += 1
     time.sleep(cooldown)
