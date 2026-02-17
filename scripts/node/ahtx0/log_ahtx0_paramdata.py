@@ -1,3 +1,5 @@
+# Author: Jackson Roberts
+
 import json
 from datetime import datetime, timezone
 import os
