@@ -5,8 +5,8 @@ VENDOR_DIR = Path(__file__).resolve().parents[1] / "vendor"
 sys.path.insert(0, str(VENDOR_DIR))
 
 # record.py — Unified Audio Recorder for BEAM
-# Author: Raiz Mohammed / Jaidyn Edwards
-# Updated: 2025-10-20
+# Author: Raiz Mohammed / Jaidyn Edwards / Jackson Roberts
+# Updated: 2026-02-17
 
 import os
 import json
@@ -44,18 +44,19 @@ with open(config_path, "r") as f:
 audio_config = config["audio"]
 global_config = config["global"]
 
-# Base directory: /home/pi/data/audio
+# --- UPDATED TIME CALCULATIONS ---
+now_utc = datetime.now(timezone.utc)
+now_local = now_utc.astimezone()
+
+# Base directory setup
 base_dir = global_config.get("base_dir", os.path.join(project_root, "data"))
 directory = os.path.join(base_dir, audio_config.get("directory", "audio"))
 os.makedirs(directory, exist_ok=True)
 
-# File path setup
-timestamp = datetime.now(timezone.utc).isoformat()
+# File path setup (Using a clean timestamp for the filename)
+file_ts = now_utc.strftime("%Y%m%d_%H%M%SZ")
 file_prefix = audio_config.get("file_prefix", "recording_")
-wav_filename = os.path.join(directory, f"{file_prefix}{timestamp}.wav")
-
-# Replace : with - in filename to avoid invalid characters
-wav_filename = wav_filename.replace(":", "-")
+wav_filename = os.path.join(directory, f"{file_prefix}{file_ts}.wav")
 
 # Recording parameters
 DURATION = audio_config.get("duration_sec", 10)
@@ -95,9 +96,11 @@ if global_config.get("print_debug", True):
 # Create MASTER.json in same directory
 master_json = os.path.join(directory, "MASTER.json")
 
-# New record entry
+# --- UPDATED RECORD ENTRY ---
 record_entry = {
-    "timestamp": datetime.now(timezone.utc).isoformat(),
+    "timestamp_utc": now_utc.isoformat(),
+    "local_time": now_local.strftime("%Y-%m-%d %H:%M:%S"),
+    "timezone": now_local.tzname(),
     "file": wav_filename,
     "duration_sec": DURATION,
     "sample_rate": RATE,
@@ -111,9 +114,14 @@ if not os.path.exists(master_json):
         json.dump({"node_id": global_config.get("node_id"), "sensor": "audio", "records": []}, f, indent=4)
 
 with open(master_json, "r+") as f:
-    log = json.load(f)
+    try:
+        log = json.load(f)
+    except Exception:
+        log = {"node_id": global_config.get("node_id"), "sensor": "audio", "records": []}
+    
     if "records" not in log:
         log["records"] = []
+    
     log["records"].append(record_entry)
     f.seek(0)
     json.dump(log, f, indent=4)
