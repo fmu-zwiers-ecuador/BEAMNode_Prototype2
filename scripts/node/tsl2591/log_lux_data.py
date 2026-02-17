@@ -4,7 +4,7 @@ log_lux_data.py: A simple script to log lux data to json.
 This script logs the lux value along with the current timestamp into a json file, stored on the home/pi/data directory.
 
 Author: Jaylen Small
-Last Updated: 1-26-26 
+Last Updated: 2-17-26 
 """
 
 import board
@@ -39,9 +39,15 @@ sensor = adafruit_tsl2591.TSL2591(i2c)
 # Read lux
 lux = sensor.lux
 
-# New record
+# --- TIME CALCULATIONS ---
+now_utc = datetime.now(timezone.utc)
+now_local = now_utc.astimezone() 
+
+# New record with synchronized time fields
 new_lux_data = {
-    "timestamp": datetime.now(timezone.utc).isoformat(),
+    "timestamp_utc": now_utc.isoformat(),
+    "local_time": now_local.strftime("%Y-%m-%d %H:%M:%S"),
+    "timezone": now_local.tzname(),
     "lux": lux
 }
 
@@ -49,8 +55,11 @@ new_lux_data = {
 try:
     if os.path.exists(file_path):
         with open(file_path, "r") as f:
-            data = json.load(f)
-            if not isinstance(data, dict) or "records" not in data:
+            try:
+                data = json.load(f)
+                if not isinstance(data, dict) or "records" not in data:
+                    data = {"node_id": node_id, "sensor": "tsl2591", "records": []}
+            except Exception:
                 data = {"node_id": node_id, "sensor": "tsl2591", "records": []}
     else:
         data = {"node_id": node_id, "sensor": "tsl2591", "records": []}
@@ -61,6 +70,6 @@ try:
         json.dump(data, f, indent=4)
 
     if global_config.get("print_debug", True):
-        print(f"Lux data appended to {file_name} at {datetime.now(timezone.utc)}")
+        print(f"Lux data appended to {file_name} at {now_local.strftime('%Y-%m-%d %H:%M:%S')} {now_local.tzname()}")
 except Exception as e:
     print(f"Error saving lux data: {e}")
