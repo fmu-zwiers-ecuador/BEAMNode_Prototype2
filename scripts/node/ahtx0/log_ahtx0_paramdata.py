@@ -7,8 +7,7 @@ import time
 try:
     import board
     import adafruit_ahtx0
-except ImportError as e:
-    # Kept as a pass/silent because we want no terminal output
+except ImportError:
     pass
 
 # -----------------------------
@@ -24,7 +23,7 @@ def get_config_data():
     except Exception:
         return {}
 
-# Load Configuration and get AHT specific parameters
+# Load Configuration
 full_config = get_config_data()
 global_cfg = full_config.get("global", {})
 aht_cfg = full_config.get("aht", {})
@@ -36,7 +35,7 @@ if not aht_cfg.get("enabled", False):
 NODE_ID = global_cfg.get("node_id", "beam-node-01")
 SENSOR_NAME = "aht"
 
-# Determine output path using config
+# Determine output path
 base_dir = global_cfg.get("base_dir", "/home/pi/data")
 sensor_dir = aht_cfg.get("directory", "aht")
 file_name = aht_cfg.get("file_name", "aht_env.json")
@@ -59,21 +58,21 @@ except Exception:
     raise SystemExit(0)
 
 # -----------------------------
-# NEW TIME CALCULATIONS
+# MATCHED TIME CALCULATIONS (From BME280 Script)
 # -----------------------------
 now_utc = datetime.now(timezone.utc)
-now_local = now_utc.astimezone()
+now_local = now_utc.astimezone() 
 
 # -----------------------------
-# Updated record structure
+# MATCHED RECORD STRUCTURE
 # -----------------------------
 env_json_data = {
-    "timestamp_utc": now_utc.isoformat(),
-    "local_time": now_local.strftime("%Y-%m-%d %H:%M:%S"),
-    "timezone": now_local.tzname(),
+    "timestamp_utc": now_utc.isoformat(),                  # UTC Timestamp
+    "local_time": now_local.strftime("%Y-%m-%d %H:%M:%S"), # Local clock time
+    "timezone": now_local.tzname(),                        # The specific zone name
     "temperature_C": temperature,
     "humidity_percent": humidity,
-    "pressure_hPa": None  # AHTx0 has no pressure sensor
+    "pressure_hPa": None                                   # AHTx0 has no pressure sensor
 }
 
 # -----------------------------
