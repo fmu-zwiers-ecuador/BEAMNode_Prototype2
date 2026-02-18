@@ -1,131 +1,67 @@
-import sys
-from pathlib import Path
-
-VENDOR_DIR = Path(__file__).resolve().parents[1] / "vendor"
-sys.path.insert(0, str(VENDOR_DIR))
-
-# record.py — Unified Audio Recorder for BEAM
-# Author: Raiz Mohammed / Jaidyn Edwards
-# Updated: 2026-02-17
-
-import os
-import json
 import time
-import wave
-import pyaudio
-from datetime import datetime, timezone
-import ctypes
-from ctypes.util import find_library
+import json
+import os
+import board
+import adafruit_bme680
+from datetime import datetime
 
-# Suppress ALSA warnings (from PyAudio backend)
-try:
-    def py_error_handler(filename, line, function, err, fmt):
-        pass  # Do nothing (silence ALSA C errors)
+# Path to the shared configuration file
+CONFIG_PATH = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
 
-    c_error_handler = ctypes.CFUNCTYPE(
-        None,
-        ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p,
-        ctypes.c_int, ctypes.c_char_p
-    )(py_error_handler)
+def get_config():
+    """Safely load the node configuration."""
+    with open(CONFIG_PATH, 'r') as f:
+        return json.load(f)
 
-    asound = ctypes.CDLL(find_library('asound'))
-    asound.snd_lib_error_set_handler(c_error_handler)
-except Exception:
-    pass
+def log_env_data():
+    """Reads BME680 sensors and logs to the BEAM data directory."""
+    config = get_config()
+    bme_cfg = config.get("bme680", {})
+    global_cfg = config.get("global", {})
+    
+    # Initialize I2C bus and the BME680 sensor
+    i2c = board.I2C()
+    sensor = adafruit_bme680.Adafruit_BME680_I2C(i2c, debug=False)
 
-# Determine project root dynamically
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    # Standard sea level pressure for hPa calculations
+    sensor.sea_level_pressure = 1013.25
 
-# Load config
-config_path = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
-with open(config_path, "r") as f:
-    config = json.load(f)
+    # Establish the output directory and filename from config
+    base_dir = global_cfg.get("base_dir", "/home/pi/data")
+    sensor_dir = bme_cfg.get("directory", "bme680")
+    output_dir = os.path.join(base_dir, sensor_dir)
+    
+    os.makedirs(output_dir, exist_ok=True)
+    file_path = os.path.join(output_dir, bme_cfg.get("file_name", "bme680_env.json"))
 
-audio_config = config["audio"]
-global_config = config["global"]
+    if global_cfg.get("print_debug"):
+        print(f"[BEAM] Starting BME680 logging to {file_path}")
 
-# --- UPDATED TIME CALCULATIONS ---
-now_utc = datetime.now(timezone.utc)
-now_local = now_utc.astimezone()
-
-# Base directory setup
-base_dir = global_config.get("base_dir", os.path.join(project_root, "data"))
-directory = os.path.join(base_dir, audio_config.get("directory", "audio"))
-os.makedirs(directory, exist_ok=True)
-
-# File path setup (Using a clean timestamp for the filename)
-file_ts = now_utc.strftime("%Y%m%d_%H%M%SZ")
-file_prefix = audio_config.get("file_prefix", "recording_")
-wav_filename = os.path.join(directory, f"{file_prefix}{file_ts}.wav")
-
-# Recording parameters
-DURATION = audio_config.get("duration_sec", 10)
-RATE = audio_config.get("sample_rate", 48000)
-CHANNELS = audio_config.get("channels", 1)
-FORMAT = pyaudio.paInt16 if audio_config.get("format", "int16") == "int16" else pyaudio.paFloat32
-CHUNK = audio_config.get("chunk", 1024)
-
-# Initialize audio interface
-audio = pyaudio.PyAudio()
-stream = audio.open(format=FORMAT, channels=CHANNELS,
-                    rate=RATE, input=True,
-                    frames_per_buffer=CHUNK)
-
-if global_config.get("print_debug", True):
-    print(f"[BEAM] Recording {DURATION}s of audio to {wav_filename}")
-
-frames = []
-for _ in range(0, int(RATE / CHUNK * DURATION)):
-    data = stream.read(CHUNK, exception_on_overflow=False)
-    frames.append(data)
-
-stream.stop_stream()
-stream.close()
-audio.terminate()
-
-# Save .wav file
-with wave.open(wav_filename, 'wb') as wf:
-    wf.setnchannels(CHANNELS)
-    wf.setsampwidth(audio.get_sample_size(FORMAT))
-    wf.setframerate(RATE)
-    wf.writeframes(b''.join(frames))
-
-if global_config.get("print_debug", True):
-    print(f"[BEAM] Saved audio file: {wav_filename}")
-
-# Create MASTER.json in same directory
-master_json = os.path.join(directory, "MASTER.json")
-
-# --- UPDATED RECORD ENTRY ---
-record_entry = {
-    "timestamp_utc": now_utc.isoformat(),
-    "local_time": now_local.strftime("%Y-%m-%d %H:%M:%S"),
-    "timezone": now_local.tzname(),
-    "file": wav_filename,
-    "duration_sec": DURATION,
-    "sample_rate": RATE,
-    "channels": CHANNELS,
-    "format": "int16"
-}
-
-# Append to MASTER.json
-if not os.path.exists(master_json):
-    with open(master_json, "w") as f:
-        json.dump({"node_id": global_config.get("node_id"), "sensor": "audio", "records": []}, f, indent=4)
-
-with open(master_json, "r+") as f:
     try:
-        log = json.load(f)
-    except Exception:
-        log = {"node_id": global_config.get("node_id"), "sensor": "audio", "records": []}
-    
-    if "records" not in log:
-        log["records"] = []
-    
-    log["records"].append(record_entry)
-    f.seek(0)
-    json.dump(log, f, indent=4)
-    f.truncate()
+        while True:
+            # Create a record matching the schema defined in config.json
+            data_record = {
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "temperature_C": round(sensor.temperature, 2),
+                "humidity_percent": round(sensor.relative_humidity, 2),
+                "pressure_hPa": round(sensor.pressure, 2),
+                "gas_resistance_ohms": sensor.gas
+            }
 
-if global_config.get("print_debug", True):
-    print(f"[BEAM] Logged record to {master_json}")
+            # Append the record to the local JSON log
+            with open(file_path, "a") as f:
+                f.write(json.dumps(data_record) + "\n")
+
+            if global_cfg.get("print_debug"):
+                print(f"Logged: {data_record['temperature_C']}C, {data_record['gas_resistance_ohms']} ohms")
+
+            # Sleep based on the frequency defined in config (default 60s)
+            time.sleep(bme_cfg.get("frequency", 60))
+
+    except KeyboardInterrupt:
+        print("[BEAM] Logging stopped by user.")
+    except Exception as e:
+        print(f"[BEAM] Critical error in log_env_data: {e}")
+
+if __name__ == "__main__":
+    log_env_data()
