@@ -28,6 +28,7 @@ sudo chown -R pi:pi /home/pi/data /home/pi/shipping /home/pi/logs /home/pi/BEAMN
 sudo python3 -m pip install --break-system-packages \
   adafruit-blinka==8.69.0 \
   adafruit-circuitpython-bme280==2.6.30 \
+  adafruit-circuitpython-bme680==3.5.0 \
   adafruit-circuitpython-tsl2591==1.4.6 \
   adafruit-circuitpython-ahtx0==1.0.28
 
