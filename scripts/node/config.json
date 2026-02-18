@@ -8,34 +8,50 @@
   },
 
   "tsl2591": {
-  "enabled": false,
-  "script_name": "log_lux_data.py",
-  "directory": "tsl2591",
-  "file_name": "lux_data.json",
-  "frequency": 60,
-  "i2c_bus": null,
-  "address_hex": null,
-  "record_schema": {
-    "timestamp": "ISO8601",
-    "lux": "float"
-  }
-},
+    "enabled": false,
+    "script_name": "log_lux_data.py",
+    "directory": "tsl2591",
+    "file_name": "lux_data.json",
+    "frequency": 60,
+    "i2c_bus": null,
+    "address_hex": null,
+    "record_schema": {
+      "timestamp": "ISO8601",
+      "lux": "float"
+    }
+  },
 
-"ahtx0": {
-  "enabled": false,
-  "directory": "ahtx0",
-  "script_name": "log_ahtx0_paramdata.py",
-  "file_name": "aht_env.json",
-  "frequency": 60,
-  "i2c_bus": null,
-  "address_hex": "0x38",
-  "record_schema": {
-    "timestamp": "ISO8601",
-    "temperature_C": "float",
-    "humidity_percent": "float"
-  }
-},
+  "ahtx0": {
+    "enabled": false,
+    "directory": "ahtx0",
+    "script_name": "log_ahtx0_paramdata.py",
+    "file_name": "aht_env.json",
+    "frequency": 60,
+    "i2c_bus": null,
+    "address_hex": "0x38",
+    "record_schema": {
+      "timestamp": "ISO8601",
+      "temperature_C": "float",
+      "humidity_percent": "float"
+    }
+  },
 
+  "bme680": {
+    "enabled": false,
+    "directory": "bme680",
+    "script_name": "log_env_data.py",
+    "file_name": "bme680_env.json",
+    "frequency": 60,
+    "i2c_bus": null,
+    "address_hex": "0x77",
+    "record_schema": {
+      "timestamp": "ISO8601",
+      "temperature_C": "float",
+      "humidity_percent": "float",
+      "pressure_hPa": "float",
+      "gas_resistance_ohms": "float"
+    }
+  },
 
   "bme280": {
     "enabled": false,
@@ -61,7 +77,7 @@
   "audio": {
     "enabled": true,
     "directory": "audio",
-    "script_name": "record_audio.py",
+    "script_name": "record.py",
     "file_prefix": "recording_",
     "duration_sec": 10,
     "frequency": 60,
