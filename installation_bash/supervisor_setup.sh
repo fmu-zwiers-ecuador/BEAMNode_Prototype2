@@ -28,7 +28,6 @@ sudo chown -R pi:pi /home/pi/data /home/pi/shipping /home/pi/logs /home/pi/BEAMN
 sudo python3 -m pip install --break-system-packages \
   adafruit-blinka==8.69.0 \
   adafruit-circuitpython-bme280==2.6.30 \
-  adafruit-circuitpython-bme680==3.5.0 \
   adafruit-circuitpython-tsl2591==1.4.6 \
   adafruit-circuitpython-ahtx0==1.0.28
 
@@ -199,137 +198,154 @@ echo "BATMAN-adv setup complete!"
 echo "To verify, run: sudo systemctl status batman.service"
 echo "Then check mesh neighbors with: sudo batctl n"
 
-# ===================================
-# === PART 4: Node Internet Setup ===
-# ===================================
+# ========================================
+# === PART 4: Supervisor Gateway Setup ===
+# ========================================
 
 if [[ $EUID -ne 0 ]]; then
   echo "Run as root: sudo $0"
   exit 1
 fi
 
-read -rp "Mesh interface [bat0]: " MESH_IF
+read -rp "Mesh interface (batman) [bat0]: " MESH_IF
 MESH_IF=${MESH_IF:-bat0}
 
-read -rp "Supervisor mesh IP (NTP/DNS gateway) [10.42.0.30]: " SUP_IP
-SUP_IP=${SUP_IP:-10.42.0.30}
+read -rp "Uplink internet interface [wlan1]: " UPLINK_IF
+UPLINK_IF=${UPLINK_IF:-wlan1}
+
+read -rp "Supervisor mesh IP/CIDR [10.42.0.30/16]: " MESH_IPCIDR
+MESH_IPCIDR=${MESH_IPCIDR:-10.42.0.30/16}
+
+MESH_IP="${MESH_IPCIDR%/*}"
+MESH_PREFIX="${MESH_IPCIDR#*/}"
+
+if [[ "$MESH_PREFIX" == "16" ]]; then
+  DHCP_RANGE_START="10.42.0.50"
+  DHCP_RANGE_END="10.42.0.200"
+  DHCP_MASK="255.255.0.0"
+  ALLOW_SUBNET="10.42.0.0/16"
+elif [[ "$MESH_PREFIX" == "24" ]]; then
+  NET_BASE="$(echo "$MESH_IP" | awk -F. '{print $1"."$2"."$3}')"
+  DHCP_RANGE_START="${NET_BASE}.50"
+  DHCP_RANGE_END="${NET_BASE}.200"
+  DHCP_MASK="255.255.255.0"
+  ALLOW_SUBNET="${NET_BASE}.0/24"
+else
+  DHCP_RANGE_START="$MESH_IP"
+  DHCP_RANGE_END="$MESH_IP"
+  DHCP_MASK="255.255.255.0"
+  ALLOW_SUBNET="$MESH_IPCIDR"
+fi
 
 echo
 echo "=== Summary ==="
-echo "Mesh IF:   $MESH_IF"
-echo "Supervisor:$SUP_IP"
+echo "Mesh IF:      $MESH_IF"
+echo "Uplink IF:    $UPLINK_IF"
+echo "Mesh IP/CIDR: $MESH_IPCIDR"
+echo "DHCP range:   $DHCP_RANGE_START - $DHCP_RANGE_END ($DHCP_MASK)"
+echo "Chrony allow: $ALLOW_SUBNET"
 echo
 
-echo "[1/9] Installing required packages..."
+echo "[1/8] Installing required packages..."
 apt-get update -y
-apt-get install -y chrony isc-dhcp-client rfkill || true
+apt-get install -y iptables iptables-persistent dnsmasq chrony conntrack || true
 
-echo "[2/9] Prevent dhclient DNS write issues (resolv.conf protected)..."
-mkdir -p /etc/dhcp/dhclient-enter-hooks.d
-cat >/etc/dhcp/dhclient-enter-hooks.d/nodns <<'EOF'
-make_resolv_conf() { :; }
+echo "[2/8] Writing dnsmasq config for mesh DHCP/DNS..."
+cat >/etc/dnsmasq.d/batman-mesh.conf <<EOF
+interface=$MESH_IF
+bind-interfaces
+domain-needed
+bogus-priv
+
+dhcp-range=$DHCP_RANGE_START,$DHCP_RANGE_END,$DHCP_MASK,12h
+dhcp-option=option:router,$MESH_IP
+dhcp-option=option:dns-server,$MESH_IP
 EOF
-chmod +x /etc/dhcp/dhclient-enter-hooks.d/nodns
 
-echo "[3/9] Create boot helper script (rfkill -> mesh -> DHCP -> time)..."
-cat >/usr/local/sbin/mesh-boot.sh <<EOF
-#!/usr/bin/env bash
-set -e
+systemctl enable dnsmasq
+systemctl restart dnsmasq
 
-MESH_IF="$MESH_IF"
-SUP_IP="$SUP_IP"
-
-# Unblock Wi-Fi if rfkill is on
-command -v rfkill >/dev/null 2>&1 && rfkill unblock all || true
-
-# Bring up mesh iface if it exists
-ip link set "\$MESH_IF" up 2>/dev/null || true
-
-# DHCP (this is what you were doing manually)
-dhclient -r "\$MESH_IF" 2>/dev/null || true
-dhclient "\$MESH_IF" 2>/dev/null || true
-
-# If resolvectl exists, pin DNS to supervisor (best effort)
-if command -v resolvectl >/dev/null 2>&1; then
-  resolvectl dns "\$MESH_IF" "\$SUP_IP" || true
-  resolvectl domain "\$MESH_IF" "~." || true
-else
-  echo "nameserver \$SUP_IP" > /etc/resolv.conf || true
-fi
-
-# Time sync step (best effort)
-command -v chronyc >/dev/null 2>&1 && chronyc -a makestep || true
-EOF
-chmod +x /usr/local/sbin/mesh-boot.sh
-
-echo "[4/9] Ensure chrony uses supervisor and steps quickly..."
+echo "[3/8] Configuring chrony to serve time to mesh..."
 CHRONY_CONF="/etc/chrony/chrony.conf"
-
-# Remove existing server line for this SUP_IP duplicates (safe)
-grep -vE "^\s*server\s+$SUP_IP\b" "$CHRONY_CONF" > /tmp/chrony.conf.tmp || true
-cat /tmp/chrony.conf.tmp > "$CHRONY_CONF"
-
-tmpfile="$(mktemp)"
-{
-  echo "server $SUP_IP iburst prefer"
-  echo "makestep 1.0 3"
-  cat "$CHRONY_CONF"
-} > "$tmpfile"
-cat "$tmpfile" > "$CHRONY_CONF"
-rm -f "$tmpfile"
+grep -qE '^\s*pool\s+pool\.ntp\.org' "$CHRONY_CONF" || echo "pool pool.ntp.org iburst" >> "$CHRONY_CONF"
+grep -qE "^\s*allow\s+$ALLOW_SUBNET" "$CHRONY_CONF" || echo "allow $ALLOW_SUBNET" >> "$CHRONY_CONF"
+grep -qE '^\s*local\s+stratum\s+10' "$CHRONY_CONF" || echo "local stratum 10" >> "$CHRONY_CONF"
 
 systemctl enable chrony
 systemctl restart chrony
 
-echo "[5/9] Create systemd service to run mesh-boot on every startup..."
-cat >/etc/systemd/system/mesh-boot.service <<'EOF'
+echo "[4/8] Creating a persistent systemd service for gateway setup..."
+cat >/etc/systemd/system/batman-gateway.service <<EOF
 [Unit]
-Description=Batman mesh boot: rfkill unblock + DHCP on bat0 + time sync
+Description=Batman Mesh Gateway (NAT + bat0 IP)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/sbin/mesh-boot.sh
 RemainAfterExit=yes
+ExecStart=/usr/local/sbin/batman-gateway-apply
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
+echo "[5/8] Writing gateway apply script..."
+cat >/usr/local/sbin/batman-gateway-apply <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+MESH_IF="{{MESH_IF}}"
+UPLINK_IF="{{UPLINK_IF}}"
+MESH_IPCIDR="{{MESH_IPCIDR}}"
+MESH_IP="${MESH_IPCIDR%/*}"
+
+ip link set "$MESH_IF" up || true
+ip addr flush dev "$MESH_IF" || true
+ip addr add "$MESH_IPCIDR" dev "$MESH_IF"
+
+sysctl -w net.ipv4.ip_forward=1 >/dev/null
+
+# Ensure FORWARD policy won't block NAT
+iptables -P FORWARD ACCEPT || true
+
+iptables -t nat -C POSTROUTING -o "$UPLINK_IF" -j MASQUERADE 2>/dev/null || \
+  iptables -t nat -A POSTROUTING -o "$UPLINK_IF" -j MASQUERADE
+
+iptables -C FORWARD -i "$MESH_IF" -o "$UPLINK_IF" -j ACCEPT 2>/dev/null || \
+  iptables -A FORWARD -i "$MESH_IF" -o "$UPLINK_IF" -j ACCEPT
+
+iptables -C FORWARD -i "$UPLINK_IF" -o "$MESH_IF" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
+  iptables -A FORWARD -i "$UPLINK_IF" -o "$MESH_IF" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+
+command -v netfilter-persistent >/dev/null 2>&1 && netfilter-persistent save || true
+EOF
+
+python3 - <<PY
+from pathlib import Path
+p = Path("/usr/local/sbin/batman-gateway-apply")
+txt = p.read_text()
+txt = txt.replace("{{MESH_IF}}", "${MESH_IF}")
+txt = txt.replace("{{UPLINK_IF}}", "${UPLINK_IF}")
+txt = txt.replace("{{MESH_IPCIDR}}", "${MESH_IPCIDR}")
+p.write_text(txt)
+PY
+
+chmod +x /usr/local/sbin/batman-gateway-apply
+
+echo "[6/8] Enabling gateway service..."
 systemctl daemon-reload
-systemctl enable mesh-boot.service
-systemctl start mesh-boot.service || true
+systemctl enable batman-gateway.service
 
-echo "[6/9] (Optional) Add boot-time force sync service (kept from your original)..."
-cat >/etc/systemd/system/mesh-timesync.service <<EOF
-[Unit]
-Description=Force time sync over mesh after network is up
-After=network-online.target chrony.service
-Wants=network-online.target
+echo "[7/8] Applying gateway config now..."
+systemctl start batman-gateway.service
 
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/chronyc -a makestep
-ExecStart=/usr/bin/chronyc -a 'burst 4/4'
-ExecStart=/usr/bin/chronyc -a tracking
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl enable mesh-timesync.service
-systemctl start mesh-timesync.service || true
-
-echo
-echo "Quick checks:"
+echo "[8/8] Quick checks:"
 ip -br a | grep -E "\b$MESH_IF\b" || true
-ip route | head -n 5 || true
-ping -c 2 "$SUP_IP" || true
-ping -c 2 8.8.8.8 || true
-ping -c 2 google.com || true
-date
+iptables -t nat -S | grep MASQUERADE || true
+systemctl is-active dnsmasq || true
+systemctl is-active chrony || true
 chronyc tracking || true
 
 echo
-echo "DONE. After reboot, DHCP on bat0 will run automatically (no more manual dhclient)."
+echo "DONE. Supervisor is now a mesh gateway."
