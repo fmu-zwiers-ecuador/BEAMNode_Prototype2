@@ -43,6 +43,7 @@
 * ## How to connect to the internet via terminal
 
     ### First, ensure that the wifi is enabled
+    * **Tip:** You may need to run **sudo systemctl restart NetworkManager** if any of these commands give you errors
     * **sudo nmcli networking on** This enables all networking functionality managed by the Network manager
     * **sudo nmcli radio wifi on** This enables WiFi radio via NetworkManager
 
