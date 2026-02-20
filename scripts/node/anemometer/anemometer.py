@@ -2,7 +2,7 @@ import RPi.GPIO as GPIO
 import time
 
 #GPIO pin where signal wire is connected
-ANEMOMETER_PIN = 17
+ANEMOMETER_PIN = 11
 
 #Calibration factor for OS-FS01 (anemometer model)
 MS_PER_HZ = 0.6667
