@@ -63,6 +63,10 @@ chmod +x /usr/local/sbin/mesh-boot.sh
 echo "[4/9] Ensure chrony uses supervisor and steps quickly..."
 CHRONY_CONF="/etc/chrony/chrony.conf"
 
+# Create the chrony config dir/file if they don't exist yet
+mkdir -p /etc/chrony
+touch "$CHRONY_CONF"
+
 # Remove existing server line for this SUP_IP duplicates (safe)
 grep -vE "^\s*server\s+$SUP_IP\b" "$CHRONY_CONF" > /tmp/chrony.conf.tmp || true
 cat /tmp/chrony.conf.tmp > "$CHRONY_CONF"

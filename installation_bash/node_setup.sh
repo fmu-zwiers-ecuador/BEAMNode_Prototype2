@@ -15,7 +15,8 @@ sudo apt install -y \
   python3-pip python3-venv \
   libportaudio2 libjack0 \
   python3-pyaudio \
-  batctl
+  batctl \
+  chrony
 
 # Create required data + log roots for the node runtime
 sudo mkdir -p /home/pi/data /home/pi/shipping /home/pi/logs /home/pi/BEAMNode_Prototype2/logs
@@ -264,6 +265,10 @@ chmod +x /usr/local/sbin/mesh-boot.sh
 
 echo "[4/9] Ensure chrony uses supervisor and steps quickly..."
 CHRONY_CONF="/etc/chrony/chrony.conf"
+
+# Create the chrony config dir/file if they don't exist yet
+mkdir -p /etc/chrony
+touch "$CHRONY_CONF"
 
 # Remove existing server line for this SUP_IP duplicates (safe)
 grep -vE "^\s*server\s+$SUP_IP\b" "$CHRONY_CONF" > /tmp/chrony.conf.tmp || true
