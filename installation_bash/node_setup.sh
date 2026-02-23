@@ -63,6 +63,8 @@ sudo python3 -m pip install --break-system-packages \
 # Tested on Debian / Raspberry Pi OS
 # ========================================
 
+set -e
+
 echo "=== BATMAN-adv Setup Script ==="
 echo
 
@@ -99,10 +101,6 @@ systemctl stop wpa_supplicant 2>/dev/null || true
 systemctl disable wpa_supplicant 2>/dev/null || true
 systemctl stop NetworkManager 2>/dev/null || true
 systemctl disable NetworkManager 2>/dev/null || true
-
-# Unblock wireless radio (must happen before touching wlan0)
-rfkill unblock all || true
-sleep 1
 
 # Load BATMAN kernel module
 modprobe batman-adv
@@ -152,13 +150,22 @@ echo "[4/4] Starting BATMAN service ..."
 sudo systemctl start batman.service
 
 echo
-echo "BATMAN-adv setup complete!"
+echo "✅ BATMAN-adv setup complete!"
 echo "To verify, run: sudo systemctl status batman.service"
 echo "Then check mesh neighbors with: sudo batctl n"
+
 
 # ===================================
 # === PART 3: Node Internet Setup ===
 # ===================================
+
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $EUID -ne 0 ]]; then
+  echo "Run as root: sudo $0"
+  exit 1
+fi
 
 read -rp "Mesh interface [bat0]: " MESH_IF
 MESH_IF=${MESH_IF:-bat0}
@@ -172,34 +179,45 @@ echo "Mesh IF:   $MESH_IF"
 echo "Supervisor:$SUP_IP"
 echo
 
-echo "[1/9] Verifying required packages (must be pre-installed via PART 1 above)..."
-# NOTE: No apt-get calls here — internet is not available at this stage.
-# All packages were installed in PART 1 while the node still had internet.
+echo "[1/9] Checking and installing required packages..."
 
 # Function to check if package is installed
 is_installed() {
     dpkg -l "$1" 2>/dev/null | grep -q "^ii"
 }
 
-MISSING_PKGS=()
-for pkg in chrony isc-dhcp-client rfkill; do
-    if is_installed "$pkg"; then
-        echo "  - $pkg ✓"
-    else
-        echo "  - $pkg MISSING"
-        MISSING_PKGS+=("$pkg")
-    fi
-done
+# Track what needs to be installed
+PACKAGES_TO_INSTALL=()
 
-if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
-    echo
-    echo "ERROR: The following packages are missing: ${MISSING_PKGS[*]}"
-    echo "These must be installed in PART 1 while the node has internet access."
-    echo "Re-run this script from the beginning with an active internet connection."
-    exit 1
+if ! is_installed chrony; then
+    echo "  - chrony not found, will install"
+    PACKAGES_TO_INSTALL+=("chrony")
+else
+    echo "  - chrony already installed ✓"
 fi
 
-echo "  All required packages present."
+if ! is_installed isc-dhcp-client; then
+    echo "  - isc-dhcp-client not found, will install"
+    PACKAGES_TO_INSTALL+=("isc-dhcp-client")
+else
+    echo "  - isc-dhcp-client already installed ✓"
+fi
+
+if ! is_installed rfkill; then
+    echo "  - rfkill not found, will install"
+    PACKAGES_TO_INSTALL+=("rfkill")
+else
+    echo "  - rfkill already installed ✓"
+fi
+
+# Only run apt-get if we have packages to install
+if [ ${#PACKAGES_TO_INSTALL[@]} -gt 0 ]; then
+    echo "  Installing: ${PACKAGES_TO_INSTALL[*]}"
+    apt-get update -y
+    apt-get install -y "${PACKAGES_TO_INSTALL[@]}" || true
+else
+    echo "  All required packages already installed, skipping apt-get"
+fi
 
 echo "[2/9] Prevent dhclient DNS write issues..."
 mkdir -p /etc/dhcp/dhclient-enter-hooks.d
@@ -208,7 +226,11 @@ make_resolv_conf() { :; }
 EOF
 chmod +x /etc/dhcp/dhclient-enter-hooks.d/nodns
 
-echo "[3/9] Create robust boot helper with retries..."
+echo "[3/9] Kill any existing dhclient for mesh interface..."
+pkill -f "dhclient.*$MESH_IF" || true
+sleep 1
+
+echo "[4/9] Create robust boot helper with retries..."
 cat >/usr/local/sbin/mesh-boot.sh <<'BOOTSCRIPT'
 #!/usr/bin/env bash
 set -e
@@ -249,21 +271,34 @@ log "Bringing up $MESH_IF..."
 ip link set "$MESH_IF" up
 sleep 2
 
-# Step 4: Verify static IP is present (assigned by batman.service — never use DHCP on bat0)
-# bat0's IP is set statically by start-batman.sh; do NOT run dhclient here or it will overwrite
-# the IP you configured during setup with a random DHCP-assigned address.
-log "Verifying static IP on $MESH_IF..."
+# Step 4: Kill any existing dhclient instances for this interface
+log "Cleaning up old dhclient processes..."
+pkill -f "dhclient.*$MESH_IF" || true
+sleep 1
+
+# Step 5: Get IP via DHCP with retries
+log "Requesting DHCP lease..."
 for i in $(seq 1 $MAX_RETRIES); do
-    if ip addr show "$MESH_IF" | grep -q "inet "; then
-        MESH_IP=$(ip -4 addr show "$MESH_IF" | grep inet | awk '{print $2}')
-        log "Static IP confirmed: $MESH_IP"
-        break
+    # Release any existing lease
+    dhclient -r "$MESH_IF" 2>/dev/null || true
+    sleep 1
+    
+    # Request new lease
+    if dhclient -v "$MESH_IF" 2>&1 | tee -a /var/log/mesh-boot.log; then
+        sleep 2
+        # Check if we got an IP
+        if ip addr show "$MESH_IF" | grep -q "inet "; then
+            MESH_IP=$(ip -4 addr show "$MESH_IF" | grep inet | awk '{print $2}')
+            log "SUCCESS: Got IP $MESH_IP"
+            break
+        fi
     fi
+    
     if [ $i -eq $MAX_RETRIES ]; then
-        log "ERROR: No IP address on $MESH_IF after $MAX_RETRIES attempts — is batman.service running?"
+        log "ERROR: Failed to get DHCP lease after $MAX_RETRIES attempts"
         exit 1
     fi
-    log "Waiting for IP on $MESH_IF... attempt $i/$MAX_RETRIES"
+    log "DHCP attempt $i/$MAX_RETRIES failed, retrying..."
     sleep $RETRY_DELAY
 done
 
@@ -363,9 +398,9 @@ echo "[6/9] Create systemd service with proper dependencies..."
 cat >/etc/systemd/system/mesh-boot.service <<'EOF'
 [Unit]
 Description=Batman mesh boot: interface up + DHCP + time sync
-After=network.target batman.service
-Requires=batman.service
+After=network.target systemd-networkd.service
 Before=network-online.target chrony.service
+Wants=network.target
 
 [Service]
 Type=oneshot
