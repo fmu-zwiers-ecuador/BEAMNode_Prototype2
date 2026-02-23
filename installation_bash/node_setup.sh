@@ -100,6 +100,10 @@ systemctl disable wpa_supplicant 2>/dev/null || true
 systemctl stop NetworkManager 2>/dev/null || true
 systemctl disable NetworkManager 2>/dev/null || true
 
+# Unblock wireless radio (must happen before touching wlan0)
+rfkill unblock all || true
+sleep 1
+
 # Load BATMAN kernel module
 modprobe batman-adv
 
@@ -376,9 +380,9 @@ echo "[6/9] Create systemd service with proper dependencies..."
 cat >/etc/systemd/system/mesh-boot.service <<'EOF'
 [Unit]
 Description=Batman mesh boot: interface up + DHCP + time sync
-After=network.target systemd-networkd.service
+After=network.target batman.service
+Requires=batman.service
 Before=network-online.target chrony.service
-Wants=network.target
 
 [Service]
 Type=oneshot
