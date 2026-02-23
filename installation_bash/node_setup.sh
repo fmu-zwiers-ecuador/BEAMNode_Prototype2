@@ -104,6 +104,21 @@ set -e
 
 log() { echo "[start-batman] \$*" | tee -a /var/log/batman-start.log; }
 
+# Poll until a condition is true, checking every 0.5s up to max_polls attempts.
+# Usage: wait_for "description" "shell command" [max_polls]
+wait_for() {
+    local desc="\$1" cmd="\$2" max="\${3:-20}" i=0
+    while ! eval "\$cmd" >/dev/null 2>&1; do
+        i=\$((i+1))
+        if [ \$i -ge \$max ]; then
+            log "ERROR: Timed out waiting for: \$desc"
+            exit 1
+        fi
+        sleep 0.5
+    done
+    log "\$desc ready (\${i} x 0.5s polls)"
+}
+
 log "Starting BATMAN-adv mesh setup..."
 
 # Stop and disable conflicting services
@@ -112,45 +127,43 @@ systemctl stop wpa_supplicant 2>/dev/null || true
 systemctl disable wpa_supplicant 2>/dev/null || true
 systemctl stop NetworkManager 2>/dev/null || true
 systemctl disable NetworkManager 2>/dev/null || true
-sleep 1
 
 # Unblock wireless radio (must happen before touching wlan0)
 log "Unblocking wireless radio..."
 rfkill unblock all || true
-sleep 1
 
 # Load BATMAN kernel module
 log "Loading batman-adv kernel module..."
 modprobe batman-adv
-sleep 1
+wait_for "batman-adv module" "lsmod | grep -q batman_adv"
 
 # Bring wlan0 down cleanly before changing mode
-log "Configuring wlan0 for IBSS (ad-hoc) mode..."
+log "Bringing wlan0 down..."
 ip link set wlan0 down
-sleep 1
+wait_for "wlan0 DOWN" "ip link show wlan0 | grep -q 'state DOWN'"
 
 # Set IBSS mode (must be done while interface is DOWN)
 iw dev wlan0 set type ibss
 
 # Bring wlan0 back up
+log "Bringing wlan0 up..."
 ip link set wlan0 up
-sleep 2
+wait_for "wlan0 UP" "ip link show wlan0 | grep -qE 'state UP|state UNKNOWN'"
 
-# Join the IBSS network
-# sleep before joining gives the interface time to fully come up
+# Join the IBSS network and wait until wlan0 is actually in IBSS mode
 log "Joining IBSS network: $NETWORK_NAME @ ${FREQUENCY} MHz..."
 iw dev wlan0 ibss join $NETWORK_NAME $FREQUENCY
-sleep 3  # critical: ibss join is async — batman needs wlan0 fully in IBSS mode
+wait_for "wlan0 IBSS mode" "iw dev wlan0 info | grep -q 'type IBSS'" 40
 
 # Add wlan0 to BATMAN-adv (creates bat0)
 log "Adding wlan0 to batman-adv..."
 batctl if add wlan0
-sleep 2
+wait_for "bat0 exists" "ip link show bat0"
 
 # Bring bat0 up
 log "Bringing up bat0..."
 ip link set up dev bat0
-sleep 1
+wait_for "bat0 UP" "ip link show bat0 | grep -qE 'state UP|state UNKNOWN'"
 
 # Assign static IP (skip if already assigned)
 log "Assigning static IP $STATIC_IP to bat0..."
@@ -276,8 +289,8 @@ set -e
 
 MESH_IF="{{MESH_IF}}"
 SUP_IP="{{SUP_IP}}"
-MAX_RETRIES=10
-RETRY_DELAY=3
+MAX_RETRIES=20
+RETRY_DELAY=1
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a /var/log/mesh-boot.log
@@ -288,7 +301,6 @@ log "=== Starting mesh boot sequence ==="
 # Step 1: Unblock Wi-Fi
 log "Unblocking wireless..."
 command -v rfkill >/dev/null 2>&1 && rfkill unblock all || true
-sleep 1
 
 # Step 2: Wait for mesh interface to exist
 # batman.service must run first and create bat0 before this runs.
@@ -309,7 +321,6 @@ done
 # Step 3: Bring up interface
 log "Bringing up $MESH_IF..."
 ip link set "$MESH_IF" up
-sleep 2
 
 # Step 4: Verify static IP is present (set by batman.service / start-batman.sh)
 # NEVER run dhclient here — it overwrites your static IP with a random DHCP address.
