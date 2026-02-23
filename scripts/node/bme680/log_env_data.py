@@ -1,90 +1,92 @@
+# BME680 Logging Script
+# Author: Jackson Roberts
+# Date of Completetion: 2/23/2026
+
+
 import json
-from datetime import datetime, timezone
 import os
 import board
-import busio
 import adafruit_bme680
+from datetime import datetime, timezone
 
-# Determine project root dynamically
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+# 1. Path Setup
+# Absolute path ensures the scheduler can run this from any working directory
+CONFIG_PATH = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
 
-# Load config
-config_path = os.path.join(project_root, "config.json")
-with open(config_path, "r") as f:
-    config = json.load(f)
+def log_data():
+    # Load Configuration
+    try:
+        with open(CONFIG_PATH, "r") as f:
+            config = json.load(f)
+    except Exception as e:
+        print(f"Config Load Error: {e}")
+        exit(1)
 
-# Update config keys to bme680
-bme_config = config.get("bme680", {})
-global_config = config.get("global", {})
-
-# Check if sensor is enabled
-if not bme_config.get("enabled", True):
-    exit(0)
-
-node_id = global_config.get("node_id", "unknown-node")
-
-# --- I2C INITIALIZATION ---
-# Using I2C instead of SPI as requested
-i2c = board.I2C()  # uses board.SCL and board.SDA
-
-try:
-    # Initialize BME680 at address 0x77
-    sensor = adafruit_bme680.Adafruit_BME680_I2C(i2c, address=0x77)
+    bme_config = config.get("bme680", {})
+    global_config = config.get("global", {})
     
-    # Optional: Set sea level pressure for altitude accuracy
-    sensor.sea_level_pressure = bme_config.get("sea_level_pressure", 1013.25)
-except Exception as e:
-    print(f"Failed to initialize BME680: {e}")
-    exit(1)
+    if not bme_config.get("enabled", True):
+        print("BME680 is disabled in config.")
+        return
 
-# Read values
-temperature = float(sensor.temperature)
-humidity = float(sensor.relative_humidity)
-pressure = float(sensor.pressure)
-gas = float(sensor.gas)  # Resistance in Ohms (Air Quality indicator)
-altitude = float(sensor.altitude)
+    # 2. Hardware Initialization
+    try:
+        i2c = board.I2C()
+        # Convert hex string (e.g., "0x77") to integer
+        addr = int(bme_config.get("address_hex", "0x77"), 16)
+        sensor = adafruit_bme680.Adafruit_BME680_I2C(i2c, address=addr)
+        
+        # Burn-in: Gas readings require a dummy read to warm the heater
+        _ = sensor.gas
+    except Exception as e:
+        print(f"Hardware Initialization Error: {e}")
+        exit(1)
 
-# Directory and file for logs
-base_dir = global_config.get("base_dir", os.path.join(project_root, "data"))
-directory = os.path.join(base_dir, bme_config.get("directory", "bme680"))
-os.makedirs(directory, exist_ok=True)
+    # 3. Data Collection
+    now_utc = datetime.now(timezone.utc)
+    # Mapping to your config's record_schema
+    data_point = {
+        "timestamp": now_utc.isoformat(),
+        "temperature_C": round(sensor.temperature, 2),
+        "humidity_percent": round(sensor.relative_humidity, 2),
+        "pressure_hPa": round(sensor.pressure, 2),
+        "gas_resistance_ohms": float(sensor.gas)
+    }
 
-file_name = bme_config.get("file_name", "env_data.json")
-file_path = os.path.join(directory, file_name)
+    # 4. File Path Management
+    # Target: /home/pi/data/bme680/bme680_env.json
+    base_dir = global_config.get("base_dir", "/home/pi/data")
+    sensor_dir = os.path.join(base_dir, bme_config.get("directory", "bme680"))
+    os.makedirs(sensor_dir, exist_ok=True)
+    
+    file_path = os.path.join(sensor_dir, bme_config.get("file_name", "bme680_env.json"))
 
-# --- TIME CALCULATIONS ---
-now_utc = datetime.now(timezone.utc)
-now_local = now_utc.astimezone() 
+    # 5. Persistent Logging (Append to JSON)
+    try:
+        node_id = global_config.get("node_id", "unknown-node")
+        
+        if os.path.exists(file_path):
+            with open(file_path, "r") as f:
+                try:
+                    full_data = json.load(f)
+                except (json.JSONDecodeError, ValueError):
+                    # Handle corrupted or empty files
+                    full_data = {"node_id": node_id, "sensor": "bme680", "records": []}
+        else:
+            full_data = {"node_id": node_id, "sensor": "bme680", "records": []}
 
-# New record with BME680 specific data
-env_json_data = {
-    "timestamp_utc": now_utc.isoformat(),
-    "local_time": now_local.strftime("%Y-%m-%d %H:%M:%S"),
-    "timezone": str(now_local.tzname()),
-    "temperature_C": round(temperature, 2),
-    "humidity_percent": round(humidity, 2),
-    "pressure_hPa": round(pressure, 2),
-    "gas_resistance_ohm": gas,
-    "altitude_m": round(altitude, 2)
-}
+        # Append new reading to records list
+        full_data["records"].append(data_point)
 
-# Append to JSON
-try:
-    if os.path.exists(file_path):
-        with open(file_path, "r") as f:
-            try:
-                data = json.load(f)
-                if not isinstance(data, dict) or "records" not in data:
-                    data = {"node_id": node_id, "sensor": "bme680", "records": []}
-            except Exception:
-                data = {"node_id": node_id, "sensor": "bme680", "records": []}
-    else:
-        data = {"node_id": node_id, "sensor": "bme680", "records": []}
+        # Atomic-style write
+        with open(file_path, "w") as f:
+            json.dump(full_data, f, indent=4)
+        
+        print(f"Success: Data logged to {file_path}")
 
-    data["records"].append(env_json_data)
+    except Exception as e:
+        print(f"File Operations Error: {e}")
+        exit(1)
 
-    with open(file_path, "w") as f:
-        json.dump(data, f, indent=4)
-
-except Exception as e:
-    print(f"Error writing to file: {e}")
+if __name__ == "__main__":
+    log_data()
