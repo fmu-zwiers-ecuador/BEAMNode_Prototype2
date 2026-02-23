@@ -208,11 +208,7 @@ make_resolv_conf() { :; }
 EOF
 chmod +x /etc/dhcp/dhclient-enter-hooks.d/nodns
 
-echo "[3/9] Kill any existing dhclient for mesh interface..."
-pkill -f "dhclient.*$MESH_IF" || true
-sleep 1
-
-echo "[4/9] Create robust boot helper with retries..."
+echo "[3/9] Create robust boot helper with retries..."
 cat >/usr/local/sbin/mesh-boot.sh <<'BOOTSCRIPT'
 #!/usr/bin/env bash
 set -e
@@ -253,34 +249,21 @@ log "Bringing up $MESH_IF..."
 ip link set "$MESH_IF" up
 sleep 2
 
-# Step 4: Kill any existing dhclient instances for this interface
-log "Cleaning up old dhclient processes..."
-pkill -f "dhclient.*$MESH_IF" || true
-sleep 1
-
-# Step 5: Get IP via DHCP with retries
-log "Requesting DHCP lease..."
+# Step 4: Verify static IP is present (assigned by batman.service — never use DHCP on bat0)
+# bat0's IP is set statically by start-batman.sh; do NOT run dhclient here or it will overwrite
+# the IP you configured during setup with a random DHCP-assigned address.
+log "Verifying static IP on $MESH_IF..."
 for i in $(seq 1 $MAX_RETRIES); do
-    # Release any existing lease
-    dhclient -r "$MESH_IF" 2>/dev/null || true
-    sleep 1
-    
-    # Request new lease
-    if dhclient -v "$MESH_IF" 2>&1 | tee -a /var/log/mesh-boot.log; then
-        sleep 2
-        # Check if we got an IP
-        if ip addr show "$MESH_IF" | grep -q "inet "; then
-            MESH_IP=$(ip -4 addr show "$MESH_IF" | grep inet | awk '{print $2}')
-            log "SUCCESS: Got IP $MESH_IP"
-            break
-        fi
+    if ip addr show "$MESH_IF" | grep -q "inet "; then
+        MESH_IP=$(ip -4 addr show "$MESH_IF" | grep inet | awk '{print $2}')
+        log "Static IP confirmed: $MESH_IP"
+        break
     fi
-    
     if [ $i -eq $MAX_RETRIES ]; then
-        log "ERROR: Failed to get DHCP lease after $MAX_RETRIES attempts"
+        log "ERROR: No IP address on $MESH_IF after $MAX_RETRIES attempts — is batman.service running?"
         exit 1
     fi
-    log "DHCP attempt $i/$MAX_RETRIES failed, retrying..."
+    log "Waiting for IP on $MESH_IF... attempt $i/$MAX_RETRIES"
     sleep $RETRY_DELAY
 done
 
