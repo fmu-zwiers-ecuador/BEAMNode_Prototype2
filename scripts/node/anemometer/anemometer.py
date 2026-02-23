@@ -25,10 +25,6 @@ print("Measuring wind speed... Press CTRL+C to stop")
 
 try:
     while True:
-        # Reset count at start of window
-        with lock:
-            pulse_count = 0
-
         time.sleep(SAMPLE_WINDOW)
 
         with lock:
