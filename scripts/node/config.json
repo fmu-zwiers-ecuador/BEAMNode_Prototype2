@@ -74,6 +74,15 @@
     }
   },
 
+  "anemometer": {
+    "enabled": true,
+    "pin": 17,
+    "ms_per_hz": 0.6667,
+    "sample_window": 2,
+    "directory": "anemometer",
+    "file_name": "wind_data.json"
+  }
+
   "audio": {
     "enabled": true,
     "directory": "audio",
