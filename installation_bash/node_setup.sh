@@ -4,11 +4,20 @@
 # === node_setup.sh: This script sets up a new node, ready to be deployed. ===
 # ============================================================================
 
-# =====================================================================
-# === PART 1: Install all necessary libraries needed for for set up ===
-# =====================================================================
+# Must be run as root (sudo ./node_setup.sh)
+if [[ $EUID -ne 0 ]]; then
+  echo "ERROR: Run as root: sudo $0"
+  exit 1
+fi
 
 set -euo pipefail
+
+# =====================================================================
+# === PART 1: Install all necessary libraries needed for for set up ===
+# === NOTE: Internet is required for this section ONLY.             ===
+# ===        All packages must be installed here before going       ===
+# ===        offline. Parts 2-4 do not require internet.            ===
+# =====================================================================
 
 sudo apt update
 sudo apt install -y \
@@ -16,7 +25,9 @@ sudo apt install -y \
   libportaudio2 libjack0 \
   python3-pyaudio \
   batctl \
-  chrony
+  chrony \
+  isc-dhcp-client \
+  rfkill
 
 # Create required data + log roots for the node runtime
 sudo mkdir -p /home/pi/data /home/pi/shipping /home/pi/logs /home/pi/BEAMNode_Prototype2/logs
@@ -51,8 +62,6 @@ sudo python3 -m pip install --break-system-packages \
 # BATMAN-adv Automatic Setup Script (Interactive)
 # Tested on Debian / Raspberry Pi OS
 # ========================================
-
-set -e
 
 echo "=== BATMAN-adv Setup Script ==="
 echo
@@ -147,11 +156,6 @@ echo "Then check mesh neighbors with: sudo batctl n"
 # === PART 3: Node Internet Setup ===
 # ===================================
 
-if [[ $EUID -ne 0 ]]; then
-  echo "Run as root: sudo $0"
-  exit 1
-fi
-
 read -rp "Mesh interface [bat0]: " MESH_IF
 MESH_IF=${MESH_IF:-bat0}
 
@@ -164,45 +168,34 @@ echo "Mesh IF:   $MESH_IF"
 echo "Supervisor:$SUP_IP"
 echo
 
-echo "[1/9] Checking and installing required packages..."
+echo "[1/9] Verifying required packages (must be pre-installed via PART 1 above)..."
+# NOTE: No apt-get calls here — internet is not available at this stage.
+# All packages were installed in PART 1 while the node still had internet.
 
 # Function to check if package is installed
 is_installed() {
     dpkg -l "$1" 2>/dev/null | grep -q "^ii"
 }
 
-# Track what needs to be installed
-PACKAGES_TO_INSTALL=()
+MISSING_PKGS=()
+for pkg in chrony isc-dhcp-client rfkill; do
+    if is_installed "$pkg"; then
+        echo "  - $pkg ✓"
+    else
+        echo "  - $pkg MISSING"
+        MISSING_PKGS+=("$pkg")
+    fi
+done
 
-if ! is_installed chrony; then
-    echo "  - chrony not found, will install"
-    PACKAGES_TO_INSTALL+=("chrony")
-else
-    echo "  - chrony already installed ✓"
+if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
+    echo
+    echo "ERROR: The following packages are missing: ${MISSING_PKGS[*]}"
+    echo "These must be installed in PART 1 while the node has internet access."
+    echo "Re-run this script from the beginning with an active internet connection."
+    exit 1
 fi
 
-if ! is_installed isc-dhcp-client; then
-    echo "  - isc-dhcp-client not found, will install"
-    PACKAGES_TO_INSTALL+=("isc-dhcp-client")
-else
-    echo "  - isc-dhcp-client already installed ✓"
-fi
-
-if ! is_installed rfkill; then
-    echo "  - rfkill not found, will install"
-    PACKAGES_TO_INSTALL+=("rfkill")
-else
-    echo "  - rfkill already installed ✓"
-fi
-
-# Only run apt-get if we have packages to install
-if [ ${#PACKAGES_TO_INSTALL[@]} -gt 0 ]; then
-    echo "  Installing: ${PACKAGES_TO_INSTALL[*]}"
-    apt-get update -y
-    apt-get install -y "${PACKAGES_TO_INSTALL[@]}" || true
-else
-    echo "  All required packages already installed, skipping apt-get"
-fi
+echo "  All required packages present."
 
 echo "[2/9] Prevent dhclient DNS write issues..."
 mkdir -p /etc/dhcp/dhclient-enter-hooks.d
