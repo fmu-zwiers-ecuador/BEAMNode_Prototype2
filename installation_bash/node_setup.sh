@@ -97,39 +97,71 @@ read -p "Press Enter to continue or Ctrl+C to cancel..."
 echo "[1/4] Creating /usr/local/bin/start-batman.sh ..."
 cat <<EOF | sudo tee /usr/local/bin/start-batman.sh >/dev/null
 #!/bin/bash
+set -e
 # ========================================
 # BATMAN-adv Startup Script
 # ========================================
 
-echo "Starting BATMAN-adv mesh setup..."
+log() { echo "[start-batman] \$*" | tee -a /var/log/batman-start.log; }
+
+log "Starting BATMAN-adv mesh setup..."
 
 # Stop and disable conflicting services
+log "Stopping conflicting services..."
 systemctl stop wpa_supplicant 2>/dev/null || true
 systemctl disable wpa_supplicant 2>/dev/null || true
 systemctl stop NetworkManager 2>/dev/null || true
 systemctl disable NetworkManager 2>/dev/null || true
+sleep 1
 
 # Unblock wireless radio (must happen before touching wlan0)
+log "Unblocking wireless radio..."
 rfkill unblock all || true
 sleep 1
 
 # Load BATMAN kernel module
+log "Loading batman-adv kernel module..."
 modprobe batman-adv
+sleep 1
 
-# Configure wlan0 for ad-hoc mode
+# Bring wlan0 down cleanly before changing mode
+log "Configuring wlan0 for IBSS (ad-hoc) mode..."
 ip link set wlan0 down
+sleep 1
+
+# Set IBSS mode (must be done while interface is DOWN)
 iw dev wlan0 set type ibss
+
+# Bring wlan0 back up
 ip link set wlan0 up
+sleep 2
+
+# Join the IBSS network
+# sleep before joining gives the interface time to fully come up
+log "Joining IBSS network: $NETWORK_NAME @ ${FREQUENCY} MHz..."
 iw dev wlan0 ibss join $NETWORK_NAME $FREQUENCY
+sleep 3  # critical: ibss join is async — batman needs wlan0 fully in IBSS mode
 
-# Add wlan0 to BATMAN
+# Add wlan0 to BATMAN-adv (creates bat0)
+log "Adding wlan0 to batman-adv..."
 batctl if add wlan0
+sleep 2
+
+# Bring bat0 up
+log "Bringing up bat0..."
 ip link set up dev bat0
+sleep 1
 
-# Assign static IP
-ip addr add $STATIC_IP dev bat0
+# Assign static IP (skip if already assigned)
+log "Assigning static IP $STATIC_IP to bat0..."
+if ip addr show bat0 | grep -q "inet "; then
+    log "IP already assigned on bat0, skipping."
+else
+    ip addr add $STATIC_IP dev bat0
+fi
 
-echo "BATMAN-adv setup complete!"
+log "bat0 is up: \$(ip addr show bat0 | grep 'inet ')"
+log "BATMAN-adv setup complete!"
 EOF
 
 sudo chmod +x /usr/local/bin/start-batman.sh
