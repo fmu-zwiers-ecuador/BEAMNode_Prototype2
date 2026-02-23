@@ -19,37 +19,46 @@ set -euo pipefail
 # ===        offline. Parts 2-4 do not require internet.            ===
 # =====================================================================
 
-sudo apt update
-sudo apt install -y \
-  python3-pip python3-venv \
-  libportaudio2 libjack0 \
-  python3-pyaudio \
-  batctl \
-  chrony \
-  isc-dhcp-client \
-  rfkill
+read -rp "Do you want to install/update packages? (requires internet) [y/n]: " DO_INSTALL
+if [[ "${DO_INSTALL,,}" == "y" ]]; then
+  echo "=== Running PART 1: Package Installation ==="
 
-# Create required data + log roots for the node runtime
-sudo mkdir -p /home/pi/data /home/pi/shipping /home/pi/logs /home/pi/BEAMNode_Prototype2/logs
-sudo chown -R pi:pi /home/pi/data /home/pi/shipping /home/pi/logs /home/pi/BEAMNode_Prototype2/logs
+  sudo apt update
+  sudo apt install -y \
+    python3-pip python3-venv \
+    libportaudio2 libjack0 \
+    python3-pyaudio \
+    batctl \
+    chrony \
+    isc-dhcp-client \
+    rfkill
 
-# Upgrade pip tooling (system-wide). --break-system-packages is for Debian/RPi OS policy.
-# sudo python3 -m pip install --upgrade pip setuptools wheel --break-system-packages
+  # Create required data + log roots for the node runtime
+  sudo mkdir -p /home/pi/data /home/pi/shipping /home/pi/logs /home/pi/BEAMNode_Prototype2/logs
+  sudo chown -R pi:pi /home/pi/data /home/pi/shipping /home/pi/logs /home/pi/BEAMNode_Prototype2/logs
 
-# Adafruit + sensors
-sudo python3 -m pip install --break-system-packages \
-  adafruit-blinka==8.69.0 \
-  adafruit-circuitpython-bme280==2.6.30 \
-  adafruit-circuitpython-bme680==3.5.0 \
-  adafruit-circuitpython-tsl2591==1.4.6 \
-  adafruit-circuitpython-ahtx0==1.0.28
+  # Upgrade pip tooling (system-wide). --break-system-packages is for Debian/RPi OS policy.
+  # sudo python3 -m pip install --upgrade pip setuptools wheel --break-system-packages
 
-# NOTE:
-# Do NOT apt install portaudio19-dev here (it can force exact-matching -dev deps and break on some Pi repos).
-# If you ever *must* use pip's PyAudio instead, the typical requirement is:
-#   sudo apt install libportaudio2 libjack0
-#   pip3 install pyaudio
-# (ideally inside a venv).  [oai_citation:1‡piwheels.org](https://www.piwheels.org/project/pyaudio/?utm_source=chatgpt.com)
+  # Adafruit + sensors
+  sudo python3 -m pip install --break-system-packages \
+    adafruit-blinka==8.69.0 \
+    adafruit-circuitpython-bme280==2.6.30 \
+    adafruit-circuitpython-bme680==3.5.0 \
+    adafruit-circuitpython-tsl2591==1.4.6 \
+    adafruit-circuitpython-ahtx0==1.0.28
+
+  # NOTE:
+  # Do NOT apt install portaudio19-dev here (it can force exact-matching -dev deps and break on some Pi repos).
+  # If you ever *must* use pip's PyAudio instead, the typical requirement is:
+  #   sudo apt install libportaudio2 libjack0
+  #   pip3 install pyaudio
+  # (ideally inside a venv).
+
+  echo "=== PART 1 complete. Continuing to PART 2... ==="
+else
+  echo "=== Skipping PART 1 (no internet install). Continuing to PART 2... ==="
+fi
 
 #sudo apt upgrade -y
 
