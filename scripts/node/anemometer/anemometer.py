@@ -1,5 +1,6 @@
 import RPi.GPIO as GPIO
 import time
+import threading
 
 ANEMOMETER_PIN = 17
 
@@ -8,25 +9,32 @@ MS_PER_HZ = 0.6667
 SAMPLE_WINDOW = 2  # seconds
 
 pulse_count = 0
+lock = threading.Lock()
 
 def count_pulse(channel):
     global pulse_count
-    pulse_count += 1
+    with lock:
+        pulse_count += 1
+    print("Pulse!") # remove once confirmed working
 
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(ANEMOMETER_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-
-# Trigger on falling edge (reed switch closes = pin pulled low)
-GPIO.add_event_detect(ANEMOMETER_PIN, GPIO.FALLING,
-                      callback=count_pulse, bouncetime=5)
+GPIO.add_event_detect(ANEMOMETER_PIN, GPIO.BOTH, callback=count_pulse, bouncetime=5)
 
 print("Measuring wind speed... Press CTRL+C to stop")
 
 try:
     while True:
-        pulse_count = 0
+        with lock:
+            count = pulse_count
+            pulse_count = 0
+
         time.sleep(SAMPLE_WINDOW)
 
+        with lock:
+            count = pulse_count
+            pulse_count = 0
+        
         frequency = pulse_count / SAMPLE_WINDOW
         wind_speed_ms = frequency * MS_PER_HZ
         wind_speed_kmh = wind_speed_ms * 3.6
