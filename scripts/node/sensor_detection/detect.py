@@ -4,7 +4,7 @@
 # It should return text detailing which sensors are currently online.
 #
 # Collaborators:
-# Alex Lance | Jaylen Small | Jackson Roberts
+# Alex Lance Jaylen Small
 #********************************************************************#
 
 import spidev
@@ -107,7 +107,7 @@ def detect_spi_sensor():
         chip2 = read_chip_ID(spi, 0xD0, CS_PIN_BME)
         chip = chip1 if chip1 == chip2 else 0x00
         
-        # Mapping IDs: 0x60=BME280, 0x58=BMP280, 0x61=BME680
+        # BME280: 0x60, BMP280: 0x58, BME680: 0x61
         if chip in (0x60, 0x58, 0x61):
             if chip == 0x60: name = "BME280"
             elif chip == 0x58: name = "BMP280"
@@ -116,8 +116,8 @@ def detect_spi_sensor():
             print(f"SPI Sensor Found: {name} (ID 0x{chip:02X})")
             spi_logger.info(f"{name} detected (ID 0x{chip:02X})")
             
-            config_key = "bme680" if chip == 0x61 else "bme280"
-            set_config_flag(CONFIG_PATH, config_key, "enabled", True)
+            section = "bme680" if chip == 0x61 else "bme280"
+            set_config_flag(CONFIG_PATH, section, "enabled", True)
             return name
         else:
             print(f"SPI Sensor: Unknown or not found (ID 0x{chip:02X})")
