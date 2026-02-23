@@ -35,7 +35,7 @@ try:
             count = pulse_count
             pulse_count = 0
         
-        frequency = pulse_count / SAMPLE_WINDOW
+        frequency = count / SAMPLE_WINDOW
         wind_speed_ms = frequency * MS_PER_HZ
         wind_speed_kmh = wind_speed_ms * 3.6
 
