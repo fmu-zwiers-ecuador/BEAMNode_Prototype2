@@ -210,37 +210,13 @@ def detect_audiomoth():
     set_config_flag(CONFIG_PATH, "audio", "mount_path", None)
     return False
 
-# ---------------- Anemometer (Passive GPIO) ---------------- #
-
-def detect_anemometer():
-    """Verifies anemometer GPIO availability and updates config."""
-    try:
-        with open(CONFIG_PATH, "r") as f:
-            cfg = json.load(f)
-        pin = cfg.get("anemometer", {}).get("pin", 17)
-    except Exception:
-        pin = 17
-
-    try:
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        print(f"Anemometer Configured: GPIO {pin}")
-        spi_logger.info(f"Anemometer configured on GPIO {pin}")
-        set_config_flag(CONFIG_PATH, "anemometer", "enabled", True)
-        return True
-    except Exception as e:
-        print("Anemometer detection failed")
-        spi_logger.error(f"Anemometer setup failed: {e}")
-        set_config_flag(CONFIG_PATH, "anemometer", "enabled", False)
-        return False
-
 # ---------------- Main ---------------- #
 
-if __name__ == "__main__":
-    print("=== Sensor Detection Summary ===")
-    detect_spi_sensor()
-    detect_camera()
-    detect_i2c_sensors()
-    detect_audiomoth()
-    detect_anemometer()
-    print("=== Detection Complete ===")
+print("=== Sensor Detection Summary ===")
+detect_spi_sensor()
+detect_camera()
+detect_i2c_sensors()
+detect_audiomoth()
+print("=== Detection Complete ===")
+
+
