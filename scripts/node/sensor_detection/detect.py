@@ -111,10 +111,7 @@ def detect_spi_sensor():
             spi_logger.info(f"{name} detected (ID 0x{chip:02X})")
             set_config_flag(CONFIG_PATH, "bme280", "enabled", True)
             return name
-        # BME 680 Detection
-        elif chip in (0x77, 0x76):
-            name = "BME680" if chip == 0x77 else "BMP280"
-            print(f"SPI Sensor Found: {name} (ID 0x{chip:02X})")
+        else:
             print(f"SPI Sensor: Unknown or not found (ID 0x{chip:02X})")
             spi_logger.warning(f"Unexpected SPI chip ID 0x{chip:02X}")
             return None
@@ -126,6 +123,8 @@ def detect_spi_sensor():
         spi.close()
         GPIO.cleanup()
         spi_logger.info("SPI closed and GPIO cleaned up")
+
+# ---------------- BME680 ----------------------#
 
 # ---------------- Camera (IMX219) ---------------- #
 
@@ -148,7 +147,7 @@ def detect_camera():
 
 # ---------------- I2C Sensors ---------------- #
 
-I2C_ADDR_TABLE = {"tsl2591": [0x29], "aht": [0x38]}
+I2C_ADDR_TABLE = {"tsl2591": [0x29], "aht": [0x38], "bme680": [0x77]}
 CANDIDATE_I2C_BUSES = (1,)
 
 def scan_i2c(busnum):
