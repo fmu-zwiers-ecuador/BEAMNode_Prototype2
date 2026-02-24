@@ -218,5 +218,3 @@ detect_camera()
 detect_i2c_sensors()
 detect_audiomoth()
 print("=== Detection Complete ===")
-
-
