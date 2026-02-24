@@ -15,7 +15,7 @@
 
 # Rsync Commands
 
-* **rsync \-avz /home/pi/BEAMNode\_Prototype1 pi@192.168.1.{node number}:/home/pi/** Sends the BEAMNode folder from the supervisor, to the specified node
+* **rsync \-avz /home/pi/BEAMNode\_Prototype2 pi@192.168.1.{node number}:/home/pi/** Sends the BEAMNode folder from the supervisor, to the specified node
 
 # Wifi Commands
 
