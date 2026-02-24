@@ -4,7 +4,7 @@
 # It should return text detailing which sensors are currently online.
 #
 # Collaborators:
-# Alex Lance | Jaylen Small | Jackson Roberts
+# Alex Lance Jaylen Small
 #********************************************************************#
 
 import spidev
@@ -73,7 +73,7 @@ if not spi_logger.handlers:
         spi_logger.addHandler(sh)
         print(f"[detect] Warning: file logging disabled ({e}). Using console handler.")
 
-# ---------------- SPI (BME/BMP280/BME680) ---------------- #
+# ---------------- SPI (BME/BMP280) ---------------- #
 
 CS_PIN_BME = 5
 
@@ -98,26 +98,18 @@ def read_chip_ID(spi, reg, cs_pin):
 
 def detect_spi_sensor():
     set_config_flag(CONFIG_PATH, "bme280", "enabled", False)
-    set_config_flag(CONFIG_PATH, "bme680", "enabled", False)
     spi = spi_init(CS_PIN_BME)
     try:
-        spi_logger.info("Starting BME/BMP detection")
+        spi_logger.info("Starting BME/BMP280 detection")
         chip1 = read_chip_ID(spi, 0xD0, CS_PIN_BME)
         time.sleep(0.002)
         chip2 = read_chip_ID(spi, 0xD0, CS_PIN_BME)
         chip = chip1 if chip1 == chip2 else 0x00
-        
-        # BME280: 0x60, BMP280: 0x58, BME680: 0x61
-        if chip in (0x60, 0x58, 0x61):
-            if chip == 0x60: name = "BME280"
-            elif chip == 0x58: name = "BMP280"
-            else: name = "BME680"
-            
+        if chip in (0x60, 0x58):
+            name = "BME280" if chip == 0x60 else "BMP280"
             print(f"SPI Sensor Found: {name} (ID 0x{chip:02X})")
             spi_logger.info(f"{name} detected (ID 0x{chip:02X})")
-            
-            section = "bme680" if chip == 0x61 else "bme280"
-            set_config_flag(CONFIG_PATH, section, "enabled", True)
+            set_config_flag(CONFIG_PATH, "bme280", "enabled", True)
             return name
         else:
             print(f"SPI Sensor: Unknown or not found (ID 0x{chip:02X})")
@@ -153,7 +145,7 @@ def detect_camera():
 
 # ---------------- I2C Sensors ---------------- #
 
-I2C_ADDR_TABLE = {"tsl2591": [0x29], "aht": [0x38], "bme680": [0x76, 0x77]}
+I2C_ADDR_TABLE = {"tsl2591": [0x29], "aht": [0x38]}
 CANDIDATE_I2C_BUSES = (1,)
 
 def scan_i2c(busnum):
