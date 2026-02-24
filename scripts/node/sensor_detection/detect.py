@@ -111,7 +111,10 @@ def detect_spi_sensor():
             spi_logger.info(f"{name} detected (ID 0x{chip:02X})")
             set_config_flag(CONFIG_PATH, "bme280", "enabled", True)
             return name
-        else:
+        # BME 680 Detection
+        elif chip in (0x77, 0x76):
+            name = "BME680" if chip == 0x77 else "BMP280"
+            print(f"SPI Sensor Found: {name} (ID 0x{chip:02X})")
             print(f"SPI Sensor: Unknown or not found (ID 0x{chip:02X})")
             spi_logger.warning(f"Unexpected SPI chip ID 0x{chip:02X}")
             return None
