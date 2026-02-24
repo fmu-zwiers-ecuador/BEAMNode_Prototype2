@@ -26,7 +26,7 @@ if not anm_config.get("enabled", True):
     exit(0)
 
 node_id = global_config.get("node_id", "unknown-node")
-ANEMOMETER_PIN = anm_config.get("pin", 17)
+ANEMOMETER_PIN = anm_config.get("pin", 11)
 MS_PER_HZ = anm_config.get("ms_per_hz", 0.6667)
 SAMPLE_WINDOW = anm_config.get("sample_window", 2)
 
