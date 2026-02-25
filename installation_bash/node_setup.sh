@@ -543,3 +543,22 @@ else
     echo "Service installed but failed to start."
     echo "Check logs with: journalctl -u $SERVICE_NAME -f"
 fi
+
+read -rp "Would you like to set the default boot to terminal mode? [y/n]: " TERM_MODE
+if [[ "${TERM_MODE,,}" == "y" ]]; then
+    echo "=== Setting default boot to terminal mode ==="
+    sudo systemctl set-default multi-user.target
+else
+    echo "Default boot is still the graphical desktop environment."
+fi
+
+echo "------------------------------------------------"
+echo "Node installation is complete!"
+echo "------------------------------------------------"
+
+read -rp "Would you like to reboot now? [y/n]: " REBOOT
+if [[ "${REBOOT,,}" == "y" ]]; then
+    echo "Rebooting now..."
+    sudo reboot now
+fi
+
