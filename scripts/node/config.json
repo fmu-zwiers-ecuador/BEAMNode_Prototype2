@@ -39,7 +39,7 @@
   "bme680": {
     "enabled": false,
     "directory": "bme680",
-    "script_name": "log_env_data.py",
+    "script_name": "log_env680_data.py",
     "file_name": "bme680_env.json",
     "frequency": 60,
     "i2c_bus": null,
