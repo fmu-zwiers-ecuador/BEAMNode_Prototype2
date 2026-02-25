@@ -1,9 +1,14 @@
+# BME680 Logging Script
+# Author: Jackson Roberts
+
+
 import json
 import os
 import time
 import board
 import adafruit_bme680
 from datetime import datetime, timezone
+import sys
 
 # Absolute path to the config file updated by detect.py
 CONFIG_PATH = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
@@ -13,14 +18,14 @@ def log_data():
     try:
         with open(CONFIG_PATH, "r") as f:
             config = json.load(f)
-    except Exception:
+    except Exception as e:
+        print(f"Config Load Error: {e}", file=sys.stderr)
         exit(1)
 
     bme_config = config.get("bme680", {})
     global_config = config.get("global", {})
     
     # 2. Check Detect.py status
-    # If enabled is False or address is null, exit gracefully
     if not bme_config.get("enabled", False) or bme_config.get("address_hex") is None:
         return
 
@@ -34,26 +39,28 @@ def log_data():
         
         sensor = adafruit_bme680.Adafruit_BME680_I2C(i2c, address=addr)
         
-        # --- GAS SENSOR BURN-IN ---
-        # Trigger heater with a dummy read
+        # --- GAS SENSOR BURN-IN (Properly Indented) ---
         _ = sensor.gas 
-        # Wait 2 seconds for metal oxide heater stabilization
-        time.sleep(2) 
-        # -------------------------
+        time.sleep(5)  # Stabilization time
+        # ----------------------------------------------
         
     except Exception as e:
-        # If hardware was detected earlier but is now missing/unplugged
+        print(f"Hardware Init Error: {e}", file=sys.stderr)
         exit(1)
 
     # 4. Collect Data
-    now_utc = datetime.now(timezone.utc)
-    data_point = {
-        "timestamp": now_utc.isoformat(),
-        "temperature_C": round(sensor.temperature, 2),
-        "humidity_percent": round(sensor.relative_humidity, 2),
-        "pressure_hPa": round(sensor.pressure, 2),
-        "gas_resistance_ohms": float(sensor.gas)
-    }
+    try:
+        now_utc = datetime.now(timezone.utc)
+        data_point = {
+            "timestamp": now_utc.isoformat(),
+            "temperature_C": round(sensor.temperature, 2),
+            "humidity_percent": round(sensor.relative_humidity, 2),
+            "pressure_hPa": round(sensor.pressure, 2),
+            "gas_resistance_ohms": float(sensor.gas)
+        }
+    except Exception as e:
+        print(f"Sensor Read Error: {e}", file=sys.stderr)
+        exit(1)
 
     # 5. File Path & Directory Management
     base_dir = global_config.get("base_dir", "/home/pi/data")
@@ -80,7 +87,8 @@ def log_data():
         with open(file_path, "w") as f:
             json.dump(full_data, f, indent=4)
             
-    except Exception:
+    except Exception as e:
+        print(f"File Write Error: {e}", file=sys.stderr)
         exit(1)
 
 if __name__ == "__main__":
