@@ -4,13 +4,17 @@
 # Basic Step-by-Step Guide
 
 * Connect to a wifi network
-* Clone the github repository
-* Then go into the directory BEAMNode_Prototype2/installation_bash/ and run the node_setup.sh script
+* Clone the github repository by typing: 
+    
+        git clone https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2
+* Then go into the directory by typing:
+
+        cd BEAMNode_Prototype2/installation_bash/
+    * Type command:
+
+            sudo chmod +x node_setup.sh
+    * Then type:
+            
+            sudo bash node_setup.sh
 * Then the user just follows the following prompts and everything should be installed smoothly, without the user having to do anything extra
 
-## Afterwards
-
-* Make sure you enable SPI through **sudo raspi-config**. Do this by:
-    * Running **sudo raspi-config**
-    * Navigating to **3. Interface Options**
-    * Navigate to **I4 SPI** then answer **Yes** when asked if you want ot enable it
