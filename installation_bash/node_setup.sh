@@ -544,6 +544,10 @@ else
     echo "Check logs with: journalctl -u $SERVICE_NAME -f"
 fi
 
+# Enable I2C and SPI
+sudo raspi-config nonint do_i2c 0
+sudo raspi-config nonint do_spi 0
+
 read -rp "Would you like to set the default boot to terminal mode? [y/n]: " TERM_MODE
 if [[ "${TERM_MODE,,}" == "y" ]]; then
     echo "=== Setting default boot to terminal mode ==="
