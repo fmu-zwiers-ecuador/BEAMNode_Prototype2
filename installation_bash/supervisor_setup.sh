@@ -65,8 +65,8 @@ NETWORK_NAME=${NETWORK_NAME:-myadhoc}
 read -p "Enter frequency in MHz (e.g. 2412 for channel 1) [2412]: " FREQUENCY
 FREQUENCY=${FREQUENCY:-2412}
 
-read -p "Enter static IP for bat0 (e.g. 10.42.0.40/16) [10.42.0.40/16]: " STATIC_IP
-STATIC_IP=${STATIC_IP:-10.42.0.40/16}
+read -p "Enter static IP for bat0 (e.g. 10.42.0.40/16) [10.42.0.30/16]: " STATIC_IP
+STATIC_IP=${STATIC_IP:-10.42.0.30/16}
 
 echo
 echo "Using configuration:"
@@ -104,7 +104,7 @@ systemctl stop    wpa_supplicant  2>/dev/null || true
 systemctl disable wpa_supplicant  2>/dev/null || true
 
 # --- Create BATMAN startup script ---
-echo "[1/4] Creating /usr/local/bin/start-batman.sh ..."
+echo "[1/5] Creating /usr/local/bin/start-batman.sh ..."
 cat <<EOF | tee /usr/local/bin/start-batman.sh >/dev/null
 #!/bin/bash
 set -e
@@ -167,7 +167,7 @@ chmod +x /usr/local/bin/start-batman.sh
 # --- Create systemd service ---
 # FIX: Added Conflicts= so systemd itself prevents NetworkManager/wpa_supplicant
 #      from starting after batman and tearing down the IBSS interface on reboot.
-echo "[2/4] Creating /etc/systemd/system/batman.service ..."
+echo "[2/5] Creating /etc/systemd/system/batman.service ..."
 cat <<EOF | tee /etc/systemd/system/batman.service >/dev/null
 [Unit]
 Description=BATMAN-adv Mesh Network
@@ -189,13 +189,47 @@ WantedBy=multi-user.target
 EOF
 
 # --- Reload systemd and enable service ---
-echo "[3/4] Reloading systemd and enabling service ..."
+echo "[3/5] Reloading systemd and enabling service ..."
 systemctl daemon-reload
 systemctl enable batman.service
 
 # --- Start service immediately ---
-echo "[4/4] Starting BATMAN service ..."
+echo "[4/5] Starting BATMAN service ..."
 systemctl start batman.service
+
+echo "[5/5] Installing and configuring dnsmasq for bat0 DHCP..."
+
+# Install dnsmasq if not already installed
+if ! dpkg -l | grep -q dnsmasq; then
+  echo "  Installing dnsmasq..."
+  apt update
+  apt install -y dnsmasq
+else
+  echo "  dnsmasq already installed ✓"
+fi
+
+DNSMASQ_CONF="/etc/dnsmasq.d/batman-mesh.conf"
+
+echo "  Creating $DNSMASQ_CONF..."
+
+cat <<EOF | tee $DNSMASQ_CONF >/dev/null
+# DHCP + DNS for BATMAN mesh (bat0)
+interface=bat0
+bind-interfaces
+
+# DHCP range for mesh nodes
+dhcp-range=10.42.0.50,10.42.255.200,12h
+
+# Optional local mesh domain
+domain=mesh
+local=/mesh/
+EOF
+
+# Ensure dnsmasq is enabled and restarted
+systemctl enable dnsmasq
+systemctl restart dnsmasq
+
+echo "  dnsmasq configured for bat0"
 
 echo
 echo "BATMAN-adv setup complete!"
