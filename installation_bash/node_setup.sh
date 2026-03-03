@@ -198,7 +198,7 @@ echo "[4/4] Starting BATMAN service ..."
 systemctl start batman.service
 
 echo
-echo "✅ BATMAN-adv setup complete!"
+echo "BATMAN-adv setup complete!"
 echo "To verify, run: sudo systemctl status batman.service"
 echo "Then check mesh neighbors with: sudo batctl n"
 
