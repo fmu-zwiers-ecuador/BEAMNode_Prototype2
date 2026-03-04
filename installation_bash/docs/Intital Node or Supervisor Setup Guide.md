@@ -1,4 +1,3 @@
-# **(Current documentation is a Work-In-Progress)**
 # **Intital Node/Supervisor Setup Guide**
 
 # Basic Step-by-Step Guide For Node Setup
