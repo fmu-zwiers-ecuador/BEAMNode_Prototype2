@@ -4,7 +4,7 @@
 # === supervisor_setup.sh: This script sets up a new supervisor, ready to be deployed. ===
 # ========================================================================================
 
-# Must be run as root (sudo ./node_setup.sh)
+# Must be run as root (sudo ./supervisor_setup.sh)
 if [[ $EUID -ne 0 ]]; then
   echo "ERROR: Run as root: sudo $0"
   exit 1
@@ -22,6 +22,10 @@ set -euo pipefail
 read -rp "Do you want to install/update packages? (requires internet) [y/n]: " DO_INSTALL
 if [[ "${DO_INSTALL,,}" == "y" ]]; then
   echo "=== Running PART 1: Package Installation ==="
+
+  echo "Installing required packages..."
+  apt-get update -y
+  apt-get install -y iptables iptables-persistent dnsmasq chrony conntrack
 
   apt update
   apt install -y \
@@ -252,11 +256,7 @@ echo "DHCP range:   $DHCP_RANGE_START - $DHCP_RANGE_END ($DHCP_MASK)"
 echo "Chrony allow: $ALLOW_SUBNET"
 echo
 
-echo "[1/8] Installing required packages..."
-apt-get update -y
-apt-get install -y iptables iptables-persistent dnsmasq chrony conntrack
-
-echo "[2/8] Writing dnsmasq config for mesh DHCP/DNS..."
+echo "[1/7] Writing dnsmasq config for mesh DHCP/DNS..."
 #Ensure the directory exist before creating it
 mkdir -p /etc/dnsmasq.d
 
@@ -274,7 +274,7 @@ EOF
 systemctl enable dnsmasq
 systemctl restart dnsmasq
 
-echo "[3/8] Configuring chrony to serve time to mesh..."
+echo "[2/7] Configuring chrony to serve time to mesh..."
 CHRONY_CONF="/etc/chrony/chrony.conf"
 grep -qE '^\s*pool\s+pool\.ntp\.org' "$CHRONY_CONF" || echo "pool pool.ntp.org iburst" >> "$CHRONY_CONF"
 grep -qE "^\s*allow\s+$ALLOW_SUBNET" "$CHRONY_CONF" || echo "allow $ALLOW_SUBNET" >> "$CHRONY_CONF"
@@ -283,7 +283,7 @@ grep -qE '^\s*local\s+stratum\s+10' "$CHRONY_CONF" || echo "local stratum 10" >>
 systemctl enable chrony
 systemctl restart chrony
 
-echo "[4/8] Creating a persistent systemd service for gateway setup..."
+echo "[3/7] Creating a persistent systemd service for gateway setup..."
 cat >/etc/systemd/system/batman-gateway.service <<EOF
 [Unit]
 Description=Batman Mesh Gateway (NAT + bat0 IP)
@@ -299,7 +299,7 @@ ExecStart=/usr/local/sbin/batman-gateway-apply
 WantedBy=multi-user.target
 EOF
 
-echo "[5/8] Writing gateway apply script..."
+echo "[4/7] Writing gateway apply script..."
 cat >/usr/local/sbin/batman-gateway-apply <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -342,14 +342,14 @@ PY
 
 chmod +x /usr/local/sbin/batman-gateway-apply
 
-echo "[6/8] Enabling gateway service..."
+echo "[5/7] Enabling gateway service..."
 systemctl daemon-reload
 systemctl enable batman-gateway.service
 
-echo "[7/8] Applying gateway config now..."
+echo "[6/7] Applying gateway config now..."
 systemctl start batman-gateway.service
 
-echo "[8/8] Quick checks:"
+echo "[7/7] Quick checks:"
 ip -br a | grep -E "\b$MESH_IF\b" || true
 iptables -t nat -S | grep MASQUERADE || true
 systemctl is-active dnsmasq || true
