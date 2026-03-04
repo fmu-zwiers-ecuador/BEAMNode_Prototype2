@@ -62,6 +62,7 @@
         sudo nano wlan1.sh
 
 * In this file type:
+        
         #!/bin/bash
 
         sudo rfkill unblock all
