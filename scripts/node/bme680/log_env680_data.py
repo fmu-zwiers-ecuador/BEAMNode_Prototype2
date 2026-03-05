@@ -1,16 +1,12 @@
-# BME680 Logging Script
-# Author: Jackson Roberts
-
-
 import json
 import os
 import time
 import board
+import busio
 import adafruit_bme680
 from datetime import datetime, timezone
 import sys
 
-# Absolute path to the config file updated by detect.py
 CONFIG_PATH = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
 
 def log_data():
@@ -25,30 +21,32 @@ def log_data():
     bme_config = config.get("bme680", {})
     global_config = config.get("global", {})
     
-    # 2. Check Detect.py status
-    if not bme_config.get("enabled", False) or bme_config.get("address_hex") is None:
+    if not bme_config.get("enabled", False):
         return
 
-    # 3. Hardware Initialization
+    # 2. Hardware Initialization
     try:
-        i2c = board.I2C() 
+        # Explicitly use I2C Bus 1 (Pins 3 & 5)
+        i2c = busio.I2C(board.SCL, board.SDA) 
         
-        # Pull address from config (e.g., "0x77") and convert to integer
-        addr_hex = bme_config.get("address_hex")
-        addr = int(addr_hex, 16)
+        # Clean the address string: remove extra chars and convert to int
+        raw_addr = str(bme_config.get("address_hex", "0x77"))
+        addr_clean = "".join(filter(lambda x: x in "0123456789abcdefx", raw_addr.lower()))
+        addr = int(addr_clean.split('x')[-1], 16) if 'x' in addr_clean else int(addr_clean, 16)
         
         sensor = adafruit_bme680.Adafruit_BME680_I2C(i2c, address=addr)
         
-        # --- GAS SENSOR BURN-IN (Properly Indented) ---
+        # GAS SENSOR BURN-IN
+        sensor.gas_heat_temperature = 320
+        sensor.gas_heat_duration = 150
         _ = sensor.gas 
-        time.sleep(5)  # Stabilization time
-        # ----------------------------------------------
+        time.sleep(2) 
         
     except Exception as e:
         print(f"Hardware Init Error: {e}", file=sys.stderr)
         exit(1)
 
-    # 4. Collect Data
+    # 3. Collect Data
     try:
         now_utc = datetime.now(timezone.utc)
         data_point = {
@@ -62,17 +60,14 @@ def log_data():
         print(f"Sensor Read Error: {e}", file=sys.stderr)
         exit(1)
 
-    # 5. File Path & Directory Management
+    # 4. Atomic File Write
     base_dir = global_config.get("base_dir", "/home/pi/data")
     sensor_dir = os.path.join(base_dir, bme_config.get("directory", "bme680"))
     os.makedirs(sensor_dir, exist_ok=True)
-    
     file_path = os.path.join(sensor_dir, bme_config.get("file_name", "bme680_env.json"))
 
-    # 6. Persistent JSON Logging
     try:
         node_id = global_config.get("node_id", "unknown-node")
-        
         if os.path.exists(file_path):
             with open(file_path, "r") as f:
                 try:
@@ -84,8 +79,11 @@ def log_data():
 
         full_data["records"].append(data_point)
 
-        with open(file_path, "w") as f:
+        # Atomic replacement to prevent corruption
+        tmp_path = f"{file_path}.tmp"
+        with open(tmp_path, "w") as f:
             json.dump(full_data, f, indent=4)
+        os.replace(tmp_path, file_path)
             
     except Exception as e:
         print(f"File Write Error: {e}", file=sys.stderr)
