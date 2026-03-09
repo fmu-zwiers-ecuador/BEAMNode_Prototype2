@@ -1,22 +1,31 @@
 import serial
 import time
 
-def force_conversion():
+def baud_sweep_switch():
     port = '/dev/serial0'
-    # Try both standard speeds back-to-back
-    for baud in [9600, 19200]:
+    # All possible standard baud rates for EZO circuits
+    baud_rates = [9600, 19200, 38400, 57600, 115200]
+    
+    print("Starting Comprehensive Baud Sweep...")
+    
+    for baud in baud_rates:
         try:
-            ser = serial.Serial(port, baud, timeout=1)
-            print(f"Blasting {baud} baud for 3 seconds...")
-            end_time = time.time() + 3
-            while time.time() < end_time:
+            print(f"Testing {baud} baud...")
+            ser = serial.Serial(port, baud, timeout=0.5)
+            
+            # Send the command 10 times rapidly at this specific speed
+            for _ in range(10):
                 ser.write(b"I2C,100\r")
-                time.sleep(0.05) # Faster blast
+                time.sleep(0.1)
+                
             ser.close()
+            # Give the circuit a moment to process before switching speeds
+            time.sleep(0.5) 
+            
         except Exception as e:
-            print(f"Error on {baud}: {e}")
+            print(f"Could not test {baud}: {e}")
 
-    print("\nCheck the LED now. If it's Blue, run 'sudo i2cdetect -y 1'.")
+    print("\nSweep complete. If the LED is still flashing, check /boot/config.txt.")
 
 if __name__ == "__main__":
-    force_conversion()
+    baud_sweep_switch()
