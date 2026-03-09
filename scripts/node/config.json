@@ -6,7 +6,6 @@
     "timezone": "UTC",
     "print_debug": true
   },
-
   "tsl2591": {
     "enabled": false,
     "script_name": "log_lux_data.py",
@@ -20,7 +19,6 @@
       "lux": "float"
     }
   },
-
   "ahtx0": {
     "enabled": false,
     "directory": "ahtx0",
@@ -35,7 +33,6 @@
       "humidity_percent": "float"
     }
   },
-
   "bme680": {
     "enabled": false,
     "directory": "bme680",
@@ -52,7 +49,6 @@
       "gas_resistance_ohms": "float"
     }
   },
-
   "bme280": {
     "enabled": false,
     "directory": "bme280",
@@ -73,7 +69,6 @@
       "pressure_hPa": "float"
     }
   },
-
   "anemometer": {
     "enabled": true,
     "pin": 17,
@@ -82,7 +77,6 @@
     "directory": "anemometer",
     "file_name": "wind_data.json"
   },
-
   "audio": {
     "enabled": true,
     "directory": "audio",
@@ -96,7 +90,6 @@
     "chunk": 1024,
     "mount_path": null
   },
-
   "camera": {
     "enabled": false,
     "interface": "CSI",
@@ -111,5 +104,32 @@
       "model": "string",
       "details": "string"
     }
+  },
+  "atlas_ec": {
+    "enabled": false,
+    "directory": "conductivity",
+    "script_name": "log_atlas_ec.py",
+    "file_name": "ec_data.json",
+    "frequency": 60,
+    "i2c_bus": null,
+    "address_hex": "0x64"
+  },
+  "atlas_orp": {
+    "enabled": false,
+    "directory": "orp",
+    "script_name": "log_atlas_orp.py",
+    "file_name": "orp_data.json",
+    "frequency": 60,
+    "i2c_bus": null,
+    "address_hex": "0x62"
+  },
+  "atlas_rtd": {
+    "enabled": false,
+    "directory": "temperature_water",
+    "script_name": "log_atlas_rtd.py",
+    "file_name": "water_temp.json",
+    "frequency": 60,
+    "i2c_bus": null,
+    "address_hex": "0x66"
   }
 }
