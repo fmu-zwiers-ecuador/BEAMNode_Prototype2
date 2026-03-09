@@ -1,24 +1,26 @@
 import serial
 import time
 
-def direct_switch():
-    # After our config changes, ttyAMA0 is the reliable hardware port
-    port = '/dev/ttyAMA0'
+def force_i2c():
+    # serial0 is the most reliable alias for Pi Zero GPIO pins
+    port = '/dev/serial0' 
     
-    try:
-        # Most EZO circuits are 9600 baud in UART mode
-        ser = serial.Serial(port, 9600, timeout=1)
-        print(f"Communicating with {port}...")
-        
-        # We send the command 'I2C,100' with a carriage return 10 times
-        for _ in range(10):
-            ser.write(b"I2C,100\r")
-            time.sleep(0.2)
+    # We will try the two standard Atlas baud rates
+    for baud in [9600, 19200]:
+        try:
+            print(f"Opening {port} at {baud} baud...")
+            # We add a 2-second timeout to give it space to breathe
+            ser = serial.Serial(port, baud, timeout=2)
             
-        ser.close()
-        print("Command sequence complete. Watch for the SOLID BLUE LED.")
-    except Exception as e:
-        print(f"Serial Error: {e}")
+            # Send the command with a clear carriage return
+            print("Sending 'I2C,100'...")
+            ser.write(b"I2C,100\r")
+            
+            time.sleep(1.5)
+            ser.close()
+            print("Command sent. Check for Solid Blue LED.")
+        except Exception as e:
+            print(f"Failed on {baud}: {e}")
 
 if __name__ == "__main__":
-    direct_switch()
+    force_i2c()
