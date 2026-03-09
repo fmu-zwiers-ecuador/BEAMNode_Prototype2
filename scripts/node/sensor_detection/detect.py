@@ -4,7 +4,7 @@
 # It should return text detailing which sensors are currently online.
 #
 # Collaborators:
-# Alex Lance Jaylen Small
+# Alex Lance | Jaylen Small | Jackson Roberts
 #********************************************************************#
 
 import spidev
@@ -124,8 +124,6 @@ def detect_spi_sensor():
         GPIO.cleanup()
         spi_logger.info("SPI closed and GPIO cleaned up")
 
-# ---------------- BME680 ----------------------#
-
 # ---------------- Camera (IMX219) ---------------- #
 
 def detect_camera():
@@ -147,7 +145,16 @@ def detect_camera():
 
 # ---------------- I2C Sensors ---------------- #
 
-I2C_ADDR_TABLE = {"tsl2591": [0x29], "aht": [0x38], "bme680": [0x77]}
+# NEW ADDITIONS: atlas_ec (0x64), atlas_orp (0x62), atlas_rtd (0x66)
+I2C_ADDR_TABLE = {
+    "tsl2591": [0x29], 
+    "aht": [0x38], 
+    "bme680": [0x77],
+    "atlas_orp": [0x62],
+    "atlas_ec": [0x64],
+    "atlas_rtd": [0x66]
+}
+
 CANDIDATE_I2C_BUSES = (1,)
 
 def scan_i2c(busnum):
