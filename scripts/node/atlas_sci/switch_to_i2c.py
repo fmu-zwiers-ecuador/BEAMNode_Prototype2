@@ -1,25 +1,24 @@
 import serial
 import time
 
-# For Raspberry Pi, /dev/serial0 is the primary UART alias
-USB_PORT = '/dev/serial0' 
-
-def force_i2c_mode():
+def direct_switch():
+    # After our config changes, ttyAMA0 is the reliable hardware port
+    port = '/dev/ttyAMA0'
+    
     try:
-        # EZO circuits default to 9600 baud in UART mode
-        ser = serial.Serial(USB_PORT, 9600, timeout=2)
-        print(f"Opening {USB_PORT}...")
+        # Most EZO circuits are 9600 baud in UART mode
+        ser = serial.Serial(port, 9600, timeout=1)
+        print(f"Communicating with {port}...")
         
-        # Command: I2C,[decimal_address] followed by a carriage return
-        # 100 decimal = 0x64 hex
-        print("Sending 'I2C,100' command...")
-        ser.write(b"I2C,100\r")
-        
-        time.sleep(1.5)
-        print("Switch command sent. Check the LED—it should now be SOLID BLUE.")
+        # We send the command 'I2C,100' with a carriage return 10 times
+        for _ in range(10):
+            ser.write(b"I2C,100\r")
+            time.sleep(0.2)
+            
         ser.close()
+        print("Command sequence complete. Watch for the SOLID BLUE LED.")
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Serial Error: {e}")
 
 if __name__ == "__main__":
-    force_i2c_mode()
+    direct_switch()
