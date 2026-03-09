@@ -71,8 +71,9 @@
   },
   "anemometer": {
     "enabled": true,
-    "pin": 17,
-    "ms_per_hz": 0.6667,
+    "source": "serial",
+    "serial_port": "/dev/ttyUSB0",
+    "baud_rate": 9600
     "sample_window": 2,
     "directory": "anemometer",
     "file_name": "wind_data.json"
