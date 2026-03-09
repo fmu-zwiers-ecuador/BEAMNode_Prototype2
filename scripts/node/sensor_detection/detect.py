@@ -17,6 +17,8 @@ import os
 import time
 import json
 import sys
+import serial
+import serial.tools.list_ports
 from picamera2 import Picamera2
 
 CONFIG_PATH = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
@@ -211,6 +213,30 @@ def detect_audiomoth():
     set_config_flag(CONFIG_PATH, "audio", "mount_path", None)
     return False
 
+# ---------------- Anemometer ---------------- #
+
+def detect_anemometer():
+    try:
+        ports = serial.tools.list_ports.components()
+        detected = False
+        for port in ports:
+            if "USB" in port.device or "ACM" in port.device:
+                try:
+                    ser = serial.Serial(port.device, 9600, timeout=1)
+                    ser.close()
+                    print(f"Arduino/Anemometer detected on {port.device}")
+                    set_config_flag(CONFIG_PATH, "anemometer", "enabled", True)
+                    detected = True
+                    break
+                except Exception:
+                    continue
+        if not detected:
+            print("Arduino/Anemometer not detected")
+            set_config_flag(CONFIG_PATH, "anemometer", "enabled", False)
+    except Exception as e:
+        print(f"Anemometer detection failed: {e}")
+        set_config_flag(CONFIG_PATH, "anemometer", "enabled", False)
+    
 # ---------------- Main ---------------- #
 
 print("=== Sensor Detection Summary ===")
@@ -218,4 +244,5 @@ detect_spi_sensor()
 detect_camera()
 detect_i2c_sensors()
 detect_audiomoth()
+detect_anemometer()
 print("=== Detection Complete ===")
