@@ -1,26 +1,22 @@
 import serial
 import time
 
-def force_i2c():
-    # serial0 is the most reliable alias for Pi Zero GPIO pins
-    port = '/dev/serial0' 
-    
-    # We will try the two standard Atlas baud rates
+def force_conversion():
+    port = '/dev/serial0'
+    # Try both standard speeds back-to-back
     for baud in [9600, 19200]:
         try:
-            print(f"Opening {port} at {baud} baud...")
-            # We add a 2-second timeout to give it space to breathe
-            ser = serial.Serial(port, baud, timeout=2)
-            
-            # Send the command with a clear carriage return
-            print("Sending 'I2C,100'...")
-            ser.write(b"I2C,100\r")
-            
-            time.sleep(1.5)
+            ser = serial.Serial(port, baud, timeout=1)
+            print(f"Blasting {baud} baud for 3 seconds...")
+            end_time = time.time() + 3
+            while time.time() < end_time:
+                ser.write(b"I2C,100\r")
+                time.sleep(0.05) # Faster blast
             ser.close()
-            print("Command sent. Check for Solid Blue LED.")
         except Exception as e:
-            print(f"Failed on {baud}: {e}")
+            print(f"Error on {baud}: {e}")
+
+    print("\nCheck the LED now. If it's Blue, run 'sudo i2cdetect -y 1'.")
 
 if __name__ == "__main__":
-    force_i2c()
+    force_conversion()
