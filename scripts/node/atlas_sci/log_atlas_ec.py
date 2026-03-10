@@ -3,6 +3,7 @@ import os
 import time
 import sys
 import smbus2
+from smbus2 import i2c_msg
 from datetime import datetime, timezone
 
 CONFIG_PATH = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
@@ -25,16 +26,21 @@ def log_data():
     # 2. Hardware Initialization & Read
     try:
         addr = int(str(ec_config.get("address_hex", "0x64")), 16)
-        bus = smbus2.SMBus(1)
-        
-        # Write 'R' for Read
-        bus.write_bytes(addr, [ord('R'), 0x0D])
-        time.sleep(0.7) 
-        
-        # Read 31-byte response
-        res = bus.read_i2c_block_data(addr, 0, 31)
-        if res[0] == 1: 
-            char_list = [chr(x) for x in res[1:] if x != 0x00 and x != 0xff]
+        bus_num = ec_config.get("i2c_bus") or 1
+        bus = smbus2.SMBus(bus_num)
+
+        # Write 'R\r' — raw I2C, no register byte (Atlas EZO protocol)
+        bus.i2c_rdwr(i2c_msg.write(addr, [ord('R'), 0x0D]))
+        time.sleep(0.9)
+
+        # Read 31-byte response — raw I2C, no register byte
+        read_msg = i2c_msg.read(addr, 31)
+        bus.i2c_rdwr(read_msg)
+        res = list(read_msg)
+        bus.close()
+
+        if res[0] == 1:
+            char_list = [chr(x) for x in res[1:] if x != 0x00 and x != 0xFF]
             raw_val = "".join(char_list).split(',')[0]
             value = round(float(raw_val), 2)
         else:
