@@ -39,12 +39,22 @@ def log_data():
         res = list(read_msg)
         bus.close()
 
+        STATUS_CODES = {254: "still processing", 255: "no data", 2: "syntax error", 0: "failed"}
         if res[0] == 1:
-            char_list = [chr(x) for x in res[1:] if x != 0x00 and x != 0xFF]
-            raw_val = "".join(char_list).split(',')[0]
-            value = round(float(raw_val), 2)
+            char_list = [chr(x) for x in res[1:] if 32 <= x <= 126]
+            raw_val = "".join(char_list).strip().split(',')[0].strip()
+            if not raw_val:
+                print("Warning: EZO returned empty value (probe likely dry/not submerged) — logging null", file=sys.stderr)
+                value = None
+                submerged = False
+            else:
+                value = round(float(raw_val), 2)
+                submerged = True
+        elif res[0] == 254:
+            raise Exception("EZO still processing — increase sleep delay")
         else:
-            raise Exception(f"Atlas EZO Error Code: {res[0]}")
+            desc = STATUS_CODES.get(res[0], "unknown")
+            raise Exception(f"Atlas EZO Error Code {res[0]} ({desc})")
     except Exception as e:
         print(f"Sensor Read Error: {e}", file=sys.stderr)
         sys.exit(1)
@@ -53,7 +63,8 @@ def log_data():
     now_utc = datetime.now(timezone.utc)
     data_point = {
         "timestamp": now_utc.isoformat(),
-        "conductivity_uS": value
+        "conductivity_uS": value,
+        "submerged": submerged
     }
 
     # 4. Atomic File Write
