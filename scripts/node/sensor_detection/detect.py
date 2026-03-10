@@ -80,6 +80,7 @@ if not spi_logger.handlers:
 CS_PIN_BME = 5
 
 def spi_init(cs_pin):
+    GPIO.setwarnings(False)
     GPIO.setmode(GPIO.BCM)
     GPIO.setup(cs_pin, GPIO.OUT, initial=GPIO.HIGH)
     spi = spidev.SpiDev()
@@ -100,8 +101,9 @@ def read_chip_ID(spi, reg, cs_pin):
 
 def detect_spi_sensor():
     set_config_flag(CONFIG_PATH, "bme280", "enabled", False)
-    spi = spi_init(CS_PIN_BME)
+    spi = None
     try:
+        spi = spi_init(CS_PIN_BME)
         spi_logger.info("Starting BME/BMP280 detection")
         chip1 = read_chip_ID(spi, 0xD0, CS_PIN_BME)
         time.sleep(0.002)
@@ -122,7 +124,8 @@ def detect_spi_sensor():
         spi_logger.exception("SPI detection failed")
         return None
     finally:
-        spi.close()
+        if spi is not None:
+            spi.close()
         GPIO.cleanup()
         spi_logger.info("SPI closed and GPIO cleaned up")
 
