@@ -4,111 +4,56 @@
 # === node_setup.sh: This script sets up a new node, ready to be deployed. ===
 # ============================================================================
 
-# =====================================================================
-# === PART 1: Install all necessary libraries needed for for set up ===
-# =====================================================================
+# Must be run as root (sudo ./node_setup.sh)
+if [[ $EUID -ne 0 ]]; then
+  echo "ERROR: Run as root: sudo $0"
+  exit 1
+fi
 
 set -euo pipefail
 
-sudo apt update
-sudo apt install -y \
-  python3-pip python3-venv \
-  libportaudio2 libjack0 \
-  python3-pyaudio \
-  batctl
+# =====================================================================
+# === PART 1: Install all necessary libraries needed for for set up ===
+# === NOTE: Internet is required for this section ONLY.             ===
+# ===        All packages must be installed here before going       ===
+# ===        offline. Parts 2-4 do not require internet.            ===
+# =====================================================================
 
-# Create required data + log roots for the node runtime
-sudo mkdir -p /home/pi/data /home/pi/shipping /home/pi/logs /home/pi/BEAMNode_Prototype2/logs
-sudo chown -R pi:pi /home/pi/data /home/pi/shipping /home/pi/logs /home/pi/BEAMNode_Prototype2/logs
+read -rp "Do you want to install/update packages? (requires internet) [y/n]: " DO_INSTALL
+if [[ "${DO_INSTALL,,}" == "y" ]]; then
+  echo "=== Running PART 1: Package Installation ==="
 
-# Upgrade pip tooling (system-wide). --break-system-packages is for Debian/RPi OS policy.
-# sudo python3 -m pip install --upgrade pip setuptools wheel --break-system-packages
+  apt update
+  apt install -y \
+    python3-pip python3-venv \
+    libportaudio2 libjack0 \
+    python3-pyaudio \
+    batctl \
+    chrony \
+    isc-dhcp-client \
+    rfkill
 
-# Adafruit + sensors
-sudo python3 -m pip install --break-system-packages \
-  adafruit-blinka==8.69.0 \
-  adafruit-circuitpython-bme280==2.6.30 \
-  adafruit-circuitpython-bme680==3.5.0 \
-  adafruit-circuitpython-tsl2591==1.4.6 \
-  adafruit-circuitpython-ahtx0==1.0.28
+  # Create required data + log roots for the node runtime
+  mkdir -p /home/pi/data /home/pi/shipping /home/pi/logs /home/pi/BEAMNode_Prototype2/logs
+  chown -R pi:pi /home/pi/data /home/pi/shipping /home/pi/logs /home/pi/BEAMNode_Prototype2/logs
 
-# NOTE:
-# Do NOT apt install portaudio19-dev here (it can force exact-matching -dev deps and break on some Pi repos).
-# If you ever *must* use pip's PyAudio instead, the typical requirement is:
-#   sudo apt install libportaudio2 libjack0
-#   pip3 install pyaudio
-# (ideally inside a venv).  [oai_citation:1‡piwheels.org](https://www.piwheels.org/project/pyaudio/?utm_source=chatgpt.com)
+  # Adafruit + sensors
+  python3 -m pip install --break-system-packages \
+    adafruit-blinka==8.69.0 \
+    adafruit-circuitpython-bme280==2.6.30 \
+    adafruit-circuitpython-bme680==3.5.0 \
+    adafruit-circuitpython-tsl2591==1.4.6 \
+    adafruit-circuitpython-ahtx0==1.0.28
 
-#sudo apt upgrade -y
-
-
-# ======================================
-# === PART 2: Autostart installation ===
-# ======================================
-
-# Location: /home/pi/BEAMNode_Prototype2/autostartinstall.sh
-
-# 1. Configuration
-PROJECT_ROOT="/home/pi/BEAMNode_Prototype2"
-NODE_DIR="$PROJECT_ROOT/scripts/node"
-SERVICE_SRC="$PROJECT_ROOT/beamnode.service"
-SERVICE_NAME="beamnode.service"
-LOG_DIR="$PROJECT_ROOT/logs"
-
-# 2. Create Required Folders
-echo "[1/4] Preparing directories..."
-mkdir -p "/home/pi/data"
-mkdir -p "/home/pi/shipping"
-mkdir -p "$LOG_DIR"
-
-# 3. Set Permissions
-echo "[2/4] Setting execution permissions..."
-chmod +x "$NODE_DIR/launcher.py"
-chmod +x "$NODE_DIR/scheduler.py"
-chmod +x "$NODE_DIR/sensor_detection/detect.py"
-chmod +x "$NODE_DIR/shipping_queuing/shipping.py"
-
-# 4. Install Systemd Service
-echo "[3/4] Registering systemd service..."
-if [ -f "$SERVICE_SRC" ]; then
-    # Copy from project root to system services folder
-    sudo cp "$SERVICE_SRC" /etc/systemd/system/
-    
-    # Reload and Enable
-    sudo systemctl daemon-reload
-    sudo systemctl enable "$SERVICE_NAME"
-    
-    # Start the service now
-    sudo systemctl restart "$SERVICE_NAME"
-    echo "Service $SERVICE_NAME installed and started."
+  echo "=== PART 1 complete. Continuing to PART 2... ==="
 else
-    echo "ERROR: Could not find $SERVICE_SRC"
-    echo "Please ensure beamnode.service is in $PROJECT_ROOT"
-    exit 1
+  echo "=== Skipping PART 1 (no internet install). Continuing to PART 2... ==="
 fi
 
-# 5. Verification
-echo "[4/4] Verifying system status..."
-if systemctl is-active --quiet "$SERVICE_NAME"; then
-    echo "------------------------------------------------"
-    echo "SUCCESS: Installation Complete!"
-    echo "The Launcher is now running in the background."
-    echo "------------------------------------------------"
-else
-    echo "Service installed but failed to start."
-    echo "Check logs with: journalctl -u $SERVICE_NAME -f"
-fi
 
 # ===================================
-# === PART 3: BATMAN Installation ===
+# === PART 2: BATMAN Installation ===
 # ===================================
-
-# ========================================
-# BATMAN-adv Automatic Setup Script (Interactive)
-# Tested on Debian / Raspberry Pi OS
-# ========================================
-
-set -e
 
 echo "=== BATMAN-adv Setup Script ==="
 echo
@@ -131,55 +76,113 @@ echo "  IP Address: $STATIC_IP"
 echo
 read -p "Press Enter to continue or Ctrl+C to cancel..."
 
+# -----------------------------------------------------------------------
+# FIX: Prevent dhcpcd from overwriting the static IP on wlan0 and bat0.
+# dhcpcd runs by default on Raspberry Pi OS and will assign a random DHCP
+# address on top of whatever IP batman sets, which is why 'ip a' shows the
+# wrong address after the script finishes.
+# -----------------------------------------------------------------------
+echo "[PRE] Configuring dhcpcd to leave wlan0 and bat0 alone..."
+DHCPCD_CONF="/etc/dhcpcd.conf"
+if [ -f "$DHCPCD_CONF" ]; then
+  # Remove any existing denyinterfaces lines for these so we don't duplicate
+  sed -i '/^denyinterfaces wlan0/d' "$DHCPCD_CONF"
+  sed -i '/^denyinterfaces bat0/d' "$DHCPCD_CONF"
+  echo "denyinterfaces wlan0" >> "$DHCPCD_CONF"
+  echo "denyinterfaces bat0"  >> "$DHCPCD_CONF"
+  echo "  dhcpcd will no longer touch wlan0 or bat0 ✓"
+else
+  echo "  /etc/dhcpcd.conf not found — skipping (may be using NetworkManager only)"
+fi
+
+# Also stop/disable NetworkManager and wpa_supplicant system-wide so they
+# cannot come back up after a reboot and tear down the IBSS interface.
+echo "[PRE] Disabling NetworkManager and wpa_supplicant permanently..."
+systemctl stop    NetworkManager  2>/dev/null || true
+systemctl disable NetworkManager  2>/dev/null || true
+systemctl stop    wpa_supplicant  2>/dev/null || true
+systemctl disable wpa_supplicant  2>/dev/null || true
+
 # --- Create BATMAN startup script ---
 echo "[1/4] Creating /usr/local/bin/start-batman.sh ..."
-cat <<EOF | sudo tee /usr/local/bin/start-batman.sh >/dev/null
+cat <<EOF | tee /usr/local/bin/start-batman.sh >/dev/null
 #!/bin/bash
+set -e
 # ========================================
 # BATMAN-adv Startup Script
 # ========================================
 
-echo "Starting BATMAN-adv mesh setup..."
+log() { echo "[start-batman] \$*" | tee -a /var/log/batman-start.log; }
 
-# Stop and disable conflicting services
-systemctl stop wpa_supplicant 2>/dev/null || true
-systemctl disable wpa_supplicant 2>/dev/null || true
-systemctl stop NetworkManager 2>/dev/null || true
-systemctl disable NetworkManager 2>/dev/null || true
+log "Starting BATMAN-adv mesh setup..."
+
+# Unblock wireless radio (must happen before touching wlan0)
+log "Unblocking wireless radio..."
+rfkill unblock all || true
+sleep 1
 
 # Load BATMAN kernel module
+log "Loading batman-adv kernel module..."
 modprobe batman-adv
+sleep 1
 
-# Configure wlan0 for ad-hoc mode
+# Bring wlan0 down cleanly before changing mode
+log "Configuring wlan0 for IBSS (ad-hoc) mode..."
 ip link set wlan0 down
+sleep 1
+
+# Set IBSS mode (must be done while interface is DOWN)
 iw dev wlan0 set type ibss
+
+# Bring wlan0 back up
 ip link set wlan0 up
+sleep 2
+
+# Join the IBSS network
+log "Joining IBSS network: $NETWORK_NAME @ ${FREQUENCY} MHz..."
 iw dev wlan0 ibss join $NETWORK_NAME $FREQUENCY
+sleep 3  # critical: ibss join is async — batman needs wlan0 fully in IBSS mode
 
-# Add wlan0 to BATMAN
+# Add wlan0 to BATMAN-adv (creates bat0)
+log "Adding wlan0 to batman-adv..."
 batctl if add wlan0
+sleep 2
+
+# Bring bat0 up
+log "Bringing up bat0..."
 ip link set up dev bat0
+sleep 1
 
-# Assign static IP
+# Assign static IP — always force it here so it survives any race conditions
+log "Assigning static IP $STATIC_IP to bat0..."
+# Remove any existing addresses first so we don't accumulate duplicates
+ip addr flush dev bat0 2>/dev/null || true
 ip addr add $STATIC_IP dev bat0
-
-echo "BATMAN-adv setup complete!"
+log "bat0 address: \$(ip addr show bat0 | grep 'inet ')"
+log "BATMAN-adv setup complete!"
 EOF
 
-sudo chmod +x /usr/local/bin/start-batman.sh
+chmod +x /usr/local/bin/start-batman.sh
 
 # --- Create systemd service ---
+# FIX: Added Conflicts= so systemd itself prevents NetworkManager/wpa_supplicant
+#      from starting after batman and tearing down the IBSS interface on reboot.
 echo "[2/4] Creating /etc/systemd/system/batman.service ..."
-cat <<EOF | sudo tee /etc/systemd/system/batman.service >/dev/null
+cat <<EOF | tee /etc/systemd/system/batman.service >/dev/null
 [Unit]
 Description=BATMAN-adv Mesh Network
 After=network.target sys-subsystem-net-devices-wlan0.device
 Wants=sys-subsystem-net-devices-wlan0.device
+Conflicts=NetworkManager.service wpa_supplicant.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+ExecStartPre=-/bin/systemctl stop NetworkManager
+ExecStartPre=-/bin/systemctl stop wpa_supplicant
 ExecStart=/bin/bash /usr/local/bin/start-batman.sh
+Restart=on-failure
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
@@ -187,26 +190,24 @@ EOF
 
 # --- Reload systemd and enable service ---
 echo "[3/4] Reloading systemd and enabling service ..."
-sudo systemctl daemon-reload
-sudo systemctl enable batman.service
+systemctl daemon-reload
+systemctl enable batman.service
 
 # --- Start service immediately ---
 echo "[4/4] Starting BATMAN service ..."
-sudo systemctl start batman.service
+systemctl start batman.service
 
 echo
 echo "BATMAN-adv setup complete!"
 echo "To verify, run: sudo systemctl status batman.service"
 echo "Then check mesh neighbors with: sudo batctl n"
 
+
 # ===================================
-# === PART 4: Node Internet Setup ===
+# === PART 3: Node Internet Setup ===
 # ===================================
 
-if [[ $EUID -ne 0 ]]; then
-  echo "Run as root: sudo $0"
-  exit 1
-fi
+set -euo pipefail
 
 read -rp "Mesh interface [bat0]: " MESH_IF
 MESH_IF=${MESH_IF:-bat0}
@@ -216,63 +217,196 @@ SUP_IP=${SUP_IP:-10.42.0.30}
 
 echo
 echo "=== Summary ==="
-echo "Mesh IF:   $MESH_IF"
-echo "Supervisor:$SUP_IP"
+echo "Mesh IF:    $MESH_IF"
+echo "Supervisor: $SUP_IP"
+echo "Static IP:  $STATIC_IP"
 echo
 
-echo "[1/9] Installing required packages..."
-apt-get update -y
-apt-get install -y chrony isc-dhcp-client rfkill || true
+echo "[1/9] Checking and installing required packages..."
 
-echo "[2/9] Prevent dhclient DNS write issues (resolv.conf protected)..."
+is_installed() { dpkg -l "$1" 2>/dev/null | grep -q "^ii"; }
+
+PACKAGES_TO_INSTALL=()
+for pkg in chrony isc-dhcp-client rfkill; do
+  if ! is_installed "$pkg"; then
+    echo "  - $pkg not found, will install"
+    PACKAGES_TO_INSTALL+=("$pkg")
+  else
+    echo "  - $pkg already installed ✓"
+  fi
+done
+
+if [ ${#PACKAGES_TO_INSTALL[@]} -gt 0 ]; then
+  echo "  Installing: ${PACKAGES_TO_INSTALL[*]}"
+  apt-get update -y
+  apt-get install -y "${PACKAGES_TO_INSTALL[@]}" || true
+else
+  echo "  All required packages already installed, skipping apt-get"
+fi
+
+echo "[2/9] Prevent dhclient DNS write issues..."
 mkdir -p /etc/dhcp/dhclient-enter-hooks.d
 cat >/etc/dhcp/dhclient-enter-hooks.d/nodns <<'EOF'
 make_resolv_conf() { :; }
 EOF
 chmod +x /etc/dhcp/dhclient-enter-hooks.d/nodns
 
-echo "[3/9] Create boot helper script (rfkill -> mesh -> DHCP -> time)..."
-cat >/usr/local/sbin/mesh-boot.sh <<EOF
+echo "[3/9] Create robust boot helper..."
+cat >/usr/local/sbin/mesh-boot.sh <<BOOTSCRIPT
 #!/usr/bin/env bash
 set -e
 
-MESH_IF="$MESH_IF"
-SUP_IP="$SUP_IP"
+MESH_IF="{{MESH_IF}}"
+SUP_IP="{{SUP_IP}}"
+STATIC_IP="{{STATIC_IP}}"
+MAX_RETRIES=10
+RETRY_DELAY=3
 
-# Unblock Wi-Fi if rfkill is on
+log() {
+    echo "[\$(date '+%Y-%m-%d %H:%M:%S')] \$*" | tee -a /var/log/mesh-boot.log
+}
+
+log "=== Starting mesh boot sequence ==="
+
+# Step 1: Unblock Wi-Fi
+log "Unblocking wireless..."
 command -v rfkill >/dev/null 2>&1 && rfkill unblock all || true
+sleep 1
 
-# Bring up mesh iface if it exists
-ip link set "\$MESH_IF" up 2>/dev/null || true
+# Step 2: Wait for mesh interface to exist
+log "Waiting for \$MESH_IF to exist..."
+for i in \$(seq 1 \$MAX_RETRIES); do
+    if ip link show "\$MESH_IF" >/dev/null 2>&1; then
+        log "\$MESH_IF exists"
+        break
+    fi
+    if [ \$i -eq \$MAX_RETRIES ]; then
+        log "ERROR: \$MESH_IF never appeared! Is batman.service running?"
+        exit 1
+    fi
+    log "Waiting for \$MESH_IF... attempt \$i/\$MAX_RETRIES"
+    sleep \$RETRY_DELAY
+done
 
-# DHCP (this is what you were doing manually)
-dhclient -r "\$MESH_IF" 2>/dev/null || true
-dhclient "\$MESH_IF" 2>/dev/null || true
+# Step 3: Bring up interface
+log "Bringing up \$MESH_IF..."
+ip link set "\$MESH_IF" up
+sleep 2
 
-# If resolvectl exists, pin DNS to supervisor (best effort)
+# Step 4: Verify static IP — if missing (e.g. batman.service was slow), assign it now.
+# FIX: Previously this just waited and gave up. Now it actively re-assigns the IP
+#      so the node always ends up with the correct address even if batman.service
+#      lost a race condition on boot.
+log "Verifying static IP on \$MESH_IF..."
+for i in \$(seq 1 \$MAX_RETRIES); do
+    if ip addr show "\$MESH_IF" | grep -q "inet "; then
+        MESH_IP=\$(ip -4 addr show "\$MESH_IF" | grep inet | awk '{print \$2}')
+        log "IP confirmed: \$MESH_IP"
+        # FIX: Even if an IP exists it might be the wrong one (assigned by dhcpcd
+        #      before our denyinterfaces takes effect on first boot). Replace it.
+        if [ "\$MESH_IP" != "\$STATIC_IP" ]; then
+            log "WARNING: IP \$MESH_IP does not match desired \$STATIC_IP — correcting..."
+            ip addr flush dev "\$MESH_IF" 2>/dev/null || true
+            ip addr add "\$STATIC_IP" dev "\$MESH_IF"
+            log "IP corrected to \$STATIC_IP"
+        fi
+        break
+    fi
+    if [ \$i -eq \$MAX_RETRIES ]; then
+        log "No IP found after \$MAX_RETRIES attempts — force-assigning \$STATIC_IP..."
+        ip addr flush dev "\$MESH_IF" 2>/dev/null || true
+        ip addr add "\$STATIC_IP" dev "\$MESH_IF" || true
+    fi
+    log "Waiting for IP on \$MESH_IF... attempt \$i/\$MAX_RETRIES"
+    sleep \$RETRY_DELAY
+done
+
+# Step 5: Set default route via supervisor
+log "Setting default route via supervisor \$SUP_IP..."
+ip route del default 2>/dev/null || true
+ip route add default via "\$SUP_IP" dev "\$MESH_IF"
+log "Default route: \$(ip route show default)"
+
+# Step 6: Configure DNS
+log "Configuring DNS to use supervisor..."
 if command -v resolvectl >/dev/null 2>&1; then
-  resolvectl dns "\$MESH_IF" "\$SUP_IP" || true
-  resolvectl domain "\$MESH_IF" "~." || true
+    resolvectl dns "\$MESH_IF" "\$SUP_IP" || true
+    resolvectl domain "\$MESH_IF" "~." || true
 else
-  echo "nameserver \$SUP_IP" > /etc/resolv.conf || true
+    echo "nameserver \$SUP_IP" > /etc/resolv.conf
 fi
 
-# Time sync step (best effort)
-command -v chronyc >/dev/null 2>&1 && chronyc -a makestep || true
-EOF
+# Step 7: Wait for supervisor to be reachable
+log "Testing connectivity to supervisor at \$SUP_IP..."
+for i in \$(seq 1 \$MAX_RETRIES); do
+    if ping -c 1 -W 2 "\$SUP_IP" >/dev/null 2>&1; then
+        log "Supervisor is reachable"
+        break
+    fi
+    if [ \$i -eq \$MAX_RETRIES ]; then
+        log "WARNING: Supervisor not reachable after \$MAX_RETRIES attempts"
+    else
+        log "Waiting for supervisor... attempt \$i/\$MAX_RETRIES"
+        sleep \$RETRY_DELAY
+    fi
+done
+
+# Step 8: Force time sync
+log "Forcing time synchronization..."
+sleep 2
+if command -v chronyc >/dev/null 2>&1; then
+    chronyc -a makestep 2>&1 | tee -a /var/log/mesh-boot.log || true
+    sleep 1
+    chronyc -a burst 4/4 2>&1 | tee -a /var/log/mesh-boot.log || true
+    sleep 2
+    chronyc tracking 2>&1 | tee -a /var/log/mesh-boot.log || true
+fi
+
+# Step 9: Test internet connectivity
+log "Testing internet connectivity..."
+if ping -c 2 8.8.8.8 >/dev/null 2>&1; then
+    log "Internet connectivity: OK"
+else
+    log "WARNING: No internet connectivity"
+fi
+
+log "=== Mesh boot sequence complete ==="
+log "Current time: \$(date)"
+log "IP address:   \$(ip -4 addr show \$MESH_IF | grep inet | awk '{print \$2}')"
+
+exit 0
+BOOTSCRIPT
+
+# Replace placeholders (now includes STATIC_IP)
+python3 - <<PY
+from pathlib import Path
+p = Path("/usr/local/sbin/mesh-boot.sh")
+txt = p.read_text()
+txt = txt.replace("{{MESH_IF}}",   "${MESH_IF}")
+txt = txt.replace("{{SUP_IP}}",    "${SUP_IP}")
+txt = txt.replace("{{STATIC_IP}}", "${STATIC_IP}")
+p.write_text(txt)
+PY
+
 chmod +x /usr/local/sbin/mesh-boot.sh
 
-echo "[4/9] Ensure chrony uses supervisor and steps quickly..."
+echo "[5/9] Configure chrony for aggressive syncing..."
 CHRONY_CONF="/etc/chrony/chrony.conf"
-
-# Remove existing server line for this SUP_IP duplicates (safe)
+cp "$CHRONY_CONF" "$CHRONY_CONF.backup"
 grep -vE "^\s*server\s+$SUP_IP\b" "$CHRONY_CONF" > /tmp/chrony.conf.tmp || true
 cat /tmp/chrony.conf.tmp > "$CHRONY_CONF"
 
 tmpfile="$(mktemp)"
 {
-  echo "server $SUP_IP iburst prefer"
-  echo "makestep 1.0 3"
+  echo "# Supervisor NTP server (primary time source)"
+  echo "server $SUP_IP iburst prefer minpoll 0 maxpoll 4"
+  echo ""
+  echo "# Allow large time steps (important for initial sync)"
+  echo "makestep 1.0 -1"
+  echo ""
+  echo "# More aggressive polling"
+  echo "maxupdateskew 100.0"
+  echo ""
   cat "$CHRONY_CONF"
 } > "$tmpfile"
 cat "$tmpfile" > "$CHRONY_CONF"
@@ -281,17 +415,23 @@ rm -f "$tmpfile"
 systemctl enable chrony
 systemctl restart chrony
 
-echo "[5/9] Create systemd service to run mesh-boot on every startup..."
+# FIX: Removed "Before=network-online.target chrony.service" — that line was
+#      causing chrony to start before the mesh interface was ready, so it could
+#      never reach the supervisor NTP server on reboot.
+echo "[6/9] Create systemd service with proper dependencies..."
 cat >/etc/systemd/system/mesh-boot.service <<'EOF'
 [Unit]
-Description=Batman mesh boot: rfkill unblock + DHCP on bat0 + time sync
-After=network-online.target
-Wants=network-online.target
+Description=Batman mesh boot: interface up + route + time sync
+After=network.target batman.service
+Requires=batman.service
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/mesh-boot.sh
 RemainAfterExit=yes
+TimeoutStartSec=120
+Restart=on-failure
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
@@ -299,37 +439,130 @@ EOF
 
 systemctl daemon-reload
 systemctl enable mesh-boot.service
-systemctl start mesh-boot.service || true
 
-echo "[6/9] (Optional) Add boot-time force sync service (kept from your original)..."
+# FIX: mesh-timesync now starts After=chrony.service (not before it) so chrony
+#      is already running and able to receive the makestep/burst commands.
+echo "[7/9] Create delayed time sync service (runs after mesh-boot)..."
 cat >/etc/systemd/system/mesh-timesync.service <<EOF
 [Unit]
-Description=Force time sync over mesh after network is up
-After=network-online.target chrony.service
-Wants=network-online.target
+Description=Force time sync over mesh (delayed)
+After=mesh-boot.service chrony.service
+Requires=mesh-boot.service
+BindsTo=mesh-boot.service
 
 [Service]
 Type=oneshot
+ExecStartPre=/bin/sleep 5
 ExecStart=/usr/bin/chronyc -a makestep
-ExecStart=/usr/bin/chronyc -a 'burst 4/4'
-ExecStart=/usr/bin/chronyc -a tracking
+ExecStart=/usr/bin/chronyc -a burst 4/4
+ExecStartPost=/bin/sleep 2
+ExecStartPost=/usr/bin/chronyc tracking
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
 systemctl enable mesh-timesync.service
-systemctl start mesh-timesync.service || true
+
+echo "[8/9] Create a manual recovery script..."
+cat >/usr/local/bin/mesh-reconnect <<'EOF'
+#!/usr/bin/env bash
+echo "Manually triggering mesh reconnection..."
+sudo systemctl restart batman.service
+sleep 5
+sudo systemctl restart mesh-boot.service
+sleep 5
+sudo systemctl restart mesh-timesync.service
+echo "Done. Check status with: systemctl status mesh-boot.service"
+EOF
+chmod +x /usr/local/bin/mesh-reconnect
+
+echo "[9/9] Testing the setup now..."
+/usr/local/sbin/mesh-boot.sh || true
 
 echo
-echo "Quick checks:"
-ip -br a | grep -E "\b$MESH_IF\b" || true
-ip route | head -n 5 || true
-ping -c 2 "$SUP_IP" || true
-ping -c 2 8.8.8.8 || true
-ping -c 2 google.com || true
-date
-chronyc tracking || true
-
+echo "============================================"
+echo "SETUP COMPLETE!"
+echo "============================================"
 echo
-echo "DONE. After reboot, DHCP on bat0 will run automatically (no more manual dhclient)."
+echo "The node will now automatically:"
+echo "  1. Wait for $MESH_IF to appear (batman.service runs first)"
+echo "  2. Verify/correct the static IP $STATIC_IP on $MESH_IF"
+echo "  3. Set default route via supervisor $SUP_IP"
+echo "  4. Sync time from supervisor"
+echo "  5. Connect to internet via supervisor"
+echo
+echo "Logs: /var/log/mesh-boot.log  /var/log/batman-start.log"
+echo "Manual reconnect: mesh-reconnect"
+echo
+echo "After reboot, everything happens automatically."
+echo
+
+
+# ======================================
+# === PART 4: Autostart installation ===
+# ======================================
+
+PROJECT_ROOT="/home/pi/BEAMNode_Prototype2"
+NODE_DIR="$PROJECT_ROOT/scripts/node"
+SERVICE_SRC="$PROJECT_ROOT/beamnode.service"
+SERVICE_NAME="beamnode.service"
+LOG_DIR="$PROJECT_ROOT/logs"
+
+echo "[1/4] Preparing directories..."
+mkdir -p "/home/pi/data"
+mkdir -p "/home/pi/shipping"
+mkdir -p "$LOG_DIR"
+
+echo "[2/4] Setting execution permissions..."
+chmod +x "$NODE_DIR/launcher.py"
+chmod +x "$NODE_DIR/scheduler.py"
+chmod +x "$NODE_DIR/sensor_detection/detect.py"
+chmod +x "$NODE_DIR/shipping_queuing/shipping.py"
+
+echo "[3/4] Registering systemd service..."
+if [ -f "$SERVICE_SRC" ]; then
+    cp "$SERVICE_SRC" /etc/systemd/system/
+    systemctl daemon-reload
+    systemctl enable "$SERVICE_NAME"
+    systemctl restart "$SERVICE_NAME"
+    echo "Service $SERVICE_NAME installed and started."
+else
+    echo "ERROR: Could not find $SERVICE_SRC"
+    echo "Please ensure beamnode.service is in $PROJECT_ROOT"
+    exit 1
+fi
+
+echo "[4/4] Verifying system status..."
+if systemctl is-active --quiet "$SERVICE_NAME"; then
+    echo "------------------------------------------------"
+    echo "SUCCESS: Installation Complete!"
+    echo "The Launcher is now running in the background."
+    echo "------------------------------------------------"
+else
+    echo "Service installed but failed to start."
+    echo "Check logs with: journalctl -u $SERVICE_NAME -f"
+fi
+
+# Enable I2C and SPI
+sudo raspi-config nonint do_i2c 0
+sudo raspi-config nonint do_spi 0
+
+read -rp "Would you like to set the default boot to terminal mode? [y/n]: " TERM_MODE
+if [[ "${TERM_MODE,,}" == "y" ]]; then
+    echo "=== Setting default boot to terminal mode ==="
+    sudo systemctl set-default multi-user.target
+else
+    echo "Default boot is still the graphical desktop environment."
+fi
+
+echo "------------------------------------------------"
+echo "Node installation is complete!"
+echo "------------------------------------------------"
+
+read -rp "Would you like to reboot now? [y/n]: " REBOOT
+if [[ "${REBOOT,,}" == "y" ]]; then
+    echo "Rebooting now..."
+    sudo reboot now
+fi
+

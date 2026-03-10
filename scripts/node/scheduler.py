@@ -72,7 +72,7 @@ def run_sensor_once(sensor):
         return
 
     log(f"[INFO] Running {sensor} at {datetime.now().strftime('%H:%M:%S')}")
-    result = subprocess.run(["python3", script_path], capture_output=True, text=True)
+    result = subprocess.run(["python3", script_path], capture_output=True, text=True, timeout=30)
 
     # You can log result.stdout/result.stderr here if needed
     if result.returncode == 0:

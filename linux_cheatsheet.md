@@ -1,3 +1,5 @@
+# Linux Cheatsheet
+
 # BATMAN Commands
 
 * **sudo batctl n** Shows the neighboring nodes connected to BATMAN  
@@ -13,7 +15,7 @@
 
 # Rsync Commands
 
-* **rsync \-avz /home/pi/BEAMNode\_Prototype1 pi@192.168.1.{node number}:/home/pi/** Sends the BEAMNode folder from the supervisor, to the specified node
+* **rsync \-avz /home/pi/BEAMNode\_Prototype2 pi@192.168.1.{node number}:/home/pi/** Sends the BEAMNode folder from the supervisor, to the specified node
 
 # Wifi Commands
 
@@ -29,12 +31,26 @@
 
 # Other Tutorials
 
-## How to clone a new repository on the supervisor
+* ## How to clone a new repository on the supervisor
 
-Run the following commands in order:
+    Run the following commands in order:
 
-* **sudo rm -rf BEAMNode_Prototype2** This deletes the current respository on the supervisor
-* **sudo bash ./enable_wifi.sh** Enables wifi on the supervisor so it is able to fine the new repository from the internet
-* **git clone https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2** Clones the new repository onto the supervisor
-* **sudo reboot now** This reboots the pi so that when it comes back on, it disconnects from wifi and connects back to BATMAN
+    * **sudo rm -rf BEAMNode_Prototype2** This deletes the current respository on the supervisor
+    * **sudo bash ./enable_wifi.sh** Enables wifi on the supervisor so it is able to fine the new repository from the internet
+    * **git clone https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2** Clones the new repository onto the supervisor
+    * **sudo reboot now** This reboots the pi so that when it comes back on, it disconnects from wifi and connects back to BATMAN
+
+* ## How to connect to the internet via terminal
+
+    ### First, ensure that the wifi is enabled
+    * **Tip:** You may need to run **sudo systemctl restart NetworkManager** if any of these commands give you errors
+    * **sudo nmcli networking on** This enables all networking functionality managed by the Network manager
+    * **sudo nmcli radio wifi on** This enables WiFi radio via NetworkManager
+
+    ### Scan networks
+    * **sudo nmcli dev wifi rescan** This forces the NetworkManager daemon to immediately refresh its list of available Wi-Fi
+    * **nmcli dev wifi list** This displays available Wi-Fi access points, including SSID, signal strength, and security protocols
+
+    ### Connect
+    * **sudo nmcli dev wifi connect "YOUR_SSID" password "YOUR_PASSWORD"** Connects to the specified wifi network
 

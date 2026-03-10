@@ -32,6 +32,20 @@
         "hostname": "node5.local",
         "node_state": "dead",
         "transfer_fail": true
+    },
+    
+    "node6": {
+        "ip": "10.42.0.6",
+        "hostname": "node6.local",
+        "node_state": "dead",
+        "transfer_fail": true
+    },
+    
+    "node7": {
+        "ip": "10.42.0.7",
+        "hostname": "node7.local",
+        "node_state": "dead",
+        "transfer_fail": true
     }
 
 }
