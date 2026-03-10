@@ -158,6 +158,7 @@ I2C_ADDR_TABLE = {
 }
 
 CANDIDATE_I2C_BUSES = (1,)
+ATLAS_SWITCH_SCRIPT = "/home/pi/BEAMNode_Prototype2/scripts/node/atlas_sci/switch_to_i2c.py"
 
 def scan_i2c(busnum):
     try:
@@ -167,6 +168,41 @@ def scan_i2c(busnum):
     except Exception as e:
         spi_logger.warning(f"I2C scan failed on bus {busnum}: {e}")
         return ""
+
+def atlas_ec_recover_to_i2c():
+    """Attempt one-time Atlas EC UART->I2C recovery when 0x64 is missing."""
+    if not os.path.exists(ATLAS_SWITCH_SCRIPT):
+        spi_logger.warning(f"Atlas EC recovery script missing: {ATLAS_SWITCH_SCRIPT}")
+        return False
+    try:
+        print("Atlas EC not detected at 0x64; attempting UART->I2C recovery...")
+        result = subprocess.run(
+            ["sudo", "python3", ATLAS_SWITCH_SCRIPT],
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if result.returncode != 0:
+            spi_logger.warning(
+                f"Atlas EC recovery command exited {result.returncode}: {result.stderr.strip()}"
+            )
+            return False
+        spi_logger.info("Atlas EC recovery command completed")
+        if result.stdout:
+            spi_logger.info(result.stdout.strip())
+        time.sleep(2.0)
+        return True
+    except Exception as e:
+        spi_logger.warning(f"Atlas EC recovery failed: {e}")
+        return False
+
+def is_i2c_addr_present(busnum, target_addr):
+    output = scan_i2c(busnum)
+    if not output:
+        return False
+    found_addrs = set(int(m, 16) for m in re.findall(r"\b[0-9a-f]{2}\b", output, re.IGNORECASE))
+    return target_addr in found_addrs
 
 def detect_i2c_sensors():
     detected = []
@@ -191,6 +227,22 @@ def detect_i2c_sensors():
                 set_config_flag(CONFIG_PATH, name, "enabled", False)
                 set_config_flag(CONFIG_PATH, name, "i2c_bus", None)
                 set_config_flag(CONFIG_PATH, name, "address_hex", None)
+
+    # Atlas EC recovery path: if missing, attempt mode switch and rescan once.
+    if "atlas_ec" not in detected:
+        recovered = atlas_ec_recover_to_i2c()
+        if recovered:
+            for bus in CANDIDATE_I2C_BUSES:
+                if not os.path.exists(f"/dev/i2c-{bus}"):
+                    continue
+                if is_i2c_addr_present(bus, 0x64):
+                    print(f"I2C Sensor Found After Recovery: atlas_ec (Bus {bus}, Addr 0x64)")
+                    set_config_flag(CONFIG_PATH, "atlas_ec", "enabled", True)
+                    set_config_flag(CONFIG_PATH, "atlas_ec", "i2c_bus", bus)
+                    set_config_flag(CONFIG_PATH, "atlas_ec", "address_hex", "0x64")
+                    detected.append("atlas_ec")
+                    break
+
     if not detected:
         print("No I2C sensors detected")
     return detected
