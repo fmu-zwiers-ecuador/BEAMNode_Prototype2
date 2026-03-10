@@ -160,7 +160,7 @@ I2C_ADDR_TABLE = {
     "atlas_rtd": [0x66]
 }
 
-CANDIDATE_I2C_BUSES = (1,)
+CANDIDATE_I2C_BUSES = (1, 2)
 
 def scan_i2c(busnum):
     try:
