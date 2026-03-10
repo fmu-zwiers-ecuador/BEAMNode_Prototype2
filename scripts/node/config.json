@@ -89,6 +89,7 @@
   },
 
   "camera": {
+    
     "enabled": false,
     "interface": "CSI",
     "library": "picamera2",
@@ -96,11 +97,26 @@
     "device_id": 0,
     "directory": "camera",
     "file_name": "camera_status.json",
+    "file_prefix": "motionpic_",
+
+    "gpio_pin": 4,
+    "flash_gpio": 17,
+    "servo_gpio": 18,
+
+    "resolution": [1920, 1080],
+    "lores_resolution": [640, 480],
+
+    "cooldown_sec": 1,
+    "flash_lux_threshold": 10,
+
+
     "record_schema": {
       "timestamp": "ISO8601",
       "status": "string",
       "model": "string",
       "details": "string"
     }
+    
+    
   }
 }
