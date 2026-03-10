@@ -2,12 +2,38 @@ import serial
 import time
 import os
 
-# All ports the Pi may expose the hardware UART on.
-# serial0 is a symlink that may point to ttyAMA0 or ttyS0 depending on the Pi model.
+# ============================================================
+# IMPORTANT — i3 InterLink users:
+#
+# The Atlas Scientific i3 InterLink board speaks I2C only.
+# UART commands from this script CANNOT reach an EZO circuit
+# seated inside the InterLink. You MUST temporarily remove the
+# EC circuit from the InterLink and wire it directly to the
+# Pi GPIO UART pins before running this script:
+#
+#   Pi GPIO 14 (TXD, pin 8)  →  EZO TX
+#   Pi GPIO 15 (RXD, pin 10) →  EZO RX
+#   Pi 3.3V (pin 1 or 17)    →  EZO VCC
+#   Pi GND   (pin 6 or 14)   →  EZO GND
+#
+# Pi Zero (no W): /dev/ttyAMA0 is the hardware UART — use this.
+# Pi Zero W:      /dev/ttyAMA0 is taken by Bluetooth.
+#                 Either use /dev/ttyS0 (mini-UART, less reliable)
+#                 or add  dtoverlay=miniuart-bt  to /boot/config.txt
+#                 and reboot so ttyAMA0 is free.
+#
+# Also make sure the serial console is disabled:
+#   sudo raspi-config → Interface Options → Serial Port
+#     "login shell over serial" = NO
+#     "serial port hardware enabled" = YES
+#
+# After the switch succeeds re-seat the circuit in the InterLink.
+# ============================================================
+
 CANDIDATE_PORTS = [
-    "/dev/ttyAMA0",   # Pi 3/4/5 primary UART (Bluetooth disabled or using mini-UART)
-    "/dev/serial0",   # symlink - try explicitly as well
-    "/dev/ttyS0",     # Pi 3 mini-UART (lower performance, may still work)
+    "/dev/ttyAMA0",   # Pi Zero (no-W) hardware UART / Pi 3+4 when BT moved off
+    "/dev/serial0",   # symlink — resolves to ttyAMA0 or ttyS0 depending on model
+    "/dev/ttyS0",     # Pi Zero W mini-UART fallback
     "/dev/ttyUSB0",   # USB-UART adapter fallback
     "/dev/ttyUSB1",
 ]
