@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+Author: Jackson Roberts
 Atlas EZO EC Calibration Script
 ================================
 Walks through dry → single-point (or two-point) calibration
@@ -14,6 +15,7 @@ re-run is needed after a reboot.
 """
 
 import json
+import os
 import sys
 import time
 import smbus2
@@ -43,13 +45,26 @@ def ezo_cmd(bus, addr, cmd: str, delay: float = 1.3, read_len: int = 20) -> str:
     status = res[0]
     text = "".join(chr(x) for x in res[1:] if 32 <= x <= 126).strip()
     if status == 1:
-        return text
+        return text if text else "OK"
     elif status == 254:
         return "STILL_PROCESSING"
     elif status == 255:
         return "NO_DATA"
     else:
         return f"ERROR_{status}"
+
+def set_config_flag(key, value):
+    """Atomically update a single field under atlas_ec in config.json."""
+    try:
+        with open(CONFIG_PATH, "r") as f:
+            cfg = json.load(f)
+    except Exception:
+        cfg = {}
+    cfg.setdefault("atlas_ec", {})[key] = value
+    tmp = CONFIG_PATH + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(cfg, f, indent=2)
+    os.replace(tmp, CONFIG_PATH)
 
 def prompt(msg: str) -> str:
     return input(f"\n{msg}\nPress Enter when ready (or type 'skip' to skip): ").strip().lower()
@@ -97,7 +112,8 @@ def step_dry(bus, addr):
         return
     resp = ezo_cmd(bus, addr, "Cal,dry", delay=1.3)
     if resp and "ERROR" not in resp and resp not in ("STILL_PROCESSING", "NO_DATA"):
-        print(f"  Dry calibration successful. (EZO: '{resp}')")
+        confirm = ezo_cmd(bus, addr, "Cal,?", delay=0.6)
+        print(f"  Dry calibration successful. Cal status: {confirm}")
     else:
         print(f"  WARNING: Unexpected response: {resp}")
 
@@ -121,7 +137,8 @@ def step_single_point(bus, addr):
 
     resp = ezo_cmd(bus, addr, f"Cal,one,{sol_val}", delay=1.3)
     if resp and "ERROR" not in resp and resp not in ("STILL_PROCESSING", "NO_DATA"):
-        print(f"  Single-point calibration successful. (EZO: '{resp}')")
+        confirm = ezo_cmd(bus, addr, "Cal,?", delay=0.6)
+        print(f"  Single-point calibration successful. Cal status: {confirm}")
     else:
         print(f"  WARNING: Unexpected response: {resp}")
 
@@ -143,7 +160,8 @@ def step_two_point_low(bus, addr):
 
     resp = ezo_cmd(bus, addr, f"Cal,low,{sol_val}", delay=1.3)
     if resp and "ERROR" not in resp and resp not in ("STILL_PROCESSING", "NO_DATA"):
-        print(f"  Low-point calibration successful. (EZO: '{resp}')")
+        confirm = ezo_cmd(bus, addr, "Cal,?", delay=0.6)
+        print(f"  Low-point calibration successful. Cal status: {confirm}")
     else:
         print(f"  WARNING: Unexpected response: {resp}")
 
@@ -165,7 +183,8 @@ def step_two_point_high(bus, addr):
 
     resp = ezo_cmd(bus, addr, f"Cal,high,{sol_val}", delay=1.3)
     if resp and "ERROR" not in resp and resp not in ("STILL_PROCESSING", "NO_DATA"):
-        print(f"  High-point calibration successful. (EZO: '{resp}')")
+        confirm = ezo_cmd(bus, addr, "Cal,?", delay=0.6)
+        print(f"  High-point calibration successful. Cal status: {confirm}")
     else:
         print(f"  WARNING: Unexpected response: {resp}")
 
@@ -222,6 +241,12 @@ def main():
             step_single_point(bus, addr)
 
         step_verify(bus, addr)
+
+        # Enable the sensor in config.json so log_atlas_ec.py will run
+        set_config_flag("enabled", True)
+        set_config_flag("i2c_bus", bus_num)
+        set_config_flag("address_hex", f"0x{addr:02X}")
+        print("\n  config.json updated: atlas_ec.enabled = true")
 
     finally:
         bus.close()
