@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """
-Author: Jackson Roberts
 Atlas EZO EC Calibration Script
 ================================
-Walks through dry → single-point (or two-point) calibration
-for the Atlas Scientific EZO EC circuit over I2C.
+Probe:  Atlas Scientific K 0.1 conductivity probe
+Board:  i3 InterLink (Pi HAT) — EZO EC circuit seated inside
+Range:  0.07 – 500 µS/cm
+
+CALIBRATION NOTE for K 0.1:
+  Use SINGLE-POINT calibration with 84 µS/cm solution.
+  1413 µS/cm is ABOVE the K 0.1 range and will be rejected
+  by the EZO circuit — do NOT use it as a calibration point.
 
 Usage:
     sudo python3 calibrate_ec.py
@@ -33,10 +38,14 @@ def load_config():
         print(f"ERROR: Could not load config.json: {e}")
         sys.exit(1)
 
+# The i3 InterLink board relays I2C to the seated EZO circuit — add extra
+# headroom beyond the bare-EZO minimums to account for that latency.
+INTERLINK_OVERHEAD = 0.4  # seconds added on top of EZO processing time
+
 def ezo_cmd(bus, addr, cmd: str, delay: float = 1.3, read_len: int = 20) -> str:
     """Send a command to the EZO circuit and return the decoded response string."""
     bus.i2c_rdwr(i2c_msg.write(addr, list(cmd.encode()) + [0x0D]))
-    time.sleep(delay)
+    time.sleep(delay + INTERLINK_OVERHEAD)
     r = i2c_msg.read(addr, read_len)
     bus.i2c_rdwr(r)
     res = list(r)
@@ -122,10 +131,10 @@ def step_single_point(bus, addr):
     print("STEP 2  — Single-point calibration (solution)")
     print("  • Rinse probe with DI water, shake off excess")
     print("  • Submerge fully in your calibration solution")
-    print("  • Common values:  84 µS/cm  |  1413 µS/cm  |  12880 µS/cm")
-    print("  • Check the label on your solution bottle for the exact value")
+    print("  • K 0.1 probe range: 0.07–500 µS/cm")
+    print("  • Use 84 µS/cm solution — 1413 µS/cm is OUT OF RANGE for K 0.1")
 
-    sol_val = input("\n  Enter solution value in µS/cm (e.g. 1413): ").strip()
+    sol_val = input("\n  Enter solution value in µS/cm (e.g. 84): ").strip()
     if not sol_val.isdigit():
         print("  Invalid value — skipping single-point calibration.")
         return
@@ -147,6 +156,7 @@ def step_two_point_low(bus, addr):
     print("STEP 2a — Two-point calibration: LOW solution")
     print("  • Rinse probe with DI water, shake off excess")
     print("  • Submerge fully in your LOW calibration solution")
+    print("  • K 0.1 range is 0.07–500 µS/cm — keep both points within this range")
 
     sol_val = input("\n  Enter LOW solution value in µS/cm (e.g. 84): ").strip()
     if not sol_val.isdigit():
@@ -228,9 +238,10 @@ def main():
         # Calibration type
         separator()
         print("Calibration type:")
-        print("  1 = Single-point  (one solution bottle)")
-        print("  2 = Two-point     (low + high solution bottles — recommended)")
-        cal_type = input("\nSelect [1/2] (default 2): ").strip() or "2"
+        print("  1 = Single-point  (84 µS/cm — recommended for K 0.1 probe)")
+        print("  2 = Two-point     (both points must be within 0.07–500 µS/cm)")
+        print("  NOTE: 1413 µS/cm is out of range for K 0.1 — do not use it")
+        cal_type = input("\nSelect [1/2] (default 1): ").strip() or "1"
 
         step_dry(bus, addr)
 
