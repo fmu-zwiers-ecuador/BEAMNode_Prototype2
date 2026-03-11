@@ -37,11 +37,12 @@
 
         cd etc/wpa_supplicant/
 * Then create a new file by typing:
+        
         sudo nano wpa_supplicant-wlan1.conf
 
 * In this file, type:
 
-        crtl_interface=DIR=/var/run/wpa_supplicant.conf
+        ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
         update_config=1
         country=US
 
@@ -67,6 +68,6 @@
 
         sudo rfkill unblock all
         sudo ip link set wlan1 up
-        sudo wpa_asupplicant -B -i wlan1 -c /etc/wpa_supplicant/wpa_supplicant-wlan1.conf
-        sudo dhcpdc -n wlan1
+        sudo wpa_supplicant -B -i wlan1 -c /etc/wpa_supplicant/wpa_supplicant-wlan1.conf
+        sudo dhcpcd -n wlan1
 
