@@ -29,6 +29,25 @@ def log_data():
         bus_num = ec_config.get("i2c_bus") or 1
         bus = smbus2.SMBus(bus_num)
 
+        # Identify the circuit first so slot/address issues are explicit.
+        info_text = ""
+        for cmd_bytes in ([ord('I')], [ord('I'), 0x0D]):
+            bus.i2c_rdwr(i2c_msg.write(addr, cmd_bytes))
+            time.sleep(1.2)
+            info_msg = i2c_msg.read(addr, 31)
+            bus.i2c_rdwr(info_msg)
+            info_res = list(info_msg)
+            if info_res and info_res[0] == 1:
+                info_text = "".join(chr(x) for x in info_res[1:] if 32 <= x <= 126).strip()
+                if info_text:
+                    break
+
+        if not info_text or "EC" not in info_text.upper():
+            raise Exception(
+                f"Atlas EC identity check failed on bus {bus_num}, addr 0x{addr:02X}. "
+                f"Got '{info_text or 'empty'}'. For i3 InterLink, verify EC circuit is fully seated in slot 3."
+            )
+
         # Allow configurable retries when the probe returns an empty value.
         retries = int(ec_config.get("read_retries", 2))
         retry_sleep = float(ec_config.get("retry_sleep", 1.5))
@@ -39,15 +58,32 @@ def log_data():
         value = None
         submerged = False
 
-        # Each attempt sends a fresh 'R\r' command then waits for the response.
-        # Re-using a single read without re-issuing R causes status 255 on retry
-        # because the EZO clears its response slot after the first read.
+        # Some InterLink/EZO setups respond only to one command form.
+        # Try both raw 'R' and 'R\r' for each attempt.
+        read_cmd_variants = ([ord('R')], [ord('R'), 0x0D])
+
         for attempt in range(1 + max(0, retries)):
-            bus.i2c_rdwr(i2c_msg.write(addr, [ord('R'), 0x0D]))
-            time.sleep(2.0)  # EZO EC min ~600ms + i3 InterLink relay overhead
-            read_msg = i2c_msg.read(addr, 31)
-            bus.i2c_rdwr(read_msg)
-            res = list(read_msg)
+            res = None
+            for cmd_bytes in read_cmd_variants:
+                bus.i2c_rdwr(i2c_msg.write(addr, cmd_bytes))
+                time.sleep(2.0)  # EZO EC min ~600ms + i3 InterLink relay overhead
+                read_msg = i2c_msg.read(addr, 31)
+                bus.i2c_rdwr(read_msg)
+                res = list(read_msg)
+
+                if not res:
+                    continue
+
+                if res[0] == 1:
+                    char_list = [chr(x) for x in res[1:] if 32 <= x <= 126]
+                    raw_val = "".join(char_list).strip().split(',')[0].strip()
+                    if raw_val:
+                        value = round(float(raw_val), 2)
+                        submerged = True
+                        break
+
+            if submerged:
+                break
 
             if not res:
                 # No bytes at all; try again if allowed
@@ -57,22 +93,16 @@ def log_data():
                     raise Exception("No response from Atlas EZO sensor")
 
             if res[0] == 1:
-                char_list = [chr(x) for x in res[1:] if 32 <= x <= 126]
-                raw_val = "".join(char_list).strip().split(',')[0].strip()
-                if raw_val:
-                    value = round(float(raw_val), 2)
-                    submerged = True
-                    break
+                # empty textual payload — either probe dry, needs conditioning,
+                # wrong probe K constant, or command format mismatch.
+                if attempt < retries:
+                    print(f"Warning: Atlas EZO returned empty value (attempt {attempt+1}/{1+retries}) - raw bytes: {res}", file=sys.stderr)
+                    continue
                 else:
-                    # empty textual payload — either probe dry, needs conditioning, or timing issue
-                    if attempt < retries:
-                        print(f"Warning: Atlas EZO returned empty value (attempt {attempt+1}/{1+retries}) - raw bytes: {res}", file=sys.stderr)
-                        continue
-                    else:
-                        print(f"Warning: Atlas EZO returned empty value after {1+retries} attempt(s). Probe may be dry, need conditioning/calibration solution, or increase read_retries - raw bytes: {res}", file=sys.stderr)
-                        value = None
-                        submerged = False
-                        break
+                    print(f"Warning: Atlas EZO returned empty value after {1+retries} attempt(s). Check K constant (K,0.1), probe conditioning, and calibration status (Cal,?) - raw bytes: {res}", file=sys.stderr)
+                    value = None
+                    submerged = False
+                    break
             elif res[0] == 254:
                 # sensor still processing
                 raise Exception("EZO still processing - increase sleep delay or retry settings")
