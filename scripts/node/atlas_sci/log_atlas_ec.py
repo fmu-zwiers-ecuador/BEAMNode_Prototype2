@@ -31,30 +31,55 @@ def log_data():
 
         # Write 'R\r' — raw I2C, no register byte (Atlas EZO protocol)
         bus.i2c_rdwr(i2c_msg.write(addr, [ord('R'), 0x0D]))
-        time.sleep(0.9)
 
-        # Read 31-byte response — raw I2C, no register byte
-        read_msg = i2c_msg.read(addr, 31)
-        bus.i2c_rdwr(read_msg)
-        res = list(read_msg)
-        bus.close()
+        # Allow configurable retries when the probe returns an empty value.
+        retries = int(ec_config.get("read_retries", 1))
+        retry_sleep = float(ec_config.get("retry_sleep", 1.0))
 
         STATUS_CODES = {254: "still processing", 255: "no data", 2: "syntax error", 0: "failed"}
-        if res[0] == 1:
-            char_list = [chr(x) for x in res[1:] if 32 <= x <= 126]
-            raw_val = "".join(char_list).strip().split(',')[0].strip()
-            if not raw_val:
-                print("Warning: EZO returned empty value (probe likely dry/not submerged) — logging null", file=sys.stderr)
-                value = None
-                submerged = False
+        res = None
+        raw_val = None
+
+        # Perform initial read + optional retries before closing the bus
+        for attempt in range(1 + retries):
+            # small delay after command for the sensor to respond
+            time.sleep(0.9 if attempt == 0 else retry_sleep)
+            read_msg = i2c_msg.read(addr, 31)
+            bus.i2c_rdwr(read_msg)
+            res = list(read_msg)
+
+            if not res:
+                # No bytes at all; try again if allowed
+                if attempt < retries:
+                    continue
+                else:
+                    raise Exception("No response from Atlas EZO sensor")
+
+            if res[0] == 1:
+                char_list = [chr(x) for x in res[1:] if 32 <= x <= 126]
+                raw_val = "".join(char_list).strip().split(',')[0].strip()
+                if raw_val:
+                    value = round(float(raw_val), 2)
+                    submerged = True
+                    break
+                else:
+                    # empty textual payload — either probe dry, needs conditioning, or timing issue
+                    if attempt < retries:
+                        print(f"Warning: Atlas EZO returned empty value (attempt {attempt+1}/{1+retries}) - raw bytes: {res}", file=sys.stderr)
+                        continue
+                    else:
+                        print(f"Warning: Atlas EZO returned empty value after {1+retries} attempt(s). Probe may be dry, need conditioning/calibration solution, or increase read_retries - raw bytes: {res}", file=sys.stderr)
+                        value = None
+                        submerged = False
+                        break
+            elif res[0] == 254:
+                # sensor still processing
+                raise Exception("EZO still processing - increase sleep delay or retry settings")
             else:
-                value = round(float(raw_val), 2)
-                submerged = True
-        elif res[0] == 254:
-            raise Exception("EZO still processing — increase sleep delay")
-        else:
-            desc = STATUS_CODES.get(res[0], "unknown")
-            raise Exception(f"Atlas EZO Error Code {res[0]} ({desc})")
+                desc = STATUS_CODES.get(res[0], "unknown")
+                raise Exception(f"Atlas EZO Error Code {res[0]} ({desc})")
+
+        bus.close()
     except Exception as e:
         print(f"Sensor Read Error: {e}", file=sys.stderr)
         sys.exit(1)
