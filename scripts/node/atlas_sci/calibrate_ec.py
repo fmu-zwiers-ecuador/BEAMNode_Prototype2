@@ -49,11 +49,15 @@ K_CMD_DELAY      = 1.2   # K,x.xx — EEPROM write
 
 def ezo_cmd(bus, addr, cmd: str, delay: float = 1.3, read_len: int = 20) -> str:
     """Send a command to the EZO circuit and return the decoded response string."""
-    bus.i2c_rdwr(i2c_msg.write(addr, list(cmd.encode()) + [0x0D]))
-    time.sleep(delay + INTERLINK_OVERHEAD)
-    r = i2c_msg.read(addr, read_len)
-    bus.i2c_rdwr(r)
-    res = list(r)
+    res = []
+    for payload in (list(cmd.encode()), list(cmd.encode()) + [0x0D]):
+        bus.i2c_rdwr(i2c_msg.write(addr, payload))
+        time.sleep(delay + INTERLINK_OVERHEAD)
+        r = i2c_msg.read(addr, read_len)
+        bus.i2c_rdwr(r)
+        res = list(r)
+        if res and not (res[0] == 1 and all(x == 0 for x in res[1:])):
+            break
     if not res:
         return ""
     status = res[0]
@@ -69,11 +73,15 @@ def ezo_cmd(bus, addr, cmd: str, delay: float = 1.3, read_len: int = 20) -> str:
 
 def ezo_cmd_raw(bus, addr, cmd: str, delay: float = 1.3, read_len: int = 31):
     """Like ezo_cmd but returns (status, text, raw_bytes) for diagnostics."""
-    bus.i2c_rdwr(i2c_msg.write(addr, list(cmd.encode()) + [0x0D]))
-    time.sleep(delay + INTERLINK_OVERHEAD)
-    r = i2c_msg.read(addr, read_len)
-    bus.i2c_rdwr(r)
-    res = list(r)
+    res = []
+    for payload in (list(cmd.encode()), list(cmd.encode()) + [0x0D]):
+        bus.i2c_rdwr(i2c_msg.write(addr, payload))
+        time.sleep(delay + INTERLINK_OVERHEAD)
+        r = i2c_msg.read(addr, read_len)
+        bus.i2c_rdwr(r)
+        res = list(r)
+        if res and not (res[0] == 1 and all(x == 0 for x in res[1:])):
+            break
     status = res[0] if res else -1
     text = "".join(chr(x) for x in res[1:] if 32 <= x <= 126).strip()
     return status, text, res
@@ -125,6 +133,16 @@ def step_setup_k_constant(bus, addr):
     else:
         print("  WARNING: K,? returned unexpected value — check wiring/power.")
         print(f"  raw: {raw}")
+
+def step_verify_ec_identity(bus, addr):
+    separator()
+    print("Pre-check — Verify Atlas EC identity")
+    status, text, raw = ezo_cmd_raw(bus, addr, "I", delay=1.2, read_len=31)
+    print(f"  Device info: status={status} text='{text}'")
+    if status != 1 or not text or "EC" not in text.upper():
+        print("  WARNING: Expected Atlas EC info was not returned.")
+        print("  For i3 InterLink, confirm the EC circuit is fully seated in slot 3.")
+        print(f"  raw bytes: {raw}")
 
 def check_existing_cal(bus, addr):
     separator()
@@ -275,6 +293,9 @@ def main():
 
     try:
         existing = check_existing_cal(bus, addr)
+
+        # Ensure we are talking to the EC circuit in InterLink slot 3.
+        step_verify_ec_identity(bus, addr)
 
         # Step 0: set K constant — must be done before clearing/calibrating
         step_setup_k_constant(bus, addr)
