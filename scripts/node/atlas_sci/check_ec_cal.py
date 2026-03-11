@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
 Quick diagnostic: checks Atlas EZO EC calibration status and takes a live reading.
+Probe:  Atlas Scientific K 0.1  (range 0.07–500 µS/cm)
+Board:  i3 InterLink Pi HAT
 Run on the Pi:  sudo python3 check_ec_cal.py
 """
 
@@ -12,9 +14,12 @@ from smbus2 import i2c_msg
 
 CONFIG_PATH = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
 
+# i3 InterLink relays I2C to the EZO — add overhead beyond bare-EZO minimums
+INTERLINK_OVERHEAD = 0.4
+
 def ezo_cmd(bus, addr, cmd, delay=1.0, read_len=31):
     bus.i2c_rdwr(i2c_msg.write(addr, list(cmd.encode()) + [0x0D]))
-    time.sleep(delay)
+    time.sleep(delay + INTERLINK_OVERHEAD)
     r = i2c_msg.read(addr, read_len)
     bus.i2c_rdwr(r)
     res = list(r)
