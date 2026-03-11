@@ -106,10 +106,10 @@ def step_single_point(bus, addr):
     print("STEP 2  — Single-point calibration (solution)")
     print("  • Rinse probe with DI water, shake off excess")
     print("  • Submerge fully in your calibration solution")
-    print("  • Common values:  12880 µS/cm  |  80000 µS/cm  |  1413 µS/cm")
+    print("  • Common values:  84 µS/cm  |  1413 µS/cm  |  12880 µS/cm")
     print("  • Check the label on your solution bottle for the exact value")
 
-    sol_val = input("\n  Enter solution value in µS/cm (e.g. 12880): ").strip()
+    sol_val = input("\n  Enter solution value in µS/cm (e.g. 1413): ").strip()
     if not sol_val.isdigit():
         print("  Invalid value — skipping single-point calibration.")
         return
@@ -131,7 +131,7 @@ def step_two_point_low(bus, addr):
     print("  • Rinse probe with DI water, shake off excess")
     print("  • Submerge fully in your LOW calibration solution")
 
-    sol_val = input("\n  Enter LOW solution value in µS/cm (e.g. 12880): ").strip()
+    sol_val = input("\n  Enter LOW solution value in µS/cm (e.g. 84): ").strip()
     if not sol_val.isdigit():
         print("  Invalid value — skipping.")
         return
@@ -153,7 +153,7 @@ def step_two_point_high(bus, addr):
     print("  • Rinse probe with DI water, shake off excess")
     print("  • Submerge fully in your HIGH calibration solution")
 
-    sol_val = input("\n  Enter HIGH solution value in µS/cm (e.g. 80000): ").strip()
+    sol_val = input("\n  Enter HIGH solution value in µS/cm (e.g. 1413): ").strip()
     if not sol_val.isdigit():
         print("  Invalid value — skipping.")
         return
@@ -209,9 +209,9 @@ def main():
         # Calibration type
         separator()
         print("Calibration type:")
-        print("  1 = Single-point  (one solution bottle  — most common)")
-        print("  2 = Two-point     (low + high solution bottles)")
-        cal_type = input("\nSelect [1/2]: ").strip()
+        print("  1 = Single-point  (one solution bottle)")
+        print("  2 = Two-point     (low + high solution bottles — recommended)")
+        cal_type = input("\nSelect [1/2] (default 2): ").strip() or "2"
 
         step_dry(bus, addr)
 
