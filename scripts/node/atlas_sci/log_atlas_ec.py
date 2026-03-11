@@ -1,8 +1,3 @@
-"""
-Author: Jackson Roberts
-"""
-
-
 import json
 import os
 import time
@@ -49,7 +44,7 @@ def log_data():
         # because the EZO clears its response slot after the first read.
         for attempt in range(1 + max(0, retries)):
             bus.i2c_rdwr(i2c_msg.write(addr, [ord('R'), 0x0D]))
-            time.sleep(1.5)  # Atlas EZO EC needs ~600ms min; 1.5s gives headroom
+            time.sleep(2.0)  # EZO EC min ~600ms + i3 InterLink relay overhead
             read_msg = i2c_msg.read(addr, 31)
             bus.i2c_rdwr(read_msg)
             res = list(read_msg)
