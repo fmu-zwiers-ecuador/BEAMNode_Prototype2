@@ -2,6 +2,7 @@
 Author: Jackson Roberts
 """
 
+
 import json
 import os
 import time
@@ -33,12 +34,9 @@ def log_data():
         bus_num = ec_config.get("i2c_bus") or 1
         bus = smbus2.SMBus(bus_num)
 
-        # Write 'R\r' — raw I2C, no register byte (Atlas EZO protocol)
-        bus.i2c_rdwr(i2c_msg.write(addr, [ord('R'), 0x0D]))
-
         # Allow configurable retries when the probe returns an empty value.
-        retries = int(ec_config.get("read_retries", 1))
-        retry_sleep = float(ec_config.get("retry_sleep", 1.0))
+        retries = int(ec_config.get("read_retries", 2))
+        retry_sleep = float(ec_config.get("retry_sleep", 1.5))
 
         STATUS_CODES = {254: "still processing", 255: "no data", 2: "syntax error", 0: "failed"}
         res = None
@@ -46,10 +44,12 @@ def log_data():
         value = None
         submerged = False
 
-        # Perform initial read + optional retries before closing the bus
+        # Each attempt sends a fresh 'R\r' command then waits for the response.
+        # Re-using a single read without re-issuing R causes status 255 on retry
+        # because the EZO clears its response slot after the first read.
         for attempt in range(1 + max(0, retries)):
-            # small delay after command for the sensor to respond
-            time.sleep(0.9 if attempt == 0 else retry_sleep)
+            bus.i2c_rdwr(i2c_msg.write(addr, [ord('R'), 0x0D]))
+            time.sleep(1.5)  # Atlas EZO EC needs ~600ms min; 1.5s gives headroom
             read_msg = i2c_msg.read(addr, 31)
             bus.i2c_rdwr(read_msg)
             res = list(read_msg)
