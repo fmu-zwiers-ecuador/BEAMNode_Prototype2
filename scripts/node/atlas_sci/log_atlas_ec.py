@@ -1,3 +1,7 @@
+"""
+Author: Jackson Roberts
+"""
+
 import json
 import os
 import time
@@ -39,9 +43,11 @@ def log_data():
         STATUS_CODES = {254: "still processing", 255: "no data", 2: "syntax error", 0: "failed"}
         res = None
         raw_val = None
+        value = None
+        submerged = False
 
         # Perform initial read + optional retries before closing the bus
-        for attempt in range(1 + retries):
+        for attempt in range(1 + max(0, retries)):
             # small delay after command for the sensor to respond
             time.sleep(0.9 if attempt == 0 else retry_sleep)
             read_msg = i2c_msg.read(addr, 31)
