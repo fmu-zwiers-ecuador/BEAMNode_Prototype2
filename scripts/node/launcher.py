@@ -63,7 +63,7 @@ if __name__ == "__main__":
             now = datetime.now()
 
             # A. Check Scheduler Health (Restart if Pi went down or process crashed)
-            if sched_proc.poll() is None or sched_proc.poll() is not None:
+            if sched_proc is None or sched_proc.poll() is not None:
                 log("ALERT: Scheduler process stopped. Restarting...")
                 time.sleep(5)
                 sched_proc = start_scheduler_async()
