@@ -115,30 +115,32 @@
     }
   },
   "atlas_ec": {
-    "enabled": false,
+    "enabled": true,
     "directory": "conductivity",
     "script_name": "log_atlas_ec.py",
     "file_name": "ec_data.json",
     "frequency": 60,
-    "i2c_bus": null,
-    "address_hex": "0x64"
+    "i2c_bus": 1,
+    "address_hex": "0x64",
+    "read_retries": 2,
+    "retry_sleep": 1.5
   },
   "atlas_orp": {
-    "enabled": false,
+    "enabled": true,
     "directory": "orp",
     "script_name": "log_atlas_orp.py",
     "file_name": "orp_data.json",
     "frequency": 60,
-    "i2c_bus": null,
+    "i2c_bus": 1,
     "address_hex": "0x62"
   },
   "atlas_rtd": {
-    "enabled": false,
+    "enabled": true,
     "directory": "temperature_water",
     "script_name": "log_atlas_rtd.py",
     "file_name": "water_temp.json",
     "frequency": 60,
-    "i2c_bus": null,
+    "i2c_bus": 1,
     "address_hex": "0x66"
   }
 }
