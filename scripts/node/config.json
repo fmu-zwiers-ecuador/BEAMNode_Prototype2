@@ -115,7 +115,7 @@
     }
   },
   "atlas_ec": {
-    "enabled": true,
+    "enabled": false,
     "directory": "conductivity",
     "script_name": "log_atlas_ec.py",
     "file_name": "ec_data.json",
@@ -126,7 +126,7 @@
     "retry_sleep": 1.5
   },
   "atlas_orp": {
-    "enabled": true,
+    "enabled": false,
     "directory": "orp",
     "script_name": "log_atlas_orp.py",
     "file_name": "orp_data.json",
@@ -135,7 +135,7 @@
     "address_hex": "0x62"
   },
   "atlas_rtd": {
-    "enabled": true,
+    "enabled": false,
     "directory": "temperature_water",
     "script_name": "log_atlas_rtd.py",
     "file_name": "water_temp.json",
