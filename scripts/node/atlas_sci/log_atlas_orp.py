@@ -34,7 +34,7 @@ class AtlasI2CDevice:
         text = "".join(chars).strip()
         return status, text, list(raw)
 
-    def query(self, command: str, timeout: float = 1.5, num_bytes: int = 31):
+    def query(self, command: str, timeout: float = 1.0, num_bytes: int = 31):
         self.write(command)
         time.sleep(timeout)
         return self.read(num_bytes)
@@ -93,10 +93,17 @@ def log_data():
         return
 
     try:
-        addr = int(str(orp_config.get("address_hex", "0x62")), 16)
-        bus_num = int(orp_config.get("i2c_bus", 1))
+        addr_hex = orp_config.get("address_hex") or "0x62"
+        i2c_bus = orp_config.get("i2c_bus")
+        bus_num = int(i2c_bus) if i2c_bus is not None else 1
+        addr = int(str(addr_hex), 16)
     except Exception as e:
-        print(f"Config Parse Error: {e}", file=sys.stderr)
+        print(
+            f"Config Parse Error in atlas_orp: "
+            f"address_hex={orp_config.get('address_hex')!r}, "
+            f"i2c_bus={orp_config.get('i2c_bus')!r} | {e}",
+            file=sys.stderr
+        )
         sys.exit(1)
 
     STATUS_CODES = {
