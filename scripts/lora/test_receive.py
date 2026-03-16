@@ -8,7 +8,7 @@ import adafruit_rfm9x
 spi = busio.SPI(board.SCK, MOSI=board.MOSI, MISO=board.MISO)
 
 # Chip select
-cs = digitalio.DigitalInOut(board.CE0)
+cs = digitalio.DigitalInOut(board.CE1)
 
 # Reset
 reset = digitalio.DigitalInOut(board.D25)
