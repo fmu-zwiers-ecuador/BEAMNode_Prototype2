@@ -10,18 +10,17 @@ import adafruit_rfm9x
 # -------- CONFIG --------
 FILE_PATH = "send_file.bin"
 CHUNK_SIZE = 180
-WINDOW_SIZE = 5
-MAX_RETRIES = 5
+MAX_RETRIES = 10
+ACK_TIMEOUT = 2
 FREQ = 915.0
 # ------------------------
 
 spi = busio.SPI(board.SCK, MOSI=board.MOSI, MISO=board.MISO)
 
-cs = digitalio.DigitalInOut(board.CE1)
+cs = digitalio.DigitalInOut(board.CE0)
 reset = digitalio.DigitalInOut(board.D25)
 
 rfm9x = adafruit_rfm9x.RFM9x(spi, cs, reset, FREQ)
-
 rfm9x.tx_power = 23
 
 file_size = os.path.getsize(FILE_PATH)
@@ -30,60 +29,55 @@ with open(FILE_PATH, "rb") as f:
     file_data = f.read()
 
 chunks = [file_data[i:i+CHUNK_SIZE] for i in range(0, len(file_data), CHUNK_SIZE)]
-total_chunks = len(chunks)
 
 print("Sending file:", FILE_PATH)
-print("Chunks:", total_chunks)
+print("Chunks:", len(chunks))
 
 # send header
-header = f"START:{file_size}:{total_chunks}"
+header = f"START:{file_size}:{len(chunks)}"
 rfm9x.send(header.encode())
 time.sleep(1)
 
-acked = set()
-window_start = 0
+for seq, data in enumerate(chunks):
 
-while window_start < total_chunks:
+    checksum = zlib.crc32(data)
+    packet = struct.pack(">I I", seq, checksum) + data
 
-    window_end = min(window_start + WINDOW_SIZE, total_chunks)
+    retries = 0
+    acked = False
 
-    # send packets in window
-    for seq in range(window_start, window_end):
+    while not acked and retries < MAX_RETRIES:
 
-        if seq in acked:
-            continue
-
-        data = chunks[seq]
-        checksum = zlib.crc32(data)
-
-        packet = struct.pack(">I I", seq, checksum) + data
+        print("Sending chunk", seq)
 
         rfm9x.send(packet)
 
-        print("Sent", seq)
+        start = time.time()
 
-        time.sleep(0.1)
+        while time.time() - start < ACK_TIMEOUT:
 
-    # listen for ACKs
-    start_wait = time.time()
+            ack = rfm9x.receive(timeout=0.5)
 
-    while time.time() - start_wait < 2:
+            if ack and ack.startswith(b"ACK"):
 
-        ack = rfm9x.receive(timeout=0.5)
+                ack_seq = int.from_bytes(ack[3:], "big")
 
-        if ack and ack.startswith(b"ACK"):
+                if ack_seq == seq:
 
-            seq = int.from_bytes(ack[3:], "big")
+                    print("ACK received", seq)
+                    acked = True
+                    break
 
-            acked.add(seq)
+        if not acked:
 
-            print("ACK", seq)
+            retries += 1
+            print("Retry", retries)
 
-    # slide window
-    while window_start in acked:
-        window_start += 1
+    if not acked:
 
-# send completion
+        print("Failed to deliver chunk", seq)
+        exit(1)
+
 rfm9x.send(b"END")
 
 print("File sent successfully")

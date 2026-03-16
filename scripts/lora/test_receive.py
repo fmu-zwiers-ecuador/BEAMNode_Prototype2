@@ -12,15 +12,15 @@ FREQ = 915.0
 
 spi = busio.SPI(board.SCK, MOSI=board.MOSI, MISO=board.MISO)
 
-cs = digitalio.DigitalInOut(board.CE1)
+cs = digitalio.DigitalInOut(board.CE0)
 reset = digitalio.DigitalInOut(board.D25)
 
 rfm9x = adafruit_rfm9x.RFM9x(spi, cs, reset, FREQ)
 
 print("Waiting for file...")
 
-expected_chunks = None
 received = {}
+expected_chunks = None
 
 while True:
 
@@ -29,11 +29,9 @@ while True:
     if packet is None:
         continue
 
-    # start header
     if packet.startswith(b"START:"):
 
         parts = packet.decode().split(":")
-
         file_size = int(parts[1])
         expected_chunks = int(parts[2])
 
@@ -45,18 +43,16 @@ while True:
 
     if packet == b"END":
 
-        print("Transfer finished")
+        print("Transfer complete")
 
         with open(OUTPUT_FILE, "wb") as f:
 
             for i in range(expected_chunks):
                 f.write(received[i])
 
-        print("File written:", OUTPUT_FILE)
-
+        print("File saved:", OUTPUT_FILE)
         break
 
-    # parse packet
     seq, checksum = struct.unpack(">I I", packet[:8])
     data = packet[8:]
 
@@ -64,17 +60,14 @@ while True:
 
     if calc_checksum != checksum:
 
-        print("Checksum failed for", seq)
-
+        print("Checksum error", seq)
         continue
 
     if seq not in received:
 
         received[seq] = data
-
         print("Received", seq)
 
     # send ACK
     ack = b"ACK" + seq.to_bytes(4, "big")
-
     rfm9x.send(ack)
