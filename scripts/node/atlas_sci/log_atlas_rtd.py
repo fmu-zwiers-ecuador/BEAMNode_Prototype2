@@ -24,8 +24,8 @@ def log_data():
     try:
         addr = int(str(rtd_config.get("address_hex", "0x66")), 16)
         bus = smbus2.SMBus(1)
-        bus.write_bytes(addr, [ord('R'), 0x0D])
-        time.sleep(0.9)
+        bus.write_i2c_block_data(addr, 0, [ord('R')])
+        time.sleep(1.0)
         
         res = bus.read_i2c_block_data(addr, 0, 31)
         if res[0] == 1:
