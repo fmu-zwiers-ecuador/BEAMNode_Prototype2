@@ -2,6 +2,8 @@ import board
 import digitalio
 import busio
 import adafruit_rfm9x
+import struct
+import zlib
 
 # -------- CONFIG --------
 OUTPUT_FILE = "received_file.bin"
@@ -10,16 +12,15 @@ FREQ = 915.0
 
 spi = busio.SPI(board.SCK, MOSI=board.MOSI, MISO=board.MISO)
 
-cs = digitalio.DigitalInOut(board.CE0)
+cs = digitalio.DigitalInOut(board.CE1)
 reset = digitalio.DigitalInOut(board.D25)
 
 rfm9x = adafruit_rfm9x.RFM9x(spi, cs, reset, FREQ)
 
 print("Waiting for file...")
 
-file = None
-expected_size = None
-bytes_received = 0
+expected_chunks = None
+received = {}
 
 while True:
 
@@ -28,29 +29,52 @@ while True:
     if packet is None:
         continue
 
-    # Header
+    # start header
     if packet.startswith(b"START:"):
-        expected_size = int(packet.decode().split(":")[1])
 
-        print("Incoming file size:", expected_size)
+        parts = packet.decode().split(":")
 
-        file = open(OUTPUT_FILE, "wb")
-        bytes_received = 0
+        file_size = int(parts[1])
+        expected_chunks = int(parts[2])
+
+        print("Incoming file")
+        print("Size:", file_size)
+        print("Chunks:", expected_chunks)
+
         continue
 
-    # End signal
     if packet == b"END":
-        if file:
-            file.close()
-        print("File transfer complete")
+
+        print("Transfer finished")
+
+        with open(OUTPUT_FILE, "wb") as f:
+
+            for i in range(expected_chunks):
+                f.write(received[i])
+
+        print("File written:", OUTPUT_FILE)
+
         break
 
-    # Data packet
-    seq = int.from_bytes(packet[:4], "big")
-    data = packet[4:]
+    # parse packet
+    seq, checksum = struct.unpack(">I I", packet[:8])
+    data = packet[8:]
 
-    if file:
-        file.write(data)
-        bytes_received += len(data)
+    calc_checksum = zlib.crc32(data)
 
-    print("Received chunk", seq, "Total bytes:", bytes_received)
+    if calc_checksum != checksum:
+
+        print("Checksum failed for", seq)
+
+        continue
+
+    if seq not in received:
+
+        received[seq] = data
+
+        print("Received", seq)
+
+    # send ACK
+    ack = b"ACK" + seq.to_bytes(4, "big")
+
+    rfm9x.send(ack)
