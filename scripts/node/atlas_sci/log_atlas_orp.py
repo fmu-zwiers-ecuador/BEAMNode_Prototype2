@@ -2,44 +2,139 @@ import json
 import os
 import time
 import sys
-import smbus2
+import io
+import fcntl
 from datetime import datetime, timezone
 
 CONFIG_PATH = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
 
-def log_data():
+
+class AtlasI2CDevice:
+    I2C_SLAVE = 0x0703
+
+    def __init__(self, address: int, bus: int = 1):
+        self.address = address
+        self.bus = bus
+        self.file_read = io.open(f"/dev/i2c-{bus}", "rb", buffering=0)
+        self.file_write = io.open(f"/dev/i2c-{bus}", "wb", buffering=0)
+
+        fcntl.ioctl(self.file_read, self.I2C_SLAVE, address)
+        fcntl.ioctl(self.file_write, self.I2C_SLAVE, address)
+
+    def write(self, command: str):
+        self.file_write.write((command + "\x00").encode("latin-1"))
+
+    def read(self, num_bytes: int = 31):
+        raw = self.file_read.read(num_bytes)
+        if not raw:
+            raise Exception("Empty I2C response")
+
+        status = raw[0]
+        chars = [chr(b & ~0x80) for b in raw[1:] if b not in (0x00, 0xFF)]
+        text = "".join(chars).strip()
+        return status, text, list(raw)
+
+    def query(self, command: str, timeout: float = 1.5, num_bytes: int = 31):
+        self.write(command)
+        time.sleep(timeout)
+        return self.read(num_bytes)
+
+    def close(self):
+        try:
+            self.file_read.close()
+        finally:
+            self.file_write.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+
+
+def load_config():
     try:
         with open(CONFIG_PATH, "r") as f:
-            config = json.load(f)
+            return json.load(f)
     except Exception as e:
         print(f"Config Load Error: {e}", file=sys.stderr)
         sys.exit(1)
 
+
+def load_existing_json(file_path, node_id):
+    if os.path.exists(file_path):
+        with open(file_path, "r") as f:
+            try:
+                return json.load(f)
+            except json.JSONDecodeError:
+                pass
+
+    return {
+        "node_id": node_id,
+        "sensor": "atlas_orp",
+        "records": []
+    }
+
+
+def save_json_atomic(file_path, payload):
+    tmp_path = f"{file_path}.tmp"
+    with open(tmp_path, "w") as f:
+        json.dump(payload, f, indent=4)
+    os.replace(tmp_path, file_path)
+
+
+def log_data():
+    config = load_config()
+
     orp_config = config.get("atlas_orp", {})
     global_config = config.get("global", {})
-    
+
     if not orp_config.get("enabled", False):
         return
 
     try:
         addr = int(str(orp_config.get("address_hex", "0x62")), 16)
-        bus = smbus2.SMBus(1)
-        bus.write_bytes(addr, [ord('R'), 0x0D])
-        time.sleep(0.9)
-        
-        res = bus.read_i2c_block_data(addr, 0, 31)
-        if res[0] == 1:
-            char_list = [chr(x) for x in res[1:] if x != 0x00 and x != 0xff]
-            value = round(float("".join(char_list)), 1)
-        else:
-            raise Exception(f"Atlas EZO Error Code: {res[0]}")
+        bus_num = int(orp_config.get("i2c_bus", 1))
+    except Exception as e:
+        print(f"Config Parse Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    STATUS_CODES = {
+        0: "failed",
+        2: "syntax error",
+        254: "still processing",
+        255: "no data"
+    }
+
+    try:
+        with AtlasI2CDevice(addr, bus=bus_num) as dev:
+            status, info_text, info_raw = dev.query("I", timeout=0.5)
+            if status != 1 or "ORP" not in info_text.upper():
+                raise Exception(
+                    f"Atlas ORP identity check failed on bus {bus_num}, addr 0x{addr:02X}. "
+                    f"Got {repr(info_text)} | Raw: {info_raw}"
+                )
+
+            status, text, raw = dev.query("R", timeout=1.0)
+
+            if status != 1:
+                desc = STATUS_CODES.get(status, "unknown")
+                raise Exception(f"Atlas ORP error code {status} ({desc}) | Raw: {raw}")
+
+            if not text:
+                raise Exception(f"Atlas ORP returned empty payload | Raw: {raw}")
+
+            try:
+                value = round(float(text), 1)
+            except ValueError:
+                raise Exception(f"Could not parse ORP float from {repr(text)} | Raw: {raw}")
+
     except Exception as e:
         print(f"Sensor Read Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    now_utc = datetime.now(timezone.utc)
     data_point = {
-        "timestamp": now_utc.isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "orp_mV": value
     }
 
@@ -50,23 +145,14 @@ def log_data():
 
     try:
         node_id = global_config.get("node_id", "unknown-node")
-        if os.path.exists(file_path):
-            with open(file_path, "r") as f:
-                try:
-                    full_data = json.load(f)
-                except json.JSONDecodeError:
-                    full_data = {"node_id": node_id, "sensor": "atlas_orp", "records": []}
-        else:
-            full_data = {"node_id": node_id, "sensor": "atlas_orp", "records": []}
-
+        full_data = load_existing_json(file_path, node_id)
         full_data["records"].append(data_point)
-        tmp_path = f"{file_path}.tmp"
-        with open(tmp_path, "w") as f:
-            json.dump(full_data, f, indent=4)
-        os.replace(tmp_path, file_path)
+        save_json_atomic(file_path, full_data)
+        print(f"Logged ORP reading: {value} mV")
     except Exception as e:
         print(f"File Write Error: {e}", file=sys.stderr)
         sys.exit(1)
+
 
 if __name__ == "__main__":
     log_data()
