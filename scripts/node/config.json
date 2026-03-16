@@ -70,7 +70,7 @@
     }
   },
   "anemometer": {
-    "enabled": true,
+    "enabled": false,
     "source": "serial",
     "serial_port": "/dev/ttyUSB0",
     "baud_rate": 9600,
@@ -79,7 +79,7 @@
     "file_name": "wind_data.json"
   },
   "audio": {
-    "enabled": true,
+    "enabled": false,
     "directory": "audio",
     "script_name": "record.py",
     "file_prefix": "recording_",
@@ -120,8 +120,10 @@
     "script_name": "log_atlas_ec.py",
     "file_name": "ec_data.json",
     "frequency": 60,
-    "i2c_bus": null,
-    "address_hex": "0x64"
+    "i2c_bus": 1,
+    "address_hex": "0x64",
+    "read_retries": 2,
+    "retry_sleep": 1.5
   },
   "atlas_orp": {
     "enabled": false,
@@ -129,7 +131,7 @@
     "script_name": "log_atlas_orp.py",
     "file_name": "orp_data.json",
     "frequency": 60,
-    "i2c_bus": null,
+    "i2c_bus": 1,
     "address_hex": "0x62"
   },
   "atlas_rtd": {
@@ -138,7 +140,7 @@
     "script_name": "log_atlas_rtd.py",
     "file_name": "water_temp.json",
     "frequency": 60,
-    "i2c_bus": null,
+    "i2c_bus": 1,
     "address_hex": "0x66"
   }
 }

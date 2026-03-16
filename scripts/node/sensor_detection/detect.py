@@ -80,6 +80,7 @@ if not spi_logger.handlers:
 CS_PIN_BME = 5
 
 def spi_init(cs_pin):
+    GPIO.setwarnings(False)
     GPIO.setmode(GPIO.BCM)
     GPIO.setup(cs_pin, GPIO.OUT, initial=GPIO.HIGH)
     spi = spidev.SpiDev()
@@ -100,8 +101,9 @@ def read_chip_ID(spi, reg, cs_pin):
 
 def detect_spi_sensor():
     set_config_flag(CONFIG_PATH, "bme280", "enabled", False)
-    spi = spi_init(CS_PIN_BME)
+    spi = None
     try:
+        spi = spi_init(CS_PIN_BME)
         spi_logger.info("Starting BME/BMP280 detection")
         chip1 = read_chip_ID(spi, 0xD0, CS_PIN_BME)
         time.sleep(0.002)
@@ -122,7 +124,8 @@ def detect_spi_sensor():
         spi_logger.exception("SPI detection failed")
         return None
     finally:
-        spi.close()
+        if spi is not None:
+            spi.close()
         GPIO.cleanup()
         spi_logger.info("SPI closed and GPIO cleaned up")
 
@@ -157,7 +160,7 @@ I2C_ADDR_TABLE = {
     "atlas_rtd": [0x66]
 }
 
-CANDIDATE_I2C_BUSES = (1,)
+CANDIDATE_I2C_BUSES = (1, 2)
 
 def scan_i2c(busnum):
     try:
@@ -169,7 +172,9 @@ def scan_i2c(busnum):
         return ""
 
 def detect_i2c_sensors():
-    detected = []
+    detected = []  # sensors found on any bus
+
+    # ── Pass 1: scan all buses and record every sensor that is found ──────────
     for bus in CANDIDATE_I2C_BUSES:
         if not os.path.exists(f"/dev/i2c-{bus}"):
             continue
@@ -177,7 +182,8 @@ def detect_i2c_sensors():
         found_addrs = set(int(m, 16) for m in re.findall(r"\b[0-9a-f]{2}\b", output, re.IGNORECASE))
 
         for name, addrs in I2C_ADDR_TABLE.items():
-            sensor_found = False
+            if name in detected:
+                continue  # already found on an earlier bus — don't overwrite
             for addr in addrs:
                 if addr in found_addrs:
                     print(f"I2C Sensor Found: {name} (Bus {bus}, Addr 0x{addr:02X})")
@@ -185,12 +191,15 @@ def detect_i2c_sensors():
                     set_config_flag(CONFIG_PATH, name, "i2c_bus", bus)
                     set_config_flag(CONFIG_PATH, name, "address_hex", f"0x{addr:02X}")
                     detected.append(name)
-                    sensor_found = True
                     break
-            if not sensor_found:
-                set_config_flag(CONFIG_PATH, name, "enabled", False)
-                set_config_flag(CONFIG_PATH, name, "i2c_bus", None)
-                set_config_flag(CONFIG_PATH, name, "address_hex", None)
+
+    # ── Pass 2: disable anything not found on any bus ─────────────────────────
+    for name in I2C_ADDR_TABLE:
+        if name not in detected:
+            set_config_flag(CONFIG_PATH, name, "enabled", False)
+            set_config_flag(CONFIG_PATH, name, "i2c_bus", None)
+            set_config_flag(CONFIG_PATH, name, "address_hex", None)
+
     if not detected:
         print("No I2C sensors detected")
     return detected
@@ -217,7 +226,7 @@ def detect_audiomoth():
 
 def detect_anemometer():
     try:
-        ports = serial.tools.list_ports.components()
+        ports = serial.tools.list_ports.comports()
         detected = False
         for port in ports:
             if "USB" in port.device or "ACM" in port.device:
