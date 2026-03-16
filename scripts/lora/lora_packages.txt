@@ -1,0 +1,4 @@
+adafruit-blinka
+adafruit-circuitpython-rfm9x
+spidev
+RPi.GPIO
