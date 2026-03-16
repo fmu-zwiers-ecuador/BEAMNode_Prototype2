@@ -70,7 +70,7 @@
     }
   },
   "anemometer": {
-    "enabled": true,
+    "enabled": false,
     "source": "serial",
     "serial_port": "/dev/ttyUSB0",
     "baud_rate": 9600,
@@ -79,7 +79,7 @@
     "file_name": "wind_data.json"
   },
   "audio": {
-    "enabled": true,
+    "enabled": false,
     "directory": "audio",
     "script_name": "record.py",
     "file_prefix": "recording_",
