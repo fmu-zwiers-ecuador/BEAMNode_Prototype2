@@ -2,10 +2,59 @@ import json
 import os
 import time
 import sys
-import smbus2
+import io
+import fcntl
 from datetime import datetime, timezone
 
 CONFIG_PATH = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
+
+
+class AtlasI2CDevice:
+    I2C_SLAVE = 0x703
+
+    def __init__(self, address: int, bus: int = 1):
+        self.address = address
+        self.bus = bus
+        self.file_read = io.open(f"/dev/i2c-{bus}", "rb", buffering=0)
+        self.file_write = io.open(f"/dev/i2c-{bus}", "wb", buffering=0)
+
+        fcntl.ioctl(self.file_read, self.I2C_SLAVE, address)
+        fcntl.ioctl(self.file_write, self.I2C_SLAVE, address)
+
+    def write(self, command: str):
+        # Atlas sample appends a null byte for I2C commands
+        command += "\x00"
+        self.file_write.write(command.encode("latin-1"))
+
+    def read(self, num_bytes: int = 31):
+        raw = self.file_read.read(num_bytes)
+        if not raw:
+            raise Exception("Empty I2C response")
+
+        status = raw[0]
+
+        # Atlas sample masks off the MSB on returned chars
+        chars = [chr(b & ~0x80) for b in raw[1:] if b != 0x00]
+        text = "".join(chars).strip()
+
+        return status, text, list(raw)
+
+    def query(self, command: str, timeout: float = 1.5, num_bytes: int = 31):
+        self.write(command)
+        time.sleep(timeout)
+        return self.read(num_bytes)
+
+    def close(self):
+        try:
+            self.file_read.close()
+        finally:
+            self.file_write.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
 
 
 def load_config():
@@ -17,57 +66,22 @@ def load_config():
         sys.exit(1)
 
 
-def send_atlas_command(bus, addr, command: str):
-    # Atlas EZO over I2C: send ASCII command bytes
-    bus.write_i2c_block_data(addr, 0, [ord(c) for c in command])
+def read_rtd_temperature(addr: int) -> float:
+    with AtlasI2CDevice(addr, bus=1) as dev:
+        status, text, raw = dev.query("R", timeout=1.5, num_bytes=31)
 
+        print(f"DEBUG status={status}, text={repr(text)}, raw={raw}")
 
-def read_atlas_response(bus, addr, num_bytes=31):
-    # Read raw response block from Atlas EZO circuit
-    res = bus.read_i2c_block_data(addr, 0, num_bytes)
+        if status != 1:
+            raise Exception(f"Atlas EZO error code: {status} | Raw: {raw}")
 
-    if not res:
-        raise Exception("Empty I2C response")
+        if not text:
+            raise Exception(f"Atlas returned empty payload | Raw: {raw}")
 
-    status = res[0]
-
-    # Keep printable ASCII only, ignore nulls and 0xFF padding
-    chars = []
-    for b in res[1:]:
-        if b in (0x00, 0xFF):
-            continue
-        if 32 <= b <= 126:
-            chars.append(chr(b))
-
-    text = "".join(chars).strip()
-    return status, text, res
-
-
-def parse_float_response(status, text, raw):
-    if status != 1:
-        raise Exception(f"Atlas EZO Error Code: {status} | Raw: {raw}")
-
-    if not text:
-        raise Exception(f"Atlas returned empty text payload | Raw: {raw}")
-
-    try:
-        return round(float(text), 2)
-    except ValueError:
-        raise Exception(f"Could not parse float from response: {repr(text)} | Raw: {raw}")
-
-
-def read_rtd_temperature(addr):
-    try:
-        with smbus2.SMBus(1) as bus:
-            send_atlas_command(bus, addr, "R")
-            time.sleep(1.0)
-
-            status, text, raw = read_atlas_response(bus, addr, num_bytes=31)
-            value = parse_float_response(status, text, raw)
-            return value
-
-    except Exception as e:
-        raise Exception(f"Sensor Read Error: {e}")
+        try:
+            return round(float(text), 2)
+        except ValueError:
+            raise Exception(f"Could not parse float from {repr(text)} | Raw: {raw}")
 
 
 def load_existing_json(file_path, node_id):
@@ -76,11 +90,7 @@ def load_existing_json(file_path, node_id):
             try:
                 return json.load(f)
             except json.JSONDecodeError:
-                return {
-                    "node_id": node_id,
-                    "sensor": "atlas_rtd",
-                    "records": []
-                }
+                pass
 
     return {
         "node_id": node_id,
@@ -89,7 +99,7 @@ def load_existing_json(file_path, node_id):
     }
 
 
-def save_data(file_path, payload):
+def save_json_atomic(file_path, payload):
     tmp_path = f"{file_path}.tmp"
     with open(tmp_path, "w") as f:
         json.dump(payload, f, indent=4)
@@ -103,24 +113,22 @@ def log_data():
     global_config = config.get("global", {})
 
     if not rtd_config.get("enabled", False):
-        print("atlas_rtd is disabled in config.")
         return
 
     try:
         addr = int(str(rtd_config.get("address_hex", "0x66")), 16)
     except ValueError:
-        print("Invalid RTD I2C address in config.", file=sys.stderr)
+        print("Invalid atlas_rtd address_hex in config", file=sys.stderr)
         sys.exit(1)
 
     try:
         value = read_rtd_temperature(addr)
     except Exception as e:
-        print(str(e), file=sys.stderr)
+        print(f"Sensor Read Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    now_utc = datetime.now(timezone.utc)
     data_point = {
-        "timestamp": now_utc.isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "water_temp_C": value
     }
 
@@ -137,7 +145,7 @@ def log_data():
         node_id = global_config.get("node_id", "unknown-node")
         full_data = load_existing_json(file_path, node_id)
         full_data["records"].append(data_point)
-        save_data(file_path, full_data)
+        save_json_atomic(file_path, full_data)
         print(f"Logged RTD reading: {value} C")
     except Exception as e:
         print(f"File Write Error: {e}", file=sys.stderr)
