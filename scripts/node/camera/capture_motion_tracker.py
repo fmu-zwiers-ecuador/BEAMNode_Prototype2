@@ -1,24 +1,5 @@
 """
 BEAM Motion Camera + Pixel Tracking System
-
-Description:
-This script implements the first-stage motion detection and tracking pipeline
-for the BEAM environmental monitoring system. It continuously monitors a PIR
-motion sensor and activates the camera when motion is detected. Before
-capturing images, it reads the most recent lux value from the lux logging file
-(/home/pi/data/tsl2591/lux_data.json) to determine whether the IR flash should
-be enabled (nighttime conditions).
-
-After capturing two frames, the script performs pixel differencing using
-OpenCV to detect movement, draws a bounding box around the area of change,
-and calculates the object's X-axis offset. The system then sends a GPIO signal
-to a servo motor to follow the detected object horizontally. Finally, the
-captured image and metadata are logged to a JSON file.
-
-
-Created by: Alexander Lance
-Based on previous motion camera script by:
-Gabriel Gonzalez, Raiz Mohammed, and Jackson Roberts
 """
 
 import os
@@ -46,6 +27,13 @@ with open(config_path, "r") as f:
 global_config = config.get("global", {})
 cam_config = config.get("camera", {})
 
+# ---------------------------------
+# Check if camera module enabled
+# ---------------------------------
+if not cam_config.get("enabled", False):
+    print("[BEAM] Camera module disabled in config.")
+    exit()
+
 node_id = global_config.get("node_id", "unknown-node")
 base_dir = global_config.get("base_dir", os.path.join(project_root, "data"))
 
@@ -58,18 +46,29 @@ os.makedirs(directory, exist_ok=True)
 log_path = os.path.join(directory, "images_log.json")
 
 # ---------------------------------
-# GPIO setup
+# GPIO Setup
 # ---------------------------------
 pir_pin = cam_config.get("gpio_pin", 4)
-flash_pin = cam_config.get("flash_gpio", 17)
-servo_pin = cam_config.get("servo_gpio", 18)
-
 pir = MotionSensor(pir_pin)
-flash = OutputDevice(flash_pin)
-servo = Servo(servo_pin)
+
+# ----- Flash Setup -----
+flash_enabled = cam_config.get("flash_enabled", False)
+flash = None
+
+if flash_enabled:
+    flash_pin = cam_config.get("flash_gpio", 17)
+    flash = OutputDevice(flash_pin)
+
+# ----- Servo Setup -----
+servo_enabled = cam_config.get("servo_enabled", False)
+servo = None
+
+if servo_enabled:
+    servo_pin = cam_config.get("servo_gpio", 18)
+    servo = Servo(servo_pin)
 
 # ---------------------------------
-# Camera setup
+# Camera Setup
 # ---------------------------------
 picam = Picamera2()
 
@@ -89,11 +88,13 @@ time.sleep(1)
 
 if global_config.get("print_debug", True):
     print(f"[BEAM] Motion camera armed on GPIO {pir_pin}")
+    print(f"[BEAM] Flash enabled: {flash_enabled}")
+    print(f"[BEAM] Servo enabled: {servo_enabled}")
 
 cooldown = cam_config.get("cooldown_sec", 1)
 
 # ---------------------------------
-# Read latest lux from log
+# Read latest lux value
 # ---------------------------------
 def get_latest_lux():
 
@@ -118,7 +119,6 @@ def detect_motion(image1, image2):
     img2 = cv2.imread(image2)
 
     diff = cv2.absdiff(img1, img2)
-
     gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
 
     _, thresh = cv2.threshold(gray, 25, 255, cv2.THRESH_BINARY)
@@ -137,7 +137,6 @@ def detect_motion(image1, image2):
         area = cv2.contourArea(c)
 
         if area > 500 and area > max_area:
-
             x, y, w, h = cv2.boundingRect(c)
             largest_box = (x, y, w, h)
             max_area = area
@@ -161,9 +160,12 @@ def detect_motion(image1, image2):
     return None, None
 
 # ---------------------------------
-# Move servo to follow object
+# Servo Tracking
 # ---------------------------------
 def track_object(box, frame_width):
+
+    if not servo_enabled or servo is None:
+        return
 
     x, y, w, h = box
 
@@ -182,7 +184,7 @@ def track_object(box, frame_width):
         servo.value = 0
 
 # ---------------------------------
-# Motion detection loop
+# Motion Detection Loop
 # ---------------------------------
 while True:
 
@@ -205,29 +207,31 @@ while True:
     lux = get_latest_lux()
     flash_threshold = cam_config.get("flash_lux_threshold", 10)
 
-    if lux is not None and lux < flash_threshold:
+    if flash_enabled and flash is not None:
 
-        flash.on()
+        if lux is not None and lux < flash_threshold:
+            flash.on()
 
-        if global_config.get("print_debug", True):
-            print(f"[BEAM] Night detected (lux={lux}) -> Flash ON")
+            if global_config.get("print_debug", True):
+                print(f"[BEAM] Night detected (lux={lux}) -> Flash ON")
+        else:
+            flash.off()
 
-    else:
-        flash.off()
-
+    # Capture frames
     picam.capture_file(frame1)
     time.sleep(0.2)
     picam.capture_file(frame2)
 
+    # Turn flash off after capture
+    if flash_enabled and flash is not None:
+        flash.off()
+
     box, frame_width = detect_motion(frame1, frame2)
 
     if box:
-
         track_object(box, frame_width)
         os.rename(frame2, final_image)
-
     else:
-
         final_image = frame2
 
     record = {
@@ -267,4 +271,5 @@ while True:
         if global_config.get("print_debug", True):
             print("[ERROR] Failed to save log:", e)
 
+    pir.wait_for_no_motion()
     time.sleep(cooldown)
