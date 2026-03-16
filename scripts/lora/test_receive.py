@@ -1,31 +1,56 @@
-import time
 import board
 import digitalio
 import busio
 import adafruit_rfm9x
 
-# SPI bus
+# -------- CONFIG --------
+OUTPUT_FILE = "received_file.bin"
+FREQ = 915.0
+# ------------------------
+
 spi = busio.SPI(board.SCK, MOSI=board.MOSI, MISO=board.MISO)
 
-# Chip select
-cs = digitalio.DigitalInOut(board.CE1)
-
-# Reset
+cs = digitalio.DigitalInOut(board.CE0)
 reset = digitalio.DigitalInOut(board.D25)
 
-# Initialize radio
-rfm9x = adafruit_rfm9x.RFM9x(spi, cs, reset, 915.0)
+rfm9x = adafruit_rfm9x.RFM9x(spi, cs, reset, FREQ)
 
-print("LoRa receiver ready")
+print("Waiting for file...")
+
+file = None
+expected_size = None
+bytes_received = 0
 
 while True:
+
     packet = rfm9x.receive(timeout=5)
 
     if packet is None:
-        print("Waiting...")
-    else:
-        message = str(packet, "utf-8")
-        print("Received:", message)
-        print("RSSI:", rfm9x.last_rssi)
+        continue
 
-    time.sleep(0.5)
+    # Header
+    if packet.startswith(b"START:"):
+        expected_size = int(packet.decode().split(":")[1])
+
+        print("Incoming file size:", expected_size)
+
+        file = open(OUTPUT_FILE, "wb")
+        bytes_received = 0
+        continue
+
+    # End signal
+    if packet == b"END":
+        if file:
+            file.close()
+        print("File transfer complete")
+        break
+
+    # Data packet
+    seq = int.from_bytes(packet[:4], "big")
+    data = packet[4:]
+
+    if file:
+        file.write(data)
+        bytes_received += len(data)
+
+    print("Received chunk", seq, "Total bytes:", bytes_received)

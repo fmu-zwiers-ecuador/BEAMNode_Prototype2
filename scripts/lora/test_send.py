@@ -3,32 +3,52 @@ import board
 import digitalio
 import busio
 import adafruit_rfm9x
+import os
+
+# -------- CONFIG --------
+FILE_PATH = "send_file.bin"
+CHUNK_SIZE = 180
+FREQ = 915.0
+# ------------------------
 
 # Setup SPI
 spi = busio.SPI(board.SCK, MOSI=board.MOSI, MISO=board.MISO)
 
-# Chip select
 cs = digitalio.DigitalInOut(board.CE1)
-
-# Reset pin
 reset = digitalio.DigitalInOut(board.D25)
 
-# Initialize radio
-rfm9x = adafruit_rfm9x.RFM9x(spi, cs, reset, 915.0)
+rfm9x = adafruit_rfm9x.RFM9x(spi, cs, reset, FREQ)
 
 rfm9x.tx_power = 23
 
-print("LoRa transmitter ready")
+file_size = os.path.getsize(FILE_PATH)
 
-counter = 0
+print("Sending file:", FILE_PATH)
+print("File size:", file_size)
 
-while True:
-    input("Press ENTER to send packet...")
+# Send file header
+header = f"START:{file_size}"
+rfm9x.send(header.encode())
+time.sleep(1)
 
-    message = f"Test packet {counter}"
-    rfm9x.send(bytes(message, "utf-8"))
+with open(FILE_PATH, "rb") as f:
 
-    print("Sent:", message)
+    seq = 0
 
-    counter += 1
-    time.sleep(0.2)
+    while True:
+        chunk = f.read(CHUNK_SIZE)
+
+        if not chunk:
+            break
+
+        packet = seq.to_bytes(4, "big") + chunk
+        rfm9x.send(packet)
+
+        print("Sent chunk", seq)
+
+        seq += 1
+        time.sleep(0.25)
+
+rfm9x.send(b"END")
+
+print("File transmission complete")
