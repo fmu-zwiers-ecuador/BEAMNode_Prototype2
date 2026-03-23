@@ -25,6 +25,8 @@ SCRIPT_DIR_OVERRIDES = {
     "atlas_rtd": "atlas_sci",
 }
 
+SUDO_SENSORS = {"atlas_ec", "atlas_orp", "atlas_rtd"}
+
 # log funciton
 def log(msg):
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -89,7 +91,11 @@ def run_sensor_once(sensor):
         return
 
     log(f"[INFO] Running {sensor} at {datetime.now().strftime('%H:%M:%S')}")
-    result = subprocess.run(["python3", script_path], capture_output=True, text=True, timeout=30)
+    cmd = ["python3", script_path]
+    if sensor in SUDO_SENSORS:
+        cmd = ["sudo", "python3", script_path]
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
     # You can log result.stdout/result.stderr here if needed
     if result.returncode == 0:
