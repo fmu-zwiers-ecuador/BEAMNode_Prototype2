@@ -1,3 +1,5 @@
+# Author: Jackson Roberts | BME 680 Logging script
+
 import json
 import os
 import board
@@ -44,8 +46,10 @@ def log_data():
     # 3. Collect Data (No Gas Reading)
     try:
         now_utc = datetime.now(timezone.utc)
+        now_local = datetime.now().astimezone()
         data_point = {
             "timestamp": now_utc.isoformat(),
+            "local_timestamp": now_local.isoformat(),
             "temperature_C": round(sensor.temperature, 2),
             "humidity_percent": round(sensor.relative_humidity, 2),
             "pressure_hPa": round(sensor.pressure, 2)

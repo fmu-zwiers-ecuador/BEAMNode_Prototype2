@@ -1,3 +1,5 @@
+# Author: Jackson Roberts | ORP Logging Script
+
 import json
 import os
 import time
@@ -140,8 +142,12 @@ def log_data():
         print(f"Sensor Read Error: {e}", file=sys.stderr)
         sys.exit(1)
 
+    now_utc = datetime.now(timezone.utc)
+    now_local = datetime.now().astimezone()
+
     data_point = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now_utc.isoformat(),
+        "local_timestamp": now_local.isoformat(),
         "orp_mV": value
     }
 
