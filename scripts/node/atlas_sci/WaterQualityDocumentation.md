@@ -5,7 +5,7 @@
 * **Task Title:** Atlas EZO Sensor Scripts (ORP / EC / RTD)
 * **Student(s):** Jackson Roberts
 * **Mentor/Reviewer:** Raiz Mohammed
-* **Date Started / Completed:** 03/11/2026 - 03/24/2026
+* **Date Started / Completed:** 03/09/2026 - 03/24/2026
 * **Status:** Done
 * **GitHub Link (examples):**
   - https://github.com/fmu-zwiers-ecuador/BEAMNode_Prototype2/blob/main/scripts/node/atlas_sci/log_atlas_orp.py
