@@ -76,6 +76,7 @@ while True:
     try:
         msg = json.loads(pkt.decode())
     except:
+        
         continue
 
     if msg["type"] == "DATA":

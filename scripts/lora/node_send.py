@@ -12,7 +12,7 @@ rfm9x.tx_power = 23
 
 # --- CONFIG ---
 NODE_ID = "node1"
-CHUNK_SIZE = 180
+CHUNK_SIZE = 100
 WINDOW_SIZE = 4
 ACK_TIMEOUT = 3
 MAX_RETRIES = 5
