@@ -21,6 +21,7 @@ def send_ack(file_id, node_id, received):
         "received": list(received)
     }
     rfm9x.send(json.dumps(pkt).encode())
+    print(f"ACK sent for {file_id}, received chunks: {received}")
 
 def handle_data(pkt):
     file_id = pkt["f"]
