@@ -3,6 +3,7 @@
 
 import json
 import os
+import sys
 from datetime import datetime, timezone
 
 try:
@@ -10,14 +11,18 @@ try:
 except Exception:
     raise SystemExit(0)
 
-CONFIG_FILE = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+NODE_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
+DEFAULT_CONFIG_FILE = os.path.join(NODE_DIR, "config.json")
+CONFIG_FILE = os.environ.get("BEAM_CONFIG_PATH", DEFAULT_CONFIG_FILE)
 
 
 def load_config():
     try:
         with open(CONFIG_FILE, "r") as f:
             return json.load(f)
-    except Exception:
+    except Exception as e:
+        print(f"[air_quality] Failed to load config at {CONFIG_FILE}: {e}", file=sys.stderr)
         return {}
 
 
@@ -112,8 +117,14 @@ def main():
     config = load_config()
     global_cfg = config.get("global", {})
     pm_cfg = config.get("air_quality", {})
+    print_debug = bool(global_cfg.get("print_debug", False))
+
+    def debug(msg):
+        if print_debug:
+            print(f"[air_quality] {msg}")
 
     if not pm_cfg.get("enabled", False):
+        debug("air_quality.enabled is false; exiting")
         raise SystemExit(0)
 
     node_id = global_cfg.get("node_id", "beam-node-01")
@@ -125,15 +136,25 @@ def main():
     timeout_sec = float(pm_cfg.get("read_timeout_sec", 3.0))
 
     file_path = os.path.join(base_dir, out_dir, file_name)
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    debug(f"Config loaded from: {CONFIG_FILE}")
+    debug(f"Serial port: {serial_port} @ {baud_rate} timeout={timeout_sec}s")
+    debug(f"Output file: {file_path}")
 
     try:
         with serial.Serial(serial_port, baudrate=baud_rate, timeout=timeout_sec) as port:
             frame = read_pms_frame(port)
             if frame is None:
-                raise SystemExit(0)
+                print(
+                    f"[air_quality] No PMS frame received from {serial_port}. "
+                    "Check TX/RX wiring and UART config.",
+                    file=sys.stderr,
+                )
+                raise SystemExit(1)
             parsed = parse_pms_frame(frame)
-    except Exception:
-        raise SystemExit(0)
+    except Exception as e:
+        print(f"[air_quality] Serial read failed on {serial_port}: {e}", file=sys.stderr)
+        raise SystemExit(1)
 
     now_utc = datetime.now(timezone.utc)
     now_local = now_utc.astimezone()
@@ -147,8 +168,10 @@ def main():
 
     try:
         append_json_record(file_path, node_id, "air_quality", record)
-    except Exception:
-        raise SystemExit(0)
+        debug("Record appended successfully")
+    except Exception as e:
+        print(f"[air_quality] Failed to write JSON file {file_path}: {e}", file=sys.stderr)
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
