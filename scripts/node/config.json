@@ -92,7 +92,7 @@
     "mount_path": null
   },
   "camera": {
-    "enabled": false,
+    "enabled": true,
     "interface": "CSI",
     "library": "picamera2",
     "expected_model": "imx219",
@@ -100,7 +100,7 @@
     "directory": "camera",
     "file_name": "camera_status.json",
     "file_prefix": "motionpic_",
-    "gpio_pin": 4,
+    "gpio_pin": 24,
     "flash_enabled": true,
     "flash_gpio": 17,
     "servo_gpio": 18,
