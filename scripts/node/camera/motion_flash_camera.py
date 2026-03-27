@@ -17,10 +17,9 @@ LUX_LOG_PATH = "/home/pi/data/tsl2591/lux_data.json"
 # ---------------------------------
 # Load configuration
 # ---------------------------------
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-config_path = os.path.join(project_root, "config.json")
+CONFIG_PATH = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
 
-with open(config_path, "r") as f:
+with open(CONFIG_PATH, "r") as f:
     config = json.load(f)
 
 global_config = config.get("global", {})
@@ -34,7 +33,7 @@ if not cam_config.get("enabled", False):
     exit()
 
 node_id = global_config.get("node_id", "unknown-node")
-base_dir = global_config.get("base_dir", os.path.join(project_root, "data"))
+base_dir = global_config.get("base_dir", "/home/pi/data")
 
 # ---------------------------------
 # Directory setup
