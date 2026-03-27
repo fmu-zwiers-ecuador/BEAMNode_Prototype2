@@ -15,7 +15,7 @@ except (FileNotFoundError, json.JSONDecodeError):
 try:
     print("Logging wind data... (Ctrl+C to stop)")
     while True:
-        line = ser.readline().decode('utf-8').strip()
+        line = ser.readline().decode('utf-8').strip().replace('/r', '')
         if not line:
             continue
         try:
