@@ -1,4 +1,4 @@
-############## SCHEDULER.PY - BEAM PROJECT - GABRIEL GONZALEZ - OCT 2025 ##################
+############## SCHEDULER.PY - BEAM PROJECT - GABRIEL GONZALEZ - Jackson Roberts - OCT 2025 ##################
 ## This script should schedule times for data collection from all sensors: AHT, Audio,   ##
 ## BME280, and TSL2591.                                                                  ##
 ###########################################################################################
@@ -17,6 +17,15 @@ LOG_FILE = "/home/pi/logs/scheduler.log"
 FILE_NAMES = {
 
 }
+
+# Atlas sensor scripts are grouped under a shared folder.
+SCRIPT_DIR_OVERRIDES = {
+    "atlas_ec": "atlas_sci",
+    "atlas_orp": "atlas_sci",
+    "atlas_rtd": "atlas_sci",
+}
+
+SUDO_SENSORS = {"atlas_ec", "atlas_orp", "atlas_rtd"}
 
 # log funciton
 def log(msg):
@@ -51,13 +60,23 @@ def load_config():
 def find_sensor_script(sensor):
     """Find the Python script inside each sensor’s directory."""
     config = load_config()
-    sensor_dir = os.path.join(NODE_DIR, sensor)
     params = config.get(sensor)
-    if not os.path.isdir(sensor_dir):
-        log(f"[WARN] Directory not found for sensor '{sensor}'")
+    if not isinstance(params, dict):
+        log(f"[WARN] Invalid config for sensor '{sensor}'")
         return None
-    
-    full_path = os.path.join(sensor_dir, params.get("script_name"))
+
+    script_name = params.get("script_name")
+    if not script_name:
+        log(f"[WARN] Missing script_name for sensor '{sensor}'")
+        return None
+
+    dir_name = SCRIPT_DIR_OVERRIDES.get(sensor, sensor)
+    sensor_dir = os.path.join(NODE_DIR, dir_name)
+    if not os.path.isdir(sensor_dir):
+        log(f"[WARN] Directory not found for sensor '{sensor}' ({sensor_dir})")
+        return None
+
+    full_path = os.path.join(sensor_dir, script_name)
 
     if os.path.isfile(full_path):
         return full_path
@@ -72,7 +91,11 @@ def run_sensor_once(sensor):
         return
 
     log(f"[INFO] Running {sensor} at {datetime.now().strftime('%H:%M:%S')}")
-    result = subprocess.run(["python3", script_path], capture_output=True, text=True, timeout=30)
+    cmd = ["python3", script_path]
+    if sensor in SUDO_SENSORS:
+        cmd = ["sudo", "python3", script_path]
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
     # You can log result.stdout/result.stderr here if needed
     if result.returncode == 0:

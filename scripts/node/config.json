@@ -70,7 +70,7 @@
     }
   },
   "anemometer": {
-    "enabled": true,
+    "enabled": false,
     "source": "serial",
     "serial_port": "/dev/ttyUSB0",
     "baud_rate": 9600,
@@ -78,8 +78,24 @@
     "directory": "anemometer",
     "file_name": "wind_data.json"
   },
+  "air_quality": {
+    "enabled": false,
+    "directory": "air_quality",
+    "script_name": "log_pm_data.py",
+    "file_name": "pm_data.json",
+    "frequency": 60,
+    "serial_port": "/dev/ttyS0",
+    "baud_rate": 9600,
+    "read_timeout_sec": 3.0,
+    "record_schema": {
+      "timestamp": "ISO8601",
+      "pm1_0_atm_ug_m3": "int",
+      "pm2_5_atm_ug_m3": "int",
+      "pm10_atm_ug_m3": "int"
+    }
+  },
   "audio": {
-    "enabled": true,
+    "enabled": false,
     "directory": "audio",
     "script_name": "record.py",
     "file_prefix": "recording_",
@@ -92,7 +108,7 @@
     "mount_path": null
   },
   "camera": {
-    "enabled": false,
+    "enabled": true,
     "interface": "CSI",
     "library": "picamera2",
     "expected_model": "imx219",
@@ -100,7 +116,8 @@
     "directory": "camera",
     "file_name": "camera_status.json",
     "file_prefix": "motionpic_",
-    "gpio_pin": 4,
+    "gpio_pin": 24,
+    "flash_enabled": true,
     "flash_gpio": 17,
     "servo_gpio": 18,
     "resolution": [1920, 1080],
@@ -120,8 +137,10 @@
     "script_name": "log_atlas_ec.py",
     "file_name": "ec_data.json",
     "frequency": 60,
-    "i2c_bus": null,
-    "address_hex": "0x64"
+    "i2c_bus": 1,
+    "address_hex": "0x64",
+    "read_retries": 2,
+    "retry_sleep": 1.5
   },
   "atlas_orp": {
     "enabled": false,
@@ -129,7 +148,7 @@
     "script_name": "log_atlas_orp.py",
     "file_name": "orp_data.json",
     "frequency": 60,
-    "i2c_bus": null,
+    "i2c_bus": 1,
     "address_hex": "0x62"
   },
   "atlas_rtd": {
@@ -138,7 +157,7 @@
     "script_name": "log_atlas_rtd.py",
     "file_name": "water_temp.json",
     "frequency": 60,
-    "i2c_bus": null,
+    "i2c_bus": 1,
     "address_hex": "0x66"
   }
 }

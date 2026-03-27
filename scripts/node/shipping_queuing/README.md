@@ -11,7 +11,7 @@ The Supervisor:
 - Retries failed nodes intelligently  
 - Stores incoming ZIP data in organized per-node directories  
 
-All scheduling is automated via cron jobs configured by `setup_beam_cron.sh`.
+All scheduling is automated via cron jobs configured by `set_retryservice.sh`.
 
 ---
 
@@ -19,13 +19,13 @@ All scheduling is automated via cron jobs configured by `setup_beam_cron.sh`.
 ```
 BEAMNode_Prototype2/
 └── scripts/
-    └── node/
-        └── shipping_queuing/
-            ├── ping_nodes_10min.py
-            ├── retryqueue.py
-            ├── node_states.json
-            ├── setup_beam_cron.sh
-            └── logs/ (auto-created)
+|    └── node/
+|        └── shipping_queuing/
+|            ├── ping_nodes_10min.py
+|            ├── retryqueue.py
+|            └── node_states.json
+└── supervisor/
+    └── set_retryservice.sh
 ```
 
 ---
@@ -65,7 +65,7 @@ The Supervisor:
 
 ```json
 "node3": {
-  "ip": "192.168.1.3",
+  "ip": "10.42.0.3",
   "node_state": "dead",
   "transfer_fail": true
 }
@@ -102,7 +102,7 @@ Runs daily at 7 PM.
 
 ---
 
-### **3. setup_beam_cron.sh**
+### **3. set_retryservice_.sh**
 Fully automatic setup script:
 
 - Creates `/home/pi/logs/`  
@@ -126,8 +126,8 @@ Fully automatic setup script:
 
 ### 2. Run the setup script:
 ```bash
-chmod +x /home/pi/setup_beam_cron.sh
-./setup_beam_cron.sh
+chmod +x /home/pi/BEAMNode_Prototype2/supervisor/set_retryservice.sh
+./set_retryservice.sh
 ```
 
 ### 3. Verify cron installed correctly:
@@ -168,7 +168,7 @@ Each log includes timestamps and detailed system events.
 ## ⚠️ Important Notes
 
 - **Do not run setup script with sudo.** Cron jobs must install under user `pi`.
-- If paths change later, update them inside `setup_beam_cron.sh`.
+- If paths change later, update them inside `set_retryservice.sh`.
 - Ensure `node_states.json` remains writable by user `pi`.
 
 ---

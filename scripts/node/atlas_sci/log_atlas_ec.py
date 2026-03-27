@@ -1,3 +1,5 @@
+# Author: Jackson Roberts | K 0.1 Conductivity Sensor Logging Script
+
 import json
 import os
 import time
@@ -105,12 +107,24 @@ def log_data():
         return
 
     try:
-        addr = int(str(ec_config.get("address_hex", "0x64")), 16)
-        bus_num = int(ec_config.get("i2c_bus", 1))
-        retries = int(ec_config.get("read_retries", 2))
-        retry_sleep = float(ec_config.get("retry_sleep", 1.5))
+        addr_hex = ec_config.get("address_hex") or "0x64"
+        i2c_bus = ec_config.get("i2c_bus")
+        read_retries = ec_config.get("read_retries")
+        retry_sleep_cfg = ec_config.get("retry_sleep")
+
+        bus_num = int(i2c_bus) if i2c_bus is not None else 1
+        retries = int(read_retries) if read_retries is not None else 2
+        retry_sleep = float(retry_sleep_cfg) if retry_sleep_cfg is not None else 1.5
+        addr = int(str(addr_hex), 16)
     except Exception as e:
-        print(f"Config Parse Error: {e}", file=sys.stderr)
+        print(
+            f"Config Parse Error in atlas_ec: "
+            f"address_hex={ec_config.get('address_hex')!r}, "
+            f"i2c_bus={ec_config.get('i2c_bus')!r}, "
+            f"read_retries={ec_config.get('read_retries')!r}, "
+            f"retry_sleep={ec_config.get('retry_sleep')!r} | {e}",
+            file=sys.stderr
+        )
         sys.exit(1)
 
     STATUS_CODES = {
@@ -172,8 +186,12 @@ def log_data():
         print(f"Sensor Read Error: {e}", file=sys.stderr)
         sys.exit(1)
 
+    now_utc = datetime.now(timezone.utc)
+    now_local = datetime.now().astimezone()
+
     data_point = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now_utc.isoformat(),
+        "local_timestamp": now_local.isoformat(),
         "conductivity_uS": value,
         "submerged": submerged
     }
