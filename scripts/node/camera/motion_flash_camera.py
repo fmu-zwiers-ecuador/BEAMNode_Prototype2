@@ -76,6 +76,8 @@ time.sleep(1)
 if global_config.get("print_debug", True):
     print(f"[BEAM] Motion camera armed on GPIO {pir_pin}")
     print(f"[BEAM] Flash enabled: {flash_enabled}")
+    print(f"[BEAM] Image directory: {directory}")
+    print(f"[BEAM] Image log: {log_path}")
 
 cooldown = cam_config.get("cooldown_sec", 1)
 
@@ -108,8 +110,9 @@ while True:
 
     timestamp_iso = now_utc.isoformat()
     file_ts = now_utc.strftime("%Y%m%d_%H%M%SZ")
+    file_prefix = cam_config.get("file_prefix", "motionpic_")
 
-    image_path = os.path.join(directory, f"motionpic_{file_ts}.jpg")
+    image_path = os.path.join(directory, f"{file_prefix}{file_ts}.jpg")
 
     if global_config.get("print_debug", True):
         print("[BEAM] Motion detected")
@@ -130,7 +133,15 @@ while True:
     # ---------------------------------
     # Capture image
     # ---------------------------------
-    picam.capture_file(image_path)
+    try:
+        picam.capture_file(image_path)
+        if os.path.exists(image_path):
+            print(f"[BEAM] Picture saved: {image_path}")
+        else:
+            print(f"[BEAM] Capture finished but file not found: {image_path}")
+    except Exception as e:
+        print(f"[BEAM] Picture capture failed: {e}")
+        continue
 
     # Turn flash off after capture
     if flash_enabled and flash is not None:
@@ -163,6 +174,8 @@ while True:
 
         with open(log_path, "w") as f:
             json.dump(data, f, indent=4)
+
+        print(f"[BEAM] Capture logged to: {log_path}")
 
     except Exception as e:
         print("[ERROR] Failed to save log:", e)

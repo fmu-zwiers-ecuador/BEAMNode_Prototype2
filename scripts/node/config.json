@@ -101,6 +101,7 @@
     "file_name": "camera_status.json",
     "file_prefix": "motionpic_",
     "gpio_pin": 4,
+    "flash_enabled": true,
     "flash_gpio": 17,
     "servo_gpio": 18,
     "resolution": [1920, 1080],
