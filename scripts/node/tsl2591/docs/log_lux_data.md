@@ -5,7 +5,11 @@
 
 **Sensor Description**
 
-The TSL2591 is a very high sensitivity light-to-digital converter that transforms light intensity into a digital signal output capable of direct I2C interface. The purpose of this sensor is to measure and detect lux values at a wide range. This sensor connects to four pins: 3V3(Pin 1 or 17/Power), SDA I2C(Pin 3/GPIO2), SCL I2C(Pin 5/GPIO3), and Ground(Pin 6 or 9). 
+The TSL2591 is a very high sensitivity light-to-digital converter that transforms light intensity into a digital signal output capable of direct I2C interface. The purpose of this sensor is to measure and detect lux values at a wide range. This sensor connects to four pins: 
+* 3V3(Pin 1 or 17/Power) 
+* SDA I2C(Pin 3/GPIO2) 
+* SCL I2C(Pin 5/GPIO3)
+* Ground(Pin 6 or 9)
 ![GPIO Pin Diagram](../images/Raspberry_pi_pin_description.png) 
 
 **Detection Script Integration**

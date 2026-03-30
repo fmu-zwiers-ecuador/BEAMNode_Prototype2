@@ -1,5 +1,15 @@
 # **Intital Node/Supervisor Setup Guide**
 
+# General Information
+
+* There are currently two supervisors active. Each supervisor is in charge of five diferent nodes. Right now, this is our current structure:
+* Supervisor 1:
+  * Node 1
+  * Node 2
+  * Node 3
+  * Node 4
+  * Node 5
+
 # Basic Step-by-Step Guide For Node Setup
 
 * Connect to a wifi network

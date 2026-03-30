@@ -58,15 +58,31 @@ fi
 echo "=== BATMAN-adv Setup Script ==="
 echo
 
-# --- Ask for configuration with defaults ---
-read -p "Enter ad-hoc network name (SSID) [myadhoc]: " NETWORK_NAME
-NETWORK_NAME=${NETWORK_NAME:-myadhoc}
+read -p "Will you be connecting to supervisor 1 or supervisor 2? [1] or [2]: " SUPERVISOR
+if [[ "${SUPERVISOR,,}" == "1" ]]; then
+    echo "Configuring for supervisor 1..."
+    # --- Ask for configuration with defaults ---
+    read -p "Enter ad-hoc network name (SSID) [myadhoc]: " NETWORK_NAME
+    NETWORK_NAME=${NETWORK_NAME:-myadhoc}
 
-read -p "Enter frequency in MHz (e.g. 2412 for channel 1) [2412]: " FREQUENCY
-FREQUENCY=${FREQUENCY:-2412}
+    read -p "Enter frequency in MHz (e.g. 2412 for channel 1) [2412]: " FREQUENCY
+    FREQUENCY=${FREQUENCY:-2412}
 
-read -p "Enter static IP for bat0 (e.g. 10.42.0.2/16) [10.42.0.2/16]: " STATIC_IP
-STATIC_IP=${STATIC_IP:-10.42.0.2/16}
+    read -p "Enter static IP for bat0 (e.g. 10.42.0.2/16) [10.42.0.2/16]: " STATIC_IP
+    STATIC_IP=${STATIC_IP:-10.42.0.2/16}
+else
+    echo "Configuring for supervisor 2..."
+    # --- Ask for configuration with defaults ---
+    read -p "Enter ad-hoc network name (SSID) [myadhoc2]: " NETWORK_NAME
+    NETWORK_NAME=${NETWORK_NAME:-myadhoc2}
+
+    read -p "Enter frequency in MHz (e.g. 2437 for channel 6) [2437]: " FREQUENCY
+    FREQUENCY=${FREQUENCY:-2437}
+
+    read -p "Enter static IP for bat0 (e.g. 10.42.0.2/16) [10.42.0.2/16]: " STATIC_IP
+    STATIC_IP=${STATIC_IP:-10.42.0.2/16}
+fi
+
 
 echo
 echo "Using configuration:"
@@ -212,7 +228,7 @@ set -euo pipefail
 read -rp "Mesh interface [bat0]: " MESH_IF
 MESH_IF=${MESH_IF:-bat0}
 
-read -rp "Supervisor mesh IP (NTP/DNS gateway) [10.42.0.30]: " SUP_IP
+read -rp "Supervisor mesh IP (NTP/DNS gateway) [10.42.0.30](Supervisor 1) or [10.42.0.40](Supervisor 2): " SUP_IP
 SUP_IP=${SUP_IP:-10.42.0.30}
 
 echo
