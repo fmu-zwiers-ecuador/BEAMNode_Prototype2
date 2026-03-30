@@ -4,6 +4,7 @@
 import json
 import os
 import sys
+import time
 from datetime import datetime, timezone
 
 try:
@@ -36,23 +37,25 @@ def read_exact(port, size):
     return bytes(data)
 
 
-def read_pms_frame(port):
-    while True:
+def read_pms_frame(port, max_wait_sec):
+    deadline = time.monotonic() + max_wait_sec
+
+    while time.monotonic() < deadline:
         first = port.read(1)
         if not first:
-            return None
+            continue
         if first[0] != 0x42:
             continue
 
         second = port.read(1)
         if not second:
-            return None
+            continue
         if second[0] != 0x4D:
             continue
 
         rest = read_exact(port, 30)
         if rest is None:
-            return None
+            continue
 
         frame = bytes([0x42, 0x4D]) + rest
         checksum = sum(frame[0:30]) & 0xFFFF
@@ -65,6 +68,8 @@ def read_pms_frame(port):
             continue
 
         return frame
+
+    return None
 
 
 def build_candidate_ports(configured_port, configured_candidates):
@@ -94,7 +99,7 @@ def build_candidate_ports(configured_port, configured_candidates):
     return ordered
 
 
-def read_first_valid_frame(candidate_ports, baud_rate, timeout_sec, debug):
+def read_first_valid_frame(candidate_ports, baud_rate, timeout_sec, frame_search_sec, debug):
     errors = []
 
     for port_name in candidate_ports:
@@ -106,9 +111,9 @@ def read_first_valid_frame(candidate_ports, baud_rate, timeout_sec, debug):
             with serial.Serial(port_name, baudrate=baud_rate, timeout=timeout_sec) as port:
                 # Drop stale bytes before trying to parse a fresh frame.
                 port.reset_input_buffer()
-                frame = read_pms_frame(port)
+                frame = read_pms_frame(port, frame_search_sec)
                 if frame is None:
-                    errors.append(f"{port_name}: no valid PMS frame within {timeout_sec}s")
+                    errors.append(f"{port_name}: no valid PMS frame within {frame_search_sec}s")
                     continue
                 return port_name, frame, errors
         except Exception as e:
@@ -185,15 +190,24 @@ def main():
     serial_port_candidates = pm_cfg.get("serial_port_candidates", [])
     baud_rate = int(pm_cfg.get("baud_rate", 9600))
     timeout_sec = float(pm_cfg.get("read_timeout_sec", 3.0))
+    frame_search_sec = float(pm_cfg.get("frame_search_sec", max(6.0, timeout_sec * 2.0)))
 
     file_path = os.path.join(base_dir, out_dir, file_name)
     candidate_ports = build_candidate_ports(serial_port, serial_port_candidates)
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
     debug(f"Config loaded from: {CONFIG_FILE}")
-    debug(f"Serial ports: {candidate_ports} @ {baud_rate} timeout={timeout_sec}s")
+    debug(
+        f"Serial ports: {candidate_ports} @ {baud_rate} timeout={timeout_sec}s frame_search={frame_search_sec}s"
+    )
     debug(f"Output file: {file_path}")
 
-    selected_port, frame, read_errors = read_first_valid_frame(candidate_ports, baud_rate, timeout_sec, debug)
+    try:
+        selected_port, frame, read_errors = read_first_valid_frame(
+            candidate_ports, baud_rate, timeout_sec, frame_search_sec, debug
+        )
+    except KeyboardInterrupt:
+        print("[air_quality] Interrupted by user.", file=sys.stderr)
+        raise SystemExit(130)
     if frame is None:
         print(
             "[air_quality] No PMS frame received on any candidate serial port.",
