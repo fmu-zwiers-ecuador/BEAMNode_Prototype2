@@ -1,9 +1,29 @@
 import serial
 import json
 from datetime import datetime
+import os
 
 # Match arduino baud rate
 ser = serial.Serial('/dev/ttyUSB0', 9600, timeout=1)
+
+# Determine project root dynamically
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+# Load config
+config_path = os.path.join(project_root, "config.json")
+with open(config_path, "r") as f:
+    config = json.load(f)
+
+tsl_config = config["anemometer"]
+global_config = config["global"]
+
+node_id = global_config.get("node_id", "unknown-node")
+
+# Directory and file for logs
+directory = os.path.join(global_config.get("base_dir", os.path.join(project_root, "data")), tsl_config.get("directory", "anemometer"))
+os.makedirs(directory, exist_ok=True)
+file_name = tsl_config.get("file_name", "wind_data.json")
+file_path = os.path.join(directory, file_name)
 
 # Load existing data or start fresh
 try: 
