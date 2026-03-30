@@ -67,6 +67,56 @@ def read_pms_frame(port):
         return frame
 
 
+def build_candidate_ports(configured_port, configured_candidates):
+    candidates = []
+
+    if isinstance(configured_candidates, list):
+        candidates.extend([p for p in configured_candidates if isinstance(p, str) and p.strip()])
+
+    if isinstance(configured_port, str) and configured_port.strip():
+        candidates.insert(0, configured_port)
+
+    # Keep a small, practical fallback set for Raspberry Pi UART naming differences.
+    candidates.extend([
+        "/dev/serial0",
+        "/dev/ttyAMA0",
+        "/dev/ttyS0",
+        "/dev/ttyUSB0",
+        "/dev/ttyUSB1",
+    ])
+
+    seen = set()
+    ordered = []
+    for port in candidates:
+        if port not in seen:
+            seen.add(port)
+            ordered.append(port)
+    return ordered
+
+
+def read_first_valid_frame(candidate_ports, baud_rate, timeout_sec, debug):
+    errors = []
+
+    for port_name in candidate_ports:
+        if not os.path.exists(port_name):
+            errors.append(f"{port_name}: device does not exist")
+            continue
+
+        try:
+            with serial.Serial(port_name, baudrate=baud_rate, timeout=timeout_sec) as port:
+                # Drop stale bytes before trying to parse a fresh frame.
+                port.reset_input_buffer()
+                frame = read_pms_frame(port)
+                if frame is None:
+                    errors.append(f"{port_name}: no valid PMS frame within {timeout_sec}s")
+                    continue
+                return port_name, frame, errors
+        except Exception as e:
+            errors.append(f"{port_name}: {e}")
+
+    return None, None, errors
+
+
 def parse_pms_frame(frame):
     values = []
     for i in range(4, 30, 2):
@@ -132,29 +182,33 @@ def main():
     out_dir = pm_cfg.get("directory", "air_quality")
     file_name = pm_cfg.get("file_name", "pm_data.json")
     serial_port = pm_cfg.get("serial_port", "/dev/ttyS0")
+    serial_port_candidates = pm_cfg.get("serial_port_candidates", [])
     baud_rate = int(pm_cfg.get("baud_rate", 9600))
     timeout_sec = float(pm_cfg.get("read_timeout_sec", 3.0))
 
     file_path = os.path.join(base_dir, out_dir, file_name)
+    candidate_ports = build_candidate_ports(serial_port, serial_port_candidates)
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
     debug(f"Config loaded from: {CONFIG_FILE}")
-    debug(f"Serial port: {serial_port} @ {baud_rate} timeout={timeout_sec}s")
+    debug(f"Serial ports: {candidate_ports} @ {baud_rate} timeout={timeout_sec}s")
     debug(f"Output file: {file_path}")
 
-    try:
-        with serial.Serial(serial_port, baudrate=baud_rate, timeout=timeout_sec) as port:
-            frame = read_pms_frame(port)
-            if frame is None:
-                print(
-                    f"[air_quality] No PMS frame received from {serial_port}. "
-                    "Check TX/RX wiring and UART config.",
-                    file=sys.stderr,
-                )
-                raise SystemExit(1)
-            parsed = parse_pms_frame(frame)
-    except Exception as e:
-        print(f"[air_quality] Serial read failed on {serial_port}: {e}", file=sys.stderr)
+    selected_port, frame, read_errors = read_first_valid_frame(candidate_ports, baud_rate, timeout_sec, debug)
+    if frame is None:
+        print(
+            "[air_quality] No PMS frame received on any candidate serial port.",
+            file=sys.stderr,
+        )
+        for err in read_errors:
+            print(f"[air_quality]   - {err}", file=sys.stderr)
+        print(
+            "[air_quality] Check TX/RX wiring, disable serial console, and verify enable_uart=1.",
+            file=sys.stderr,
+        )
         raise SystemExit(1)
+
+    debug(f"Using serial port: {selected_port}")
+    parsed = parse_pms_frame(frame)
 
     now_utc = datetime.now(timezone.utc)
     now_local = now_utc.astimezone()
