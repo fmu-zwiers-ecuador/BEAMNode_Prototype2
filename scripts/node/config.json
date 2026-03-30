@@ -78,6 +78,22 @@
     "directory": "anemometer",
     "file_name": "wind_data.json"
   },
+  "air_quality": {
+    "enabled": false,
+    "directory": "air_quality",
+    "script_name": "log_pm_data.py",
+    "file_name": "pm_data.json",
+    "frequency": 60,
+    "serial_port": "/dev/ttyS0",
+    "baud_rate": 9600,
+    "read_timeout_sec": 3.0,
+    "record_schema": {
+      "timestamp": "ISO8601",
+      "pm1_0_atm_ug_m3": "int",
+      "pm2_5_atm_ug_m3": "int",
+      "pm10_atm_ug_m3": "int"
+    }
+  },
   "audio": {
     "enabled": false,
     "directory": "audio",
@@ -92,7 +108,7 @@
     "mount_path": null
   },
   "camera": {
-    "enabled": false,
+    "enabled": true,
     "interface": "CSI",
     "library": "picamera2",
     "expected_model": "imx219",
@@ -100,7 +116,8 @@
     "directory": "camera",
     "file_name": "camera_status.json",
     "file_prefix": "motionpic_",
-    "gpio_pin": 4,
+    "gpio_pin": 24,
+    "flash_enabled": true,
     "flash_gpio": 17,
     "servo_gpio": 18,
     "resolution": [1920, 1080],

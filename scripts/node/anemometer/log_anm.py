@@ -1,13 +1,33 @@
 import serial
 import json
 from datetime import datetime
+import os
 
 # Match arduino baud rate
 ser = serial.Serial('/dev/ttyUSB0', 9600, timeout=1)
 
+# Determine project root dynamically
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+# Load config
+config_path = os.path.join(project_root, "config.json")
+with open(config_path, "r") as f:
+    config = json.load(f)
+
+anm_config = config["anemometer"]
+global_config = config["global"]
+
+node_id = global_config.get("node_id", "unknown-node")
+
+# Directory and file for logs
+directory = os.path.join(global_config.get("base_dir", os.path.join(project_root, "data")), anm_config.get("directory", "anemometer"))
+os.makedirs(directory, exist_ok=True)
+file_name = anm_config.get("file_name", "wind_data.json")
+file_path = os.path.join(directory, file_name)
+
 # Load existing data or start fresh
 try: 
-    with open("wind_data.json", "r") as f:
+    with open(file_path, "r") as f:
         data = json.load(f)
 except (FileNotFoundError, json.JSONDecodeError):
     data = []
@@ -15,7 +35,7 @@ except (FileNotFoundError, json.JSONDecodeError):
 try:
     print("Logging wind data... (Ctrl+C to stop)")
     while True:
-        line = ser.readline().decode('utf-8').strip()
+        line = ser.readline().decode('utf-8').strip().replace('/r', '')
         if not line:
             continue
         try:
@@ -35,7 +55,7 @@ except KeyboardInterrupt:
 
 finally:
     # Only write file once on exit
-    with open("wind_data.json", "w") as f:
+    with open(file_path, "w") as f:
         json.dump(data, f, indent=2)
     print(f"Saved {len(data)} entries to wind_data.json")
     ser.close()
