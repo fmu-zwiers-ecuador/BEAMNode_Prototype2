@@ -346,16 +346,28 @@ def main():
         print("[air_quality] Interrupted by user.", file=sys.stderr)
         raise SystemExit(130)
     if frame is None:
-        print(
-            "[air_quality] No PMS frame received on any candidate serial port.",
-            file=sys.stderr,
-        )
+        if interface == "spi":
+            print(
+                "[air_quality] No PMS frame received on any candidate SPI device.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "[air_quality] No PMS frame received on any candidate serial port.",
+                file=sys.stderr,
+            )
         for err in read_errors:
             print(f"[air_quality]   - {err}", file=sys.stderr)
-        print(
-            "[air_quality] Check TX/RX wiring, disable serial console, and verify enable_uart=1.",
-            file=sys.stderr,
-        )
+        if interface == "spi":
+            print(
+                "[air_quality] Check SCLK/MISO/MOSI/CS wiring, SPI enablement, and spidev device paths.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "[air_quality] Check TX/RX wiring, disable serial console, and verify enable_uart=1.",
+                file=sys.stderr,
+            )
         raise SystemExit(1)
 
     debug(f"Using serial port: {selected_port}")
