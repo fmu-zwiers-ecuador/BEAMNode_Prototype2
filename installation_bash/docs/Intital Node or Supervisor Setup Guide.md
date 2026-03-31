@@ -10,6 +10,9 @@
   * Node 4
   * Node 5
 
+* Supervisor 2:
+  * Node 6
+  * Node 7
 # Basic Step-by-Step Guide For Node Setup
 
 * Connect to a wifi network
