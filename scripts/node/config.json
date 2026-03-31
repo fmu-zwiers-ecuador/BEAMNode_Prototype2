@@ -80,7 +80,7 @@
   },
   "air_quality": {
     "enabled": false,
-    "interface": "spi",
+    "interface": "uart",
     "directory": "air_quality",
     "script_name": "log_pm_data.py",
     "file_name": "pm_data.json",
@@ -102,7 +102,7 @@
         "device": 0
       }
     ],
-    "serial_port": "/dev/ttyS0",
+    "serial_port": "/dev/serial0",
     "serial_port_candidates": [
       "/dev/serial0",
       "/dev/ttyAMA0",
