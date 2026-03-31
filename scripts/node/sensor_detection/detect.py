@@ -247,7 +247,7 @@ def detect_anemometer():
         set_config_flag(CONFIG_PATH, "anemometer", "enabled", False)
 
 
-# ---------------- Air Quality (SPI PM Frame) ---------------- #
+# ---------------- Air Quality (PMS Frame over SPI/UART) ---------------- #
 
 def _load_air_quality_cfg():
     try:
@@ -290,6 +290,36 @@ def _build_air_spi_targets(air_cfg):
     return dedup
 
 
+def _build_air_uart_ports(air_cfg):
+    ports = []
+
+    candidates = air_cfg.get("serial_port_candidates", [])
+    if isinstance(candidates, list):
+        for item in candidates:
+            if isinstance(item, str) and item.strip():
+                ports.append(item)
+
+    primary = air_cfg.get("serial_port", "/dev/ttyS0")
+    if isinstance(primary, str) and primary.strip():
+        ports.insert(0, primary)
+
+    ports.extend([
+        "/dev/serial0",
+        "/dev/ttyAMA0",
+        "/dev/ttyS0",
+        "/dev/ttyUSB0",
+        "/dev/ttyUSB1",
+    ])
+
+    dedup = []
+    seen = set()
+    for p in ports:
+        if p not in seen:
+            seen.add(p)
+            dedup.append(p)
+    return dedup
+
+
 def _is_valid_pm_frame(frame):
     if len(frame) != 32:
         return False
@@ -301,6 +331,50 @@ def _is_valid_pm_frame(frame):
     checksum = sum(frame[0:30]) & 0xFFFF
     expected = (frame[30] << 8) | frame[31]
     return checksum == expected
+
+
+def _read_exact_serial(port, size):
+    data = bytearray()
+    while len(data) < size:
+        chunk = port.read(size - len(data))
+        if not chunk:
+            return None
+        data.extend(chunk)
+    return bytes(data)
+
+
+def _probe_pm_frame_uart(port_name, baud_rate, timeout_sec, probe_sec):
+    if not os.path.exists(port_name):
+        return False, f"{port_name} missing"
+
+    try:
+        with serial.Serial(port_name, baudrate=baud_rate, timeout=timeout_sec) as port:
+            try:
+                port.reset_input_buffer()
+            except Exception:
+                pass
+
+            deadline = time.monotonic() + probe_sec
+            while time.monotonic() < deadline:
+                first = port.read(1)
+                if not first or first[0] != 0x42:
+                    continue
+
+                second = port.read(1)
+                if not second or second[0] != 0x4D:
+                    continue
+
+                rest = _read_exact_serial(port, 30)
+                if rest is None:
+                    continue
+
+                frame = bytes([0x42, 0x4D]) + rest
+                if _is_valid_pm_frame(frame):
+                    return True, f"valid PM frame on {port_name}"
+
+            return False, f"no valid PM frame on {port_name} within {probe_sec}s"
+    except Exception as e:
+        return False, f"{port_name} error: {e}"
 
 
 def _probe_pm_frame_spi(bus, dev, mode, speed_hz, probe_bytes, probe_sec, poll_interval_sec):
@@ -348,49 +422,71 @@ def _probe_pm_frame_spi(bus, dev, mode, speed_hz, probe_bytes, probe_sec, poll_i
                 pass
 
 
-def detect_air_quality_spi():
+def detect_air_quality():
     air_cfg = _load_air_quality_cfg()
     interface = str(air_cfg.get("interface", "uart")).strip().lower()
 
-    if interface != "spi":
-        print("Air Quality SPI detection skipped (interface is not 'spi')")
-        set_config_flag(CONFIG_PATH, "air_quality", "enabled", False)
-        return False
-
     set_config_flag(CONFIG_PATH, "air_quality", "enabled", False)
 
-    try:
-        mode = int(air_cfg.get("spi_mode", 0))
-        speed_hz = int(air_cfg.get("spi_max_speed_hz", 500000))
-        probe_bytes = int(air_cfg.get("spi_probe_bytes", 32))
-        probe_sec = float(air_cfg.get("spi_probe_sec", 6.0))
-        poll_interval_sec = float(air_cfg.get("spi_poll_interval_sec", 0.02))
-    except Exception:
-        mode = 0
-        speed_hz = 500000
-        probe_bytes = 32
-        probe_sec = 6.0
-        poll_interval_sec = 0.02
+    if interface == "spi":
+        try:
+            mode = int(air_cfg.get("spi_mode", 0))
+            speed_hz = int(air_cfg.get("spi_max_speed_hz", 500000))
+            probe_bytes = int(air_cfg.get("spi_probe_bytes", 32))
+            probe_sec = float(air_cfg.get("spi_probe_sec", 6.0))
+            poll_interval_sec = float(air_cfg.get("spi_poll_interval_sec", 0.02))
+        except Exception:
+            mode = 0
+            speed_hz = 500000
+            probe_bytes = 32
+            probe_sec = 6.0
+            poll_interval_sec = 0.02
 
-    targets = _build_air_spi_targets(air_cfg)
-    for bus, dev in targets:
-        ok, detail = _probe_pm_frame_spi(bus, dev, mode, speed_hz, probe_bytes, probe_sec, poll_interval_sec)
-        if ok:
-            print(f"Air Quality Sensor Found over SPI: /dev/spidev{bus}.{dev}")
-            set_config_flag(CONFIG_PATH, "air_quality", "enabled", True)
-            set_config_flag(CONFIG_PATH, "air_quality", "spi_bus", bus)
-            set_config_flag(CONFIG_PATH, "air_quality", "spi_device", dev)
-            return True
-        spi_logger.info(f"Air quality SPI probe miss: {detail}")
+        targets = _build_air_spi_targets(air_cfg)
+        for bus, dev in targets:
+            ok, detail = _probe_pm_frame_spi(bus, dev, mode, speed_hz, probe_bytes, probe_sec, poll_interval_sec)
+            if ok:
+                print(f"Air Quality Sensor Found over SPI: /dev/spidev{bus}.{dev}")
+                set_config_flag(CONFIG_PATH, "air_quality", "enabled", True)
+                set_config_flag(CONFIG_PATH, "air_quality", "spi_bus", bus)
+                set_config_flag(CONFIG_PATH, "air_quality", "spi_device", dev)
+                return True
+            spi_logger.info(f"Air quality SPI probe miss: {detail}")
 
-    print("Air Quality Sensor Not Found over SPI")
+        print("Air Quality Sensor Not Found over SPI")
+        return False
+
+    if interface == "uart":
+        try:
+            baud_rate = int(air_cfg.get("baud_rate", 9600))
+            timeout_sec = float(air_cfg.get("read_timeout_sec", 3.0))
+            probe_sec = float(air_cfg.get("frame_search_sec", max(6.0, timeout_sec * 2.0)))
+        except Exception:
+            baud_rate = 9600
+            timeout_sec = 3.0
+            probe_sec = 8.0
+
+        ports = _build_air_uart_ports(air_cfg)
+        for port_name in ports:
+            ok, detail = _probe_pm_frame_uart(port_name, baud_rate, timeout_sec, probe_sec)
+            if ok:
+                print(f"Air Quality Sensor Found over UART: {port_name}")
+                set_config_flag(CONFIG_PATH, "air_quality", "enabled", True)
+                set_config_flag(CONFIG_PATH, "air_quality", "serial_port", port_name)
+                return True
+            spi_logger.info(f"Air quality UART probe miss: {detail}")
+
+        print("Air Quality Sensor Not Found over UART")
+        return False
+
+    print(f"Air Quality detection skipped (unsupported interface '{interface}')")
     return False
     
 # ---------------- Main ---------------- #
 
 print("=== Sensor Detection Summary ===")
 detect_spi_sensor()
-detect_air_quality_spi()
+detect_air_quality()
 detect_camera()
 detect_i2c_sensors()
 detect_audiomoth()
