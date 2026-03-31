@@ -343,16 +343,42 @@ def _read_exact_serial(port, size):
     return bytes(data)
 
 
+def _build_pms_command(cmd, data=0):
+    packet = [0x42, 0x4D, cmd, (data >> 8) & 0xFF, data & 0xFF]
+    checksum = sum(packet) & 0xFFFF
+    packet.extend([(checksum >> 8) & 0xFF, checksum & 0xFF])
+    return bytes(packet)
+
+
+def _prime_pms_uart(port):
+    # Wake, force active mode, then request a frame in case the sensor is passive.
+    commands = [
+        _build_pms_command(0xE4, 0x0001),
+        _build_pms_command(0xE1, 0x0001),
+        _build_pms_command(0xE2, 0x0000),
+    ]
+    for command in commands:
+        try:
+            port.write(command)
+            port.flush()
+            time.sleep(0.12)
+        except Exception:
+            pass
+
+
 def _probe_pm_frame_uart(port_name, baud_rate, timeout_sec, probe_sec):
     if not os.path.exists(port_name):
-        return False, f"{port_name} missing"
+        return False, f"{port_name}@{baud_rate} missing"
 
     try:
         with serial.Serial(port_name, baudrate=baud_rate, timeout=timeout_sec) as port:
             try:
                 port.reset_input_buffer()
+                port.reset_output_buffer()
             except Exception:
                 pass
+
+            _prime_pms_uart(port)
 
             deadline = time.monotonic() + probe_sec
             while time.monotonic() < deadline:
@@ -370,11 +396,11 @@ def _probe_pm_frame_uart(port_name, baud_rate, timeout_sec, probe_sec):
 
                 frame = bytes([0x42, 0x4D]) + rest
                 if _is_valid_pm_frame(frame):
-                    return True, f"valid PM frame on {port_name}"
+                    return True, f"valid PM frame on {port_name}@{baud_rate}"
 
-            return False, f"no valid PM frame on {port_name} within {probe_sec}s"
+                return False, f"no valid PM frame on {port_name}@{baud_rate} within {probe_sec}s"
     except Exception as e:
-        return False, f"{port_name} error: {e}"
+            return False, f"{port_name}@{baud_rate} error: {e}"
 
 
 def _probe_pm_frame_spi(bus, dev, mode, speed_hz, probe_bytes, probe_sec, poll_interval_sec):
@@ -465,22 +491,45 @@ def detect_air_quality():
             baud_rate = int(air_cfg.get("baud_rate", 9600))
             timeout_sec = float(air_cfg.get("read_timeout_sec", 3.0))
             probe_sec = float(air_cfg.get("frame_search_sec", max(6.0, timeout_sec * 2.0)))
+            baud_rate_candidates_cfg = air_cfg.get("baud_rate_candidates", [baud_rate, 9600, 115200])
         except Exception:
             baud_rate = 9600
             timeout_sec = 3.0
             probe_sec = 8.0
+            baud_rate_candidates_cfg = [9600, 115200]
+
+        baud_rate_candidates = []
+        if isinstance(baud_rate_candidates_cfg, list):
+            for candidate in baud_rate_candidates_cfg:
+                try:
+                    baud_rate_candidates.append(int(candidate))
+                except Exception:
+                    continue
+
+        if not baud_rate_candidates:
+            baud_rate_candidates = [baud_rate, 9600, 115200]
+
+        dedup_baud = []
+        seen_baud = set()
+        for b in baud_rate_candidates:
+            if b not in seen_baud:
+                seen_baud.add(b)
+                dedup_baud.append(b)
+        baud_rate_candidates = dedup_baud
 
         ports = _build_air_uart_ports(air_cfg)
         misses = []
-        for port_name in ports:
-            ok, detail = _probe_pm_frame_uart(port_name, baud_rate, timeout_sec, probe_sec)
-            if ok:
-                print(f"Air Quality Sensor Found over UART: {port_name}")
-                set_config_flag(CONFIG_PATH, "air_quality", "enabled", True)
-                set_config_flag(CONFIG_PATH, "air_quality", "serial_port", port_name)
-                return True
-            misses.append(detail)
-            spi_logger.info(f"Air quality UART probe miss: {detail}")
+        for baud in baud_rate_candidates:
+            for port_name in ports:
+                ok, detail = _probe_pm_frame_uart(port_name, baud, timeout_sec, probe_sec)
+                if ok:
+                    print(f"Air Quality Sensor Found over UART: {port_name} @ {baud}")
+                    set_config_flag(CONFIG_PATH, "air_quality", "enabled", True)
+                    set_config_flag(CONFIG_PATH, "air_quality", "serial_port", port_name)
+                    set_config_flag(CONFIG_PATH, "air_quality", "baud_rate", baud)
+                    return True
+                misses.append(detail)
+                spi_logger.info(f"Air quality UART probe miss: {detail}")
 
         print("Air Quality Sensor Not Found over UART")
         for miss in misses:
