@@ -443,6 +443,7 @@ def detect_air_quality():
             poll_interval_sec = 0.02
 
         targets = _build_air_spi_targets(air_cfg)
+        misses = []
         for bus, dev in targets:
             ok, detail = _probe_pm_frame_spi(bus, dev, mode, speed_hz, probe_bytes, probe_sec, poll_interval_sec)
             if ok:
@@ -451,9 +452,12 @@ def detect_air_quality():
                 set_config_flag(CONFIG_PATH, "air_quality", "spi_bus", bus)
                 set_config_flag(CONFIG_PATH, "air_quality", "spi_device", dev)
                 return True
+            misses.append(detail)
             spi_logger.info(f"Air quality SPI probe miss: {detail}")
 
         print("Air Quality Sensor Not Found over SPI")
+        for miss in misses:
+            print(f"  - {miss}")
         return False
 
     if interface == "uart":
@@ -467,6 +471,7 @@ def detect_air_quality():
             probe_sec = 8.0
 
         ports = _build_air_uart_ports(air_cfg)
+        misses = []
         for port_name in ports:
             ok, detail = _probe_pm_frame_uart(port_name, baud_rate, timeout_sec, probe_sec)
             if ok:
@@ -474,9 +479,12 @@ def detect_air_quality():
                 set_config_flag(CONFIG_PATH, "air_quality", "enabled", True)
                 set_config_flag(CONFIG_PATH, "air_quality", "serial_port", port_name)
                 return True
+            misses.append(detail)
             spi_logger.info(f"Air quality UART probe miss: {detail}")
 
         print("Air Quality Sensor Not Found over UART")
+        for miss in misses:
+            print(f"  - {miss}")
         return False
 
     print(f"Air Quality detection skipped (unsupported interface '{interface}')")
