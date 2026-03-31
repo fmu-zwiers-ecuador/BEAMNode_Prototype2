@@ -245,11 +245,152 @@ def detect_anemometer():
     except Exception as e:
         print(f"Anemometer detection failed: {e}")
         set_config_flag(CONFIG_PATH, "anemometer", "enabled", False)
+
+
+# ---------------- Air Quality (SPI PM Frame) ---------------- #
+
+def _load_air_quality_cfg():
+    try:
+        with open(CONFIG_PATH, "r") as f:
+            cfg = json.load(f)
+        section = cfg.get("air_quality", {})
+        if isinstance(section, dict):
+            return section
+    except Exception:
+        pass
+    return {}
+
+
+def _build_air_spi_targets(air_cfg):
+    targets = []
+
+    candidates = air_cfg.get("spi_candidates", [])
+    if isinstance(candidates, list):
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            try:
+                targets.append((int(item.get("bus")), int(item.get("device"))))
+            except Exception:
+                continue
+
+    try:
+        targets.insert(0, (int(air_cfg.get("spi_bus", 0)), int(air_cfg.get("spi_device", 1))))
+    except Exception:
+        pass
+
+    targets.extend([(0, 0), (0, 1), (1, 0), (1, 1)])
+
+    dedup = []
+    seen = set()
+    for t in targets:
+        if t not in seen:
+            seen.add(t)
+            dedup.append(t)
+    return dedup
+
+
+def _is_valid_pm_frame(frame):
+    if len(frame) != 32:
+        return False
+    if frame[0] != 0x42 or frame[1] != 0x4D:
+        return False
+    if (((frame[2] << 8) | frame[3]) != 28):
+        return False
+
+    checksum = sum(frame[0:30]) & 0xFFFF
+    expected = (frame[30] << 8) | frame[31]
+    return checksum == expected
+
+
+def _probe_pm_frame_spi(bus, dev, mode, speed_hz, probe_bytes, probe_sec, poll_interval_sec):
+    dev_path = f"/dev/spidev{bus}.{dev}"
+    if not os.path.exists(dev_path):
+        return False, f"{dev_path} missing"
+
+    spi = None
+    try:
+        spi = spidev.SpiDev()
+        spi.open(bus, dev)
+        spi.mode = mode
+        spi.max_speed_hz = speed_hz
+
+        deadline = time.monotonic() + probe_sec
+        buf = bytearray()
+
+        while time.monotonic() < deadline:
+            rx = spi.xfer2([0x00] * probe_bytes)
+            if rx:
+                buf.extend(rx)
+                if len(buf) > 2048:
+                    del buf[:-512]
+
+                max_start = len(buf) - 32
+                i = 0
+                while i <= max_start:
+                    if buf[i] == 0x42 and buf[i + 1] == 0x4D:
+                        frame = bytes(buf[i : i + 32])
+                        if _is_valid_pm_frame(frame):
+                            return True, f"valid PM frame on {dev_path}"
+                    i += 1
+
+            if poll_interval_sec > 0:
+                time.sleep(poll_interval_sec)
+
+        return False, f"no valid PM frame on {dev_path} within {probe_sec}s"
+    except Exception as e:
+        return False, f"{dev_path} error: {e}"
+    finally:
+        if spi is not None:
+            try:
+                spi.close()
+            except Exception:
+                pass
+
+
+def detect_air_quality_spi():
+    air_cfg = _load_air_quality_cfg()
+    interface = str(air_cfg.get("interface", "uart")).strip().lower()
+
+    if interface != "spi":
+        print("Air Quality SPI detection skipped (interface is not 'spi')")
+        set_config_flag(CONFIG_PATH, "air_quality", "enabled", False)
+        return False
+
+    set_config_flag(CONFIG_PATH, "air_quality", "enabled", False)
+
+    try:
+        mode = int(air_cfg.get("spi_mode", 0))
+        speed_hz = int(air_cfg.get("spi_max_speed_hz", 500000))
+        probe_bytes = int(air_cfg.get("spi_probe_bytes", 32))
+        probe_sec = float(air_cfg.get("spi_probe_sec", 6.0))
+        poll_interval_sec = float(air_cfg.get("spi_poll_interval_sec", 0.02))
+    except Exception:
+        mode = 0
+        speed_hz = 500000
+        probe_bytes = 32
+        probe_sec = 6.0
+        poll_interval_sec = 0.02
+
+    targets = _build_air_spi_targets(air_cfg)
+    for bus, dev in targets:
+        ok, detail = _probe_pm_frame_spi(bus, dev, mode, speed_hz, probe_bytes, probe_sec, poll_interval_sec)
+        if ok:
+            print(f"Air Quality Sensor Found over SPI: /dev/spidev{bus}.{dev}")
+            set_config_flag(CONFIG_PATH, "air_quality", "enabled", True)
+            set_config_flag(CONFIG_PATH, "air_quality", "spi_bus", bus)
+            set_config_flag(CONFIG_PATH, "air_quality", "spi_device", dev)
+            return True
+        spi_logger.info(f"Air quality SPI probe miss: {detail}")
+
+    print("Air Quality Sensor Not Found over SPI")
+    return False
     
 # ---------------- Main ---------------- #
 
 print("=== Sensor Detection Summary ===")
 detect_spi_sensor()
+detect_air_quality_spi()
 detect_camera()
 detect_i2c_sensors()
 detect_audiomoth()
