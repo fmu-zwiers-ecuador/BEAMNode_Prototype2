@@ -80,13 +80,38 @@
   },
   "air_quality": {
     "enabled": false,
+    "interface": "spi",
     "directory": "air_quality",
     "script_name": "log_pm_data.py",
     "file_name": "pm_data.json",
     "frequency": 60,
+    "spi_bus": 0,
+    "spi_device": 1,
+    "spi_mode": 0,
+    "spi_max_speed_hz": 500000,
+    "spi_probe_bytes": 32,
+    "spi_probe_sec": 6.0,
+    "spi_poll_interval_sec": 0.02,
+    "spi_candidates": [
+      {
+        "bus": 0,
+        "device": 1
+      },
+      {
+        "bus": 0,
+        "device": 0
+      }
+    ],
     "serial_port": "/dev/ttyS0",
+    "serial_port_candidates": [
+      "/dev/serial0",
+      "/dev/ttyAMA0",
+      "/dev/ttyS0",
+      "/dev/ttyUSB0"
+    ],
     "baud_rate": 9600,
     "read_timeout_sec": 3.0,
+    "frame_search_sec": 8.0,
     "record_schema": {
       "timestamp": "ISO8601",
       "pm1_0_atm_ug_m3": "int",
