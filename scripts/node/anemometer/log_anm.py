@@ -1,6 +1,6 @@
 import serial
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 
 # Match arduino baud rate
@@ -40,8 +40,11 @@ try:
             continue
         try:
             parts = dict(p.split("=") for p in line.split())
+            now_utc = datetime.now(timezone.utc)
+            now_local = datetime.now().astimezone()
             entry = {
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp_utc": now_utc.strftime("%Y-%m-%d %H:%M:%S UTC"),
+                "timestamp_local": now_local.strftime("%Y-%m-%d %H:%M:%S %Z"),
                 "raw": int(parts["raw"]),
                 "voltage": float(parts["V"]),
                 "wind_mph": float(parts["wind_mph"])
