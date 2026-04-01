@@ -80,11 +80,20 @@
   },
   "air_quality": {
     "enabled": false,
-    "interface": "uart",
+    "interface": "i2c",
     "directory": "air_quality",
     "script_name": "log_pm_data.py",
     "file_name": "pm_data.json",
     "frequency": 60,
+    "i2c_bus": 1,
+    "address_hex": "0x12",
+    "i2c_candidates": [
+      {
+        "bus": 1,
+        "address": "0x12"
+      }
+    ],
+    "allow_i2c_fallback": true,
     "spi_bus": 0,
     "spi_device": 1,
     "spi_mode": 0,
@@ -141,8 +150,7 @@
     "directory": "camera",
     "file_name": "camera_status.json",
     "file_prefix": "motionpic_",
-    "pir_gpio": 24,
-    "pir_enabled": true,
+    "gpio_pin": 24,
     "flash_enabled": true,
     "flash_gpio": 17,
     "servo_gpio": 18,
