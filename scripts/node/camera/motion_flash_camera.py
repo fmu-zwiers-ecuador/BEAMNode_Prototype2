@@ -46,7 +46,7 @@ log_path = os.path.join(directory, "images_log.json")
 # ---------------------------------
 # GPIO Setup
 # ---------------------------------
-pir_pin = cam_config.get("gpio_pin", 4)
+pir_pin = cam_config.get("pir_gpio", cam_config.get("gpio_pin", 4))
 pir = MotionSensor(pir_pin)
 
 # ----- Flash Setup -----
