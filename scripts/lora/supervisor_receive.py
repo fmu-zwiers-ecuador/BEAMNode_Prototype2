@@ -71,9 +71,8 @@ def handle_end(pkt):
 print("Supervisor listening...")
 
 while True:
-    pkt = rfm9x.receive(timeout=1.0)
+    pkt = rfm9x.receive(timeout=0.5)
     if not pkt:
-        print("No packet received")
         continue
 
     try:

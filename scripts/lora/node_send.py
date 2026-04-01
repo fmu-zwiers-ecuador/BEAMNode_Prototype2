@@ -13,7 +13,6 @@ rfm9x.tx_power = 23
 # --- CONFIG ---
 NODE_ID = "node1"
 CHUNK_SIZE = 100
-WINDOW_SIZE = 4
 ACK_TIMEOUT = 20 
 MAX_RETRIES = 5
 
@@ -34,12 +33,14 @@ def send_packet(obj):
 def wait_for_ack(file_id, timeout):
     start = time.time()
     while time.time() - start < timeout:
-        time.sleep(0.1)
         pkt = rfm9x.receive(timeout=0.5)
         if pkt:
-            msg = json.loads(pkt.decode())
-            if msg.get("type") == "ACK" and msg.get("f") == file_id:
-                return msg
+            try:
+                msg = json.loads(pkt.decode())
+                if msg.get("type") == "ACK" and msg.get("f") == file_id:
+                    return msg
+            except:
+                pass
     return None
 
 # --- MAIN SEND ---
@@ -55,12 +56,14 @@ def send_file(path):
     # random start delay (collision avoidance)
     time.sleep(random.uniform(0, 10))
 
-    base = 0
     retries = {i: 0 for i in range(total)}
 
-    while base < total:
-        # send window
-        for i in range(base, min(base + WINDOW_SIZE, total)):
+    # Send each chunk with retry logic
+    for i in range(total):
+        acked = False
+
+        while not acked and retries[i] < MAX_RETRIES:
+            # Send packet
             pkt = {
                 "type": "DATA",
                 "f": file_id,
@@ -69,35 +72,25 @@ def send_file(path):
                 "t": total,
                 "d": base64.b64encode(chunks[i]).decode()
             }
+            print(f"Sending chunk {i}/{total}")
             send_packet(pkt)
-            time.sleep(0.1)  # Small delay between packets
 
-        # Allow radio to finish TX and switch to RX mode
-        time.sleep(0.5)
+            # Allow radio to finish TX and switch to RX mode
+            time.sleep(0.5)
 
-        # wait for ACK
-        ack = wait_for_ack(file_id, ACK_TIMEOUT)
+            # Wait for ACK
+            ack = wait_for_ack(file_id, ACK_TIMEOUT)
 
-        if not ack:
-            print("Timeout, retransmitting window")
-            for i in range(base, min(base + WINDOW_SIZE, total)):
+            if ack:
+                print(f"ACK received for chunk {i}")
+                acked = True
+            else:
                 retries[i] += 1
-                if retries[i] > MAX_RETRIES:
-                    print("Abort transfer")
-                    return
-            continue
+                print(f"Timeout for chunk {i}, retry {retries[i]}/{MAX_RETRIES}")
 
-        # selective ACK handling
-        received = set(ack.get("received", []))
-
-        # slide window
-        while base in received:
-            base += 1
-
-        # retransmit missing
-        for i in range(base, min(base + WINDOW_SIZE, total)):
-            if i not in received:
-                retries[i] += 1
+        if not acked:
+            print(f"Failed to deliver chunk {i}")
+            return
 
     # send END
     end_pkt = {
@@ -111,4 +104,4 @@ def send_file(path):
     print("File sent!")
 
 # --- RUN ---
-send_file("data.json")
+send_file("ec_data.json")
