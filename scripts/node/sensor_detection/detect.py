@@ -19,6 +19,7 @@ import json
 import sys
 import serial
 import serial.tools.list_ports
+from picamera2 import Picamera2
 
 CONFIG_PATH = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
 
@@ -131,68 +132,20 @@ def detect_spi_sensor():
 # ---------------- Camera (IMX219) ---------------- #
 
 def detect_camera():
-    set_config_flag(CONFIG_PATH, "camera", "enabled", False)
-    set_config_flag(CONFIG_PATH, "camera", "model", None)
-
     try:
-        from picamera2 import Picamera2
         cams = Picamera2.global_camera_info()
-
         for c in cams:
-            model = (
-                c.get("Model")
-                or c.get("model")
-                or c.get("SensorModel")
-                or c.get("sensor_model")
-                or "unknown"
-            ).strip()
-
-            print(f"Camera Found: {model}")
-            set_config_flag(CONFIG_PATH, "camera", "enabled", True)
-            set_config_flag(CONFIG_PATH, "camera", "model", model.lower())
-            return True
+            model = (c.get("Model") or c.get("model") or "").lower()
+            if "imx219" in model:
+                print("Camera Found: IMX219")
+                set_config_flag(CONFIG_PATH, "camera", "enabled", True)
+                set_config_flag(CONFIG_PATH, "camera", "model", "imx219")
+                return True
     except Exception as e:
         spi_logger.warning(f"Camera detection failed: {e}")
-
-    return False
-
-# ---------------- PIR Motion Sensor ---------------- #
-
-PIR_GPIO_PIN = 24
-PIR_SAMPLE_COUNT = 10
-PIR_SAMPLE_DELAY_SEC = 0.1
-
-def detect_pir_sensor():
-    pir_gpio_pin = PIR_GPIO_PIN
-    try:
-        with open(CONFIG_PATH, "r") as f:
-            cfg = json.load(f)
-        pir_gpio_pin = int(cfg.get("camera", {}).get("pir_gpio", PIR_GPIO_PIN))
-    except Exception:
-        pir_gpio_pin = PIR_GPIO_PIN
-
-    set_config_flag(CONFIG_PATH, "camera", "pir_gpio", pir_gpio_pin)
-    set_config_flag(CONFIG_PATH, "camera", "pir_enabled", False)
-
-    try:
-        GPIO.setwarnings(False)
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup(pir_gpio_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-
-        for _ in range(PIR_SAMPLE_COUNT):
-            if GPIO.input(pir_gpio_pin) == GPIO.HIGH:
-                print(f"PIR Sensor Found: GPIO {pir_gpio_pin}")
-                set_config_flag(CONFIG_PATH, "camera", "pir_enabled", True)
-                return True
-            time.sleep(PIR_SAMPLE_DELAY_SEC)
-    except Exception as e:
-        spi_logger.warning(f"PIR detection failed: {e}")
-    finally:
-        try:
-            GPIO.cleanup(pir_gpio_pin)
-        except Exception:
-            pass
-    print(f"PIR Sensor Not Detected or Idle: GPIO {pir_gpio_pin}")
+    print("Camera Not Found")
+    set_config_flag(CONFIG_PATH, "camera", "enabled", False)
+    set_config_flag(CONFIG_PATH, "camera", "model", None)
     return False
 
 # ---------------- I2C Sensors ---------------- #
@@ -200,7 +153,7 @@ def detect_pir_sensor():
 # NEW ADDITIONS: atlas_ec (0x64), atlas_orp (0x62), atlas_rtd (0x66)
 I2C_ADDR_TABLE = {
     "tsl2591": [0x29], 
-    "ahtx0": [0x38], 
+    "aht": [0x38], 
     "bme680": [0x77],
     "atlas_orp": [0x62],
     "atlas_ec": [0x64],
@@ -372,7 +325,7 @@ def _is_valid_pm_frame(frame):
         return False
     if frame[0] != 0x42 or frame[1] != 0x4D:
         return False
-    if ((frame[2] << 8) | frame[3]) != 28:
+    if (((frame[2] << 8) | frame[3]) != 28):
         return False
 
     checksum = sum(frame[0:30]) & 0xFFFF
@@ -446,8 +399,10 @@ def _probe_pm_frame_uart(port_name, baud_rate, timeout_sec, probe_sec):
                     return True, f"valid PM frame on {port_name}@{baud_rate}"
 
                 return False, f"no valid PM frame on {port_name}@{baud_rate} within {probe_sec}s"
+
+            return False, f"no PM header found on {port_name}@{baud_rate} within {probe_sec}s"
     except Exception as e:
-        return False, f"{port_name}@{baud_rate} error: {e}"
+            return False, f"{port_name}@{baud_rate} error: {e}"
 
 
 def _probe_pm_frame_spi(bus, dev, mode, speed_hz, probe_bytes, probe_sec, poll_interval_sec):
@@ -476,7 +431,7 @@ def _probe_pm_frame_spi(bus, dev, mode, speed_hz, probe_bytes, probe_sec, poll_i
                 i = 0
                 while i <= max_start:
                     if buf[i] == 0x42 and buf[i + 1] == 0x4D:
-                        frame = bytes(buf[i:i + 32])
+                        frame = bytes(buf[i : i + 32])
                         if _is_valid_pm_frame(frame):
                             return True, f"valid PM frame on {dev_path}"
                     i += 1
@@ -518,9 +473,7 @@ def detect_air_quality():
         targets = _build_air_spi_targets(air_cfg)
         misses = []
         for bus, dev in targets:
-            ok, detail = _probe_pm_frame_spi(
-                bus, dev, mode, speed_hz, probe_bytes, probe_sec, poll_interval_sec
-            )
+            ok, detail = _probe_pm_frame_spi(bus, dev, mode, speed_hz, probe_bytes, probe_sec, poll_interval_sec)
             if ok:
                 print(f"Air Quality Sensor Found over SPI: /dev/spidev{bus}.{dev}")
                 set_config_flag(CONFIG_PATH, "air_quality", "enabled", True)
@@ -587,14 +540,13 @@ def detect_air_quality():
 
     print(f"Air Quality detection skipped (unsupported interface '{interface}')")
     return False
-
+    
 # ---------------- Main ---------------- #
 
 print("=== Sensor Detection Summary ===")
 detect_spi_sensor()
 detect_air_quality()
 detect_camera()
-detect_pir_sensor()
 detect_i2c_sensors()
 detect_audiomoth()
 detect_anemometer()
