@@ -141,7 +141,7 @@
     "directory": "camera",
     "file_name": "camera_status.json",
     "file_prefix": "motionpic_",
-    "gpio_pin": 24,
+    "pir_gpio": 24,
     "flash_enabled": true,
     "flash_gpio": 17,
     "servo_gpio": 18,
