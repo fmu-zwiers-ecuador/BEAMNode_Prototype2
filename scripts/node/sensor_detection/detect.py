@@ -163,28 +163,36 @@ PIR_SAMPLE_COUNT = 10
 PIR_SAMPLE_DELAY_SEC = 0.1
 
 def detect_pir_sensor():
-    set_config_flag(CONFIG_PATH, "pir", "enabled", False)
-    set_config_flag(CONFIG_PATH, "pir", "gpio_pin", PIR_GPIO_PIN)
+    pir_gpio_pin = PIR_GPIO_PIN
+    try:
+        with open(CONFIG_PATH, "r") as f:
+            cfg = json.load(f)
+        pir_gpio_pin = int(cfg.get("camera", {}).get("pir_gpio", PIR_GPIO_PIN))
+    except Exception:
+        pir_gpio_pin = PIR_GPIO_PIN
+
+    set_config_flag(CONFIG_PATH, "camera", "pir_gpio", pir_gpio_pin)
+    set_config_flag(CONFIG_PATH, "camera", "pir_enabled", False)
 
     try:
         GPIO.setwarnings(False)
         GPIO.setmode(GPIO.BCM)
-        GPIO.setup(PIR_GPIO_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+        GPIO.setup(pir_gpio_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
         for _ in range(PIR_SAMPLE_COUNT):
-            if GPIO.input(PIR_GPIO_PIN) == GPIO.HIGH:
-                print(f"PIR Sensor Found: GPIO {PIR_GPIO_PIN} (Pin 18)")
-                set_config_flag(CONFIG_PATH, "pir", "enabled", True)
+            if GPIO.input(pir_gpio_pin) == GPIO.HIGH:
+                print(f"PIR Sensor Found: GPIO {pir_gpio_pin}")
+                set_config_flag(CONFIG_PATH, "camera", "pir_enabled", True)
                 return True
             time.sleep(PIR_SAMPLE_DELAY_SEC)
     except Exception as e:
         spi_logger.warning(f"PIR detection failed: {e}")
     finally:
         try:
-            GPIO.cleanup(PIR_GPIO_PIN)
+            GPIO.cleanup(pir_gpio_pin)
         except Exception:
             pass
-    print(f"PIR Sensor Not Detected or Idle: GPIO {PIR_GPIO_PIN} (Pin 18)")
+    print(f"PIR Sensor Not Detected or Idle: GPIO {pir_gpio_pin}")
     return False
 
 # ---------------- I2C Sensors ---------------- #
@@ -192,7 +200,7 @@ def detect_pir_sensor():
 # NEW ADDITIONS: atlas_ec (0x64), atlas_orp (0x62), atlas_rtd (0x66)
 I2C_ADDR_TABLE = {
     "tsl2591": [0x29], 
-    "aht": [0x38], 
+    "ahtx0": [0x38], 
     "bme680": [0x77],
     "atlas_orp": [0x62],
     "atlas_ec": [0x64],
