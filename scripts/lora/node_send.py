@@ -14,7 +14,7 @@ rfm9x.tx_power = 23
 NODE_ID = "node1"
 CHUNK_SIZE = 100
 WINDOW_SIZE = 4
-ACK_TIMEOUT = 3
+ACK_TIMEOUT = 20 
 MAX_RETRIES = 5
 
 # --- Helpers ---
@@ -34,6 +34,7 @@ def send_packet(obj):
 def wait_for_ack(file_id, timeout):
     start = time.time()
     while time.time() - start < timeout:
+        time.sleep(0.1)
         pkt = rfm9x.receive(timeout=0.5)
         if pkt:
             msg = json.loads(pkt.decode())
@@ -69,6 +70,10 @@ def send_file(path):
                 "d": base64.b64encode(chunks[i]).decode()
             }
             send_packet(pkt)
+            time.sleep(0.1)  # Small delay between packets
+
+        # Allow radio to finish TX and switch to RX mode
+        time.sleep(0.5)
 
         # wait for ACK
         ack = wait_for_ack(file_id, ACK_TIMEOUT)
