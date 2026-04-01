@@ -247,7 +247,7 @@ def detect_anemometer():
         set_config_flag(CONFIG_PATH, "anemometer", "enabled", False)
 
 
-# ---------------- Air Quality (PMS Frame over SPI/UART) ---------------- #
+# ---------------- Air Quality (PMS Frame over SPI/UART/I2C) ---------------- #
 
 def _load_air_quality_cfg():
     try:
@@ -318,6 +318,83 @@ def _build_air_uart_ports(air_cfg):
             seen.add(p)
             dedup.append(p)
     return dedup
+
+
+def _coerce_int(value, default=None):
+    try:
+        if isinstance(value, str):
+            return int(value.strip(), 0)
+        return int(value)
+    except Exception:
+        return default
+
+
+def _build_air_i2c_targets(air_cfg):
+    targets = []
+
+    candidates = air_cfg.get("i2c_candidates", [])
+    if isinstance(candidates, list):
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            bus = _coerce_int(item.get("bus"), None)
+            addr = _coerce_int(item.get("address"), None)
+            if bus is None or addr is None:
+                continue
+            targets.append((bus, addr))
+
+    primary_bus = _coerce_int(air_cfg.get("i2c_bus", 1), 1)
+    primary_addr = _coerce_int(air_cfg.get("address_hex", air_cfg.get("i2c_address", "0x12")), 0x12)
+    targets.insert(0, (primary_bus, primary_addr))
+
+    # PMSA003I defaults to I2C address 0x12 on Raspberry Pi bus 1.
+    targets.extend([(1, 0x12), (0, 0x12)])
+
+    dedup = []
+    seen = set()
+    for t in targets:
+        if t not in seen:
+            seen.add(t)
+            dedup.append(t)
+    return dedup
+
+
+def _probe_pm_i2c_ack(bus, addr):
+    dev_path = f"/dev/i2c-{bus}"
+    if not os.path.exists(dev_path):
+        return False, f"{dev_path} missing"
+
+    try:
+        output = scan_i2c(bus)
+        found_addrs = set(int(m, 16) for m in re.findall(r"\b[0-9a-f]{2}\b", output, re.IGNORECASE))
+        if addr in found_addrs:
+            return True, f"I2C ACK at {dev_path} addr 0x{addr:02X}"
+        return False, f"no I2C ACK at {dev_path} addr 0x{addr:02X}"
+    except Exception as e:
+        return False, f"{dev_path} addr 0x{addr:02X} error: {e}"
+
+
+def _detect_air_quality_i2c(air_cfg):
+    targets = _build_air_i2c_targets(air_cfg)
+    misses = []
+
+    for bus, addr in targets:
+        ok, detail = _probe_pm_i2c_ack(bus, addr)
+        if ok:
+            print(f"Air Quality Sensor Found over I2C: /dev/i2c-{bus} (Addr 0x{addr:02X})")
+            set_config_flag(CONFIG_PATH, "air_quality", "enabled", True)
+            set_config_flag(CONFIG_PATH, "air_quality", "interface", "i2c")
+            set_config_flag(CONFIG_PATH, "air_quality", "i2c_bus", bus)
+            set_config_flag(CONFIG_PATH, "air_quality", "address_hex", f"0x{addr:02X}")
+            return True
+
+        misses.append(detail)
+        spi_logger.info(f"Air quality I2C probe miss: {detail}")
+
+    print("Air Quality Sensor Not Found over I2C")
+    for miss in misses:
+        print(f"  - {miss}")
+    return False
 
 
 def _is_valid_pm_frame(frame):
@@ -488,7 +565,10 @@ def detect_air_quality():
             print(f"  - {miss}")
         return False
 
-    if interface == "uart":
+    if interface == "i2c":
+        return _detect_air_quality_i2c(air_cfg)
+
+    if interface in ("uart", "auto"):
         try:
             baud_rate = int(air_cfg.get("baud_rate", 9600))
             timeout_sec = float(air_cfg.get("read_timeout_sec", 3.0))
@@ -533,12 +613,19 @@ def detect_air_quality():
                 misses.append(detail)
                 spi_logger.info(f"Air quality UART probe miss: {detail}")
 
+        # PMSA003I modules often expose only I2C (0x12), so probe I2C as fallback.
+        if bool(air_cfg.get("allow_i2c_fallback", True)):
+            print("Air Quality UART probe missed PM frames; checking I2C candidates for PMSA003I...")
+            if _detect_air_quality_i2c(air_cfg):
+                return True
+
         print("Air Quality Sensor Not Found over UART")
         for miss in misses:
             print(f"  - {miss}")
         return False
 
     print(f"Air Quality detection skipped (unsupported interface '{interface}')")
+    print("Supported interfaces: 'uart', 'spi', 'i2c', or 'auto'")
     return False
     
 # ---------------- Main ---------------- #
