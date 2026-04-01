@@ -35,6 +35,8 @@ Exact Raspberry Pi header wiring:
 * PIR GND -> Pin 6 (Ground)
 * PIR OUT -> Pin 18 (GPIO24)
 
+![PIR Sensor Pins](images/PIR%20sensor%20pins.jpg)
+
 **3. Flash to Raspberry Pi pin assignments**
 
 The flash GPIO must match the `camera.flash_gpio` setting in `config.json`.
