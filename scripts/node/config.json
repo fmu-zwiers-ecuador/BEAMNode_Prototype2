@@ -74,6 +74,7 @@
     "source": "serial",
     "serial_port": "/dev/ttyUSB0",
     "baud_rate": 9600,
+    "frequency": 60,
     "sample_window": 2,
     "directory": "anemometer",
     "file_name": "wind_data.json"
@@ -105,9 +106,7 @@
     "serial_port": "/dev/serial0",
     "serial_port_candidates": [
       "/dev/serial0",
-      "/dev/ttyAMA0",
-      "/dev/ttyS0",
-      "/dev/ttyUSB0"
+      "/dev/ttyS0"
     ],
     "baud_rate": 9600,
     "read_timeout_sec": 3.0,
@@ -141,8 +140,7 @@
     "directory": "camera",
     "file_name": "camera_status.json",
     "file_prefix": "motionpic_",
-    "pir_gpio": 24,
-    "pir_enabled": true,
+    "gpio_pin": 24,
     "flash_enabled": true,
     "flash_gpio": 17,
     "servo_gpio": 18,

@@ -21,6 +21,7 @@ def send_ack(file_id, node_id, received):
         "received": list(received)
     }
     rfm9x.send(json.dumps(pkt).encode())
+    time.sleep(0.5)  # Allow ACK to finish transmitting
     print(f"ACK sent for {file_id}, received chunks: {received}")
 
 def handle_data(pkt):
@@ -70,7 +71,7 @@ def handle_end(pkt):
 print("Supervisor listening...")
 
 while True:
-    pkt = rfm9x.receive(timeout=1.0)
+    pkt = rfm9x.receive(timeout=0.5)
     if not pkt:
         continue
 
