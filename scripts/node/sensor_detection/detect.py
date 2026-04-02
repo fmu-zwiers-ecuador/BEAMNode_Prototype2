@@ -135,23 +135,91 @@ def detect_camera():
     set_config_flag(CONFIG_PATH, "camera", "model", None)
 
     try:
+        with open(CONFIG_PATH, "r") as f:
+            cfg = json.load(f)
+        cam_cfg = cfg.get("camera", {})
+        device_id = int(cam_cfg.get("device_id", 0))
+        expected_model = str(cam_cfg.get("expected_model", "")).strip().lower()
+    except Exception:
+        device_id = 0
+        expected_model = ""
+
+    def _camera_info_matches_device(camera_info, desired_id):
+        for key in ("Num", "num", "Id", "id", "Index", "index"):
+            value = camera_info.get(key)
+            try:
+                if value is not None and int(value) == desired_id:
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def _extract_camera_model(camera_info):
+        for key in (
+            "Model",
+            "model",
+            "SensorModel",
+            "sensor_model",
+            "Sensor",
+            "sensor",
+        ):
+            value = camera_info.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return "unknown"
+
+    try:
         from picamera2 import Picamera2
         cams = Picamera2.global_camera_info()
 
-        for c in cams:
-            model = (
-                c.get("Model")
-                or c.get("model")
-                or c.get("SensorModel")
-                or c.get("sensor_model")
-                or "unknown"
-            ).strip()
+        selected_camera = None
+        if isinstance(cams, list):
+            for c in cams:
+                if isinstance(c, dict) and _camera_info_matches_device(c, device_id):
+                    selected_camera = c
+                    break
 
-            print(f"Camera Found: {model}")
-            set_config_flag(CONFIG_PATH, "camera", "enabled", True)
-            set_config_flag(CONFIG_PATH, "camera", "model", model.lower())
-            return True
+            if selected_camera is None and len(cams) > device_id:
+                selected_camera = cams[device_id]
+
+            if selected_camera is None and cams:
+                selected_camera = cams[0]
+
+        if selected_camera is None:
+            print("Camera Not Found: picamera2 reported no available cameras")
+            return False
+
+        model = _extract_camera_model(selected_camera)
+
+        picam = None
+        last_error = None
+        try:
+            try:
+                picam = Picamera2(device_id)
+            except Exception as e:
+                last_error = e
+                # Fall back to the default constructor, which matches the
+                # working camera test scripts in this repo.
+                picam = Picamera2()
+        finally:
+            if picam is not None:
+                try:
+                    picam.close()
+                except Exception:
+                    pass
+            elif last_error is not None:
+                raise last_error
+
+        print(f"Camera Found: {model}")
+        set_config_flag(CONFIG_PATH, "camera", "enabled", True)
+        set_config_flag(CONFIG_PATH, "camera", "model", model.lower())
+        if expected_model and expected_model not in model.lower():
+            spi_logger.warning(
+                f"Camera model mismatch: expected '{expected_model}', detected '{model.lower()}'"
+            )
+        return True
     except Exception as e:
+        print(f"Camera Not Found: {e}")
         spi_logger.warning(f"Camera detection failed: {e}")
 
     return False
