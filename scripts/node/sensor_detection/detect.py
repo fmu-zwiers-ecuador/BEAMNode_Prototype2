@@ -405,6 +405,18 @@ def _probe_pm_frame_uart(port_name, baud_rate, timeout_sec, probe_sec):
             return False, f"{port_name}@{baud_rate} error: {e}"
 
 
+def _debug_air_quality_uart_candidates():
+    # Run an explicit quick check for the most common ports and baud rates.
+    candidates = ["/dev/serial0", "/dev/ttyAMA0", "/dev/ttyS0", "/dev/ttyUSB0", "/dev/ttyUSB1"]
+    baud_rates = [9600, 115200]
+    print("[detect] Air quality UART diagnostic scan...")
+    for port_name in candidates:
+        for baud in baud_rates:
+            ok, detail = _probe_pm_frame_uart(port_name, baud, 2.0, 4.0)
+            print(f"[detect] {port_name}@{baud}: {'OK' if ok else 'FAIL'} ({detail})")
+    print("[detect] Air quality UART diagnostic complete")
+
+
 def _probe_pm_frame_spi(bus, dev, mode, speed_hz, probe_bytes, probe_sec, poll_interval_sec):
     dev_path = f"/dev/spidev{bus}.{dev}"
     if not os.path.exists(dev_path):
@@ -451,6 +463,9 @@ def _probe_pm_frame_spi(bus, dev, mode, speed_hz, probe_bytes, probe_sec, poll_i
 
 
 def detect_air_quality():
+    if os.environ.get("DETECT_AIR_QUALITY_DIAGNOSTIC", "0") == "1":
+        _debug_air_quality_uart_candidates()
+
     air_cfg = _load_air_quality_cfg()
     interface = str(air_cfg.get("interface", "uart")).strip().lower()
 
