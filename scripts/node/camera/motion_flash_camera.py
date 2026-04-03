@@ -59,7 +59,9 @@ pir_pin = cam_config.get("pir_gpio", cam_config.get("gpio_pin", 4))
 try:
     pir = MotionSensor(
         pir_pin,
-        pull_up=False,
+        # PIR modules drive the signal pin themselves, so don't force an
+        # internal pull resistor here.
+        pull_up=None,
         active_state=True,
         queue_len=1,
         sample_rate=10,
