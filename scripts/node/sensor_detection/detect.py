@@ -322,6 +322,20 @@ def detect_anemometer():
     except Exception as e:
         print(f"Anemometer detection failed: {e}")
         set_config_flag(CONFIG_PATH, "anemometer", "enabled", False)
+        set_config_flag(CONFIG_PATH, "anemometer", "serial_port", None)
+
+
+def _get_anemometer_serial_port():
+    try:
+        with open(CONFIG_PATH, "r") as f:
+            cfg = json.load(f)
+        anem = cfg.get("anemometer", {})
+        if isinstance(anem, dict):
+            port = str(anem.get("serial_port", "")).strip()
+            return port if port else None
+    except Exception:
+        pass
+    return None
 
 
 # ---------------- Air Quality (PMS Frame over SPI/UART) ---------------- #
@@ -612,6 +626,12 @@ def detect_air_quality():
         baud_rate_candidates = dedup_baud
 
         ports = _build_air_uart_ports(air_cfg)
+
+        anem_port = _get_anemometer_serial_port()
+        if anem_port:
+            ports = [p for p in ports if p != anem_port]
+            print(f"[detect] Excluding anemometer serial port from air quality scan: {anem_port}")
+
         misses = []
         for baud in baud_rate_candidates:
             for port_name in ports:
