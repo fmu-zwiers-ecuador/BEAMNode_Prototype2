@@ -367,6 +367,74 @@ def _build_air_spi_targets(air_cfg):
     return dedup
 
 
+def _parse_i2c_addr(value, default):
+    try:
+        if isinstance(value, str):
+            return int(value, 0)
+        return int(value)
+    except Exception:
+        return default
+
+
+def _parse_i2cdetect_addresses(output):
+    """Parse i2cdetect output into a set of detected integer addresses."""
+    found = set()
+    for raw in output.splitlines():
+        line = raw.strip()
+        m = re.match(r"^([0-9a-f]{2}):\s+(.*)$", line, re.IGNORECASE)
+        if not m:
+            continue
+        cells = m.group(2).split()
+        for cell in cells:
+            if re.fullmatch(r"[0-9a-f]{2}", cell, re.IGNORECASE):
+                found.add(int(cell, 16))
+    return found
+
+
+def _build_air_i2c_targets(air_cfg):
+    targets = []
+
+    candidates = air_cfg.get("i2c_candidates", [])
+    if isinstance(candidates, list):
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            bus = _parse_i2c_addr(item.get("bus", 1), 1)
+            addr = _parse_i2c_addr(item.get("address", "0x12"), 0x12)
+            targets.append((bus, addr))
+
+    primary_bus = _parse_i2c_addr(air_cfg.get("i2c_bus", 1), 1)
+    primary_addr = _parse_i2c_addr(air_cfg.get("i2c_address", "0x12"), 0x12)
+    targets.insert(0, (primary_bus, primary_addr))
+
+    # Common PMSA003I default target.
+    targets.append((1, 0x12))
+
+    dedup = []
+    seen = set()
+    for t in targets:
+        if t not in seen:
+            seen.add(t)
+            dedup.append(t)
+    return dedup
+
+
+def _probe_pm_frame_i2c(bus, addr):
+    dev_path = f"/dev/i2c-{bus}"
+    if not os.path.exists(dev_path):
+        return False, f"{dev_path} missing"
+
+    output = scan_i2c(bus)
+    if not output:
+        return False, f"{dev_path} scan failed"
+
+    found_addrs = _parse_i2cdetect_addresses(output)
+    if addr not in found_addrs:
+        return False, f"0x{addr:02X} not found on {dev_path}"
+
+    return True, f"air quality I2C device present at {dev_path} addr 0x{addr:02X}"
+
+
 def _build_air_uart_ports(air_cfg):
     ports = []
 
@@ -671,6 +739,25 @@ def detect_air_quality():
             print(f"  - {miss}")
         return False
 
+    if interface == "i2c":
+        targets = _build_air_i2c_targets(air_cfg)
+        misses = []
+        for bus, addr in targets:
+            ok, detail = _probe_pm_frame_i2c(bus, addr)
+            if ok:
+                print(f"Air Quality Sensor Found over I2C: /dev/i2c-{bus} addr 0x{addr:02X}")
+                set_config_flag(CONFIG_PATH, "air_quality", "enabled", True)
+                set_config_flag(CONFIG_PATH, "air_quality", "i2c_bus", bus)
+                set_config_flag(CONFIG_PATH, "air_quality", "i2c_address", f"0x{addr:02X}")
+                return True
+            misses.append(detail)
+            spi_logger.info(f"Air quality I2C probe miss: {detail}")
+
+        print("Air Quality Sensor Not Found over I2C")
+        for miss in misses:
+            print(f"  - {miss}")
+        return False
+
     if interface == "uart":
         try:
             baud_rate = int(air_cfg.get("baud_rate", 9600))
@@ -734,6 +821,7 @@ def detect_air_quality():
         print("Air Quality Sensor Not Found over UART")
         for miss in misses:
             print(f"  - {miss}")
+        print("  - hint: PMSA003I modules are commonly I2C at 0x12; set air_quality.interface to 'i2c' if applicable")
         return False
 
     print(f"Air Quality detection skipped (unsupported interface '{interface}')")
