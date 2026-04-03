@@ -6,8 +6,17 @@ import os
 import json
 import time
 from datetime import datetime, timezone
-from gpiozero import MotionSensor, OutputDevice
+from gpiozero import Device, MotionSensor, OutputDevice
+from gpiozero.exc import BadPinFactory
 from picamera2 import Picamera2
+
+try:
+    from gpiozero.pins.rpigpio import RPiGPIOFactory
+
+    Device.pin_factory = RPiGPIOFactory()
+except Exception:
+    # Fall back to gpiozero's default pin factory if RPiGPIO is unavailable.
+    pass
 
 # ---------------------------------
 # CONSTANT PATHS
@@ -47,7 +56,18 @@ log_path = os.path.join(directory, "images_log.json")
 # GPIO Setup
 # ---------------------------------
 pir_pin = cam_config.get("pir_gpio", cam_config.get("gpio_pin", 4))
-pir = MotionSensor(pir_pin)
+try:
+    pir = MotionSensor(
+        pir_pin,
+        pull_up=False,
+        active_state=True,
+        queue_len=1,
+        sample_rate=10,
+        threshold=0.5,
+    )
+except (BadPinFactory, Exception) as e:
+    print(f"[BEAM] PIR setup failed on GPIO {pir_pin}: {e}")
+    raise
 
 # ----- Flash Setup -----
 flash_enabled = cam_config.get("flash_enabled", False)
