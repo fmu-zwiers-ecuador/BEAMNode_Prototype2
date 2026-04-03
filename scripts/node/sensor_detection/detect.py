@@ -430,6 +430,9 @@ def _probe_pm_frame_i2c(bus, addr):
 
     found_addrs = _parse_i2cdetect_addresses(output)
     if addr not in found_addrs:
+        if found_addrs:
+            seen = ", ".join(f"0x{x:02X}" for x in sorted(found_addrs))
+            return False, f"0x{addr:02X} not found on {dev_path} (found: {seen})"
         return False, f"0x{addr:02X} not found on {dev_path}"
 
     return True, f"air quality I2C device present at {dev_path} addr 0x{addr:02X}"
@@ -698,6 +701,93 @@ def _probe_pm_frame_spi(bus, dev, mode, speed_hz, probe_bytes, probe_sec, poll_i
                 pass
 
 
+def _detect_air_quality_i2c(air_cfg):
+    targets = _build_air_i2c_targets(air_cfg)
+    misses = []
+    for bus, addr in targets:
+        ok, detail = _probe_pm_frame_i2c(bus, addr)
+        if ok:
+            print(f"Air Quality Sensor Found over I2C: /dev/i2c-{bus} addr 0x{addr:02X}")
+            set_config_flag(CONFIG_PATH, "air_quality", "enabled", True)
+            set_config_flag(CONFIG_PATH, "air_quality", "i2c_bus", bus)
+            set_config_flag(CONFIG_PATH, "air_quality", "i2c_address", f"0x{addr:02X}")
+            return True
+        misses.append(detail)
+        spi_logger.info(f"Air quality I2C probe miss: {detail}")
+
+    print("Air Quality Sensor Not Found over I2C")
+    for miss in misses:
+        print(f"  - {miss}")
+    return False
+
+
+def _detect_air_quality_uart(air_cfg):
+    try:
+        baud_rate = int(air_cfg.get("baud_rate", 9600))
+        timeout_sec = float(air_cfg.get("read_timeout_sec", 3.0))
+        probe_sec = float(air_cfg.get("frame_search_sec", max(6.0, timeout_sec * 2.0)))
+        baud_rate_candidates_cfg = air_cfg.get("baud_rate_candidates", [baud_rate, 9600, 115200])
+        scan_passes = int(air_cfg.get("scan_passes", 2))
+        scan_pause_sec = float(air_cfg.get("scan_pause_sec", 0.8))
+    except Exception:
+        baud_rate = 9600
+        timeout_sec = 3.0
+        probe_sec = 8.0
+        baud_rate_candidates_cfg = [9600, 115200]
+        scan_passes = 2
+        scan_pause_sec = 0.8
+
+    scan_passes = max(1, min(scan_passes, 5))
+    scan_pause_sec = max(0.0, scan_pause_sec)
+
+    baud_rate_candidates = []
+    if isinstance(baud_rate_candidates_cfg, list):
+        for candidate in baud_rate_candidates_cfg:
+            try:
+                baud_rate_candidates.append(int(candidate))
+            except Exception:
+                continue
+
+    if not baud_rate_candidates:
+        baud_rate_candidates = [baud_rate, 9600, 115200]
+
+    dedup_baud = []
+    seen_baud = set()
+    for b in baud_rate_candidates:
+        if b not in seen_baud:
+            seen_baud.add(b)
+            dedup_baud.append(b)
+    baud_rate_candidates = dedup_baud
+
+    ports = _build_air_uart_ports(air_cfg)
+
+    misses = []
+    for scan_idx in range(scan_passes):
+        if scan_passes > 1:
+            print(f"[detect] Air quality UART scan pass {scan_idx + 1}/{scan_passes}")
+
+        for baud in baud_rate_candidates:
+            for port_name in ports:
+                ok, detail = _probe_pm_frame_uart(port_name, baud, timeout_sec, probe_sec)
+                if ok:
+                    print(f"Air Quality Sensor Found over UART: {port_name} @ {baud}")
+                    set_config_flag(CONFIG_PATH, "air_quality", "enabled", True)
+                    set_config_flag(CONFIG_PATH, "air_quality", "serial_port", port_name)
+                    set_config_flag(CONFIG_PATH, "air_quality", "baud_rate", baud)
+                    return True
+                misses.append(detail)
+                spi_logger.info(f"Air quality UART probe miss: {detail}")
+
+        if scan_idx + 1 < scan_passes:
+            time.sleep(scan_pause_sec)
+
+    print("Air Quality Sensor Not Found over UART")
+    for miss in misses:
+        print(f"  - {miss}")
+    print("  - hint: check PMS TX->Pi RX wiring and keep SET/RST pulled high")
+    return False
+
+
 def detect_air_quality():
     if os.environ.get("DETECT_AIR_QUALITY_DIAGNOSTIC", "0") == "1":
         _debug_air_quality_uart_candidates()
@@ -740,89 +830,22 @@ def detect_air_quality():
         return False
 
     if interface == "i2c":
-        targets = _build_air_i2c_targets(air_cfg)
-        misses = []
-        for bus, addr in targets:
-            ok, detail = _probe_pm_frame_i2c(bus, addr)
-            if ok:
-                print(f"Air Quality Sensor Found over I2C: /dev/i2c-{bus} addr 0x{addr:02X}")
-                set_config_flag(CONFIG_PATH, "air_quality", "enabled", True)
-                set_config_flag(CONFIG_PATH, "air_quality", "i2c_bus", bus)
-                set_config_flag(CONFIG_PATH, "air_quality", "i2c_address", f"0x{addr:02X}")
-                return True
-            misses.append(detail)
-            spi_logger.info(f"Air quality I2C probe miss: {detail}")
+        if _detect_air_quality_i2c(air_cfg):
+            return True
 
-        print("Air Quality Sensor Not Found over I2C")
-        for miss in misses:
-            print(f"  - {miss}")
+        fallback_on_i2c_miss = str(air_cfg.get("fallback_on_i2c_miss", "1")).strip().lower()
+        if fallback_on_i2c_miss not in ("0", "false", "no"):
+            print("[detect] Air quality I2C probe failed, falling back to UART scan")
+            return _detect_air_quality_uart(air_cfg)
         return False
 
     if interface == "uart":
-        try:
-            baud_rate = int(air_cfg.get("baud_rate", 9600))
-            timeout_sec = float(air_cfg.get("read_timeout_sec", 3.0))
-            probe_sec = float(air_cfg.get("frame_search_sec", max(6.0, timeout_sec * 2.0)))
-            baud_rate_candidates_cfg = air_cfg.get("baud_rate_candidates", [baud_rate, 9600, 115200])
-            scan_passes = int(air_cfg.get("scan_passes", 2))
-            scan_pause_sec = float(air_cfg.get("scan_pause_sec", 0.8))
-        except Exception:
-            baud_rate = 9600
-            timeout_sec = 3.0
-            probe_sec = 8.0
-            baud_rate_candidates_cfg = [9600, 115200]
-            scan_passes = 2
-            scan_pause_sec = 0.8
+        return _detect_air_quality_uart(air_cfg)
 
-        scan_passes = max(1, min(scan_passes, 5))
-        scan_pause_sec = max(0.0, scan_pause_sec)
-
-        baud_rate_candidates = []
-        if isinstance(baud_rate_candidates_cfg, list):
-            for candidate in baud_rate_candidates_cfg:
-                try:
-                    baud_rate_candidates.append(int(candidate))
-                except Exception:
-                    continue
-
-        if not baud_rate_candidates:
-            baud_rate_candidates = [baud_rate, 9600, 115200]
-
-        dedup_baud = []
-        seen_baud = set()
-        for b in baud_rate_candidates:
-            if b not in seen_baud:
-                seen_baud.add(b)
-                dedup_baud.append(b)
-        baud_rate_candidates = dedup_baud
-
-        ports = _build_air_uart_ports(air_cfg)
-
-        misses = []
-        for scan_idx in range(scan_passes):
-            if scan_passes > 1:
-                print(f"[detect] Air quality UART scan pass {scan_idx + 1}/{scan_passes}")
-
-            for baud in baud_rate_candidates:
-                for port_name in ports:
-                    ok, detail = _probe_pm_frame_uart(port_name, baud, timeout_sec, probe_sec)
-                    if ok:
-                        print(f"Air Quality Sensor Found over UART: {port_name} @ {baud}")
-                        set_config_flag(CONFIG_PATH, "air_quality", "enabled", True)
-                        set_config_flag(CONFIG_PATH, "air_quality", "serial_port", port_name)
-                        set_config_flag(CONFIG_PATH, "air_quality", "baud_rate", baud)
-                        return True
-                    misses.append(detail)
-                    spi_logger.info(f"Air quality UART probe miss: {detail}")
-
-            if scan_idx + 1 < scan_passes:
-                time.sleep(scan_pause_sec)
-
-        print("Air Quality Sensor Not Found over UART")
-        for miss in misses:
-            print(f"  - {miss}")
-        print("  - hint: PMSA003I modules are commonly I2C at 0x12; set air_quality.interface to 'i2c' if applicable")
-        return False
+    if interface == "auto":
+        if _detect_air_quality_uart(air_cfg):
+            return True
+        return _detect_air_quality_i2c(air_cfg)
 
     print(f"Air Quality detection skipped (unsupported interface '{interface}')")
     return False
