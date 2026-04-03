@@ -322,20 +322,6 @@ def detect_anemometer():
     except Exception as e:
         print(f"Anemometer detection failed: {e}")
         set_config_flag(CONFIG_PATH, "anemometer", "enabled", False)
-        set_config_flag(CONFIG_PATH, "anemometer", "serial_port", None)
-
-
-def _get_anemometer_serial_port():
-    try:
-        with open(CONFIG_PATH, "r") as f:
-            cfg = json.load(f)
-        anem = cfg.get("anemometer", {})
-        if isinstance(anem, dict):
-            port = str(anem.get("serial_port", "")).strip()
-            return port if port else None
-    except Exception:
-        pass
-    return None
 
 
 # ---------------- Air Quality (PMS Frame over SPI/UART) ---------------- #
@@ -396,11 +382,26 @@ def _build_air_uart_ports(air_cfg):
 
     ports.extend([
         "/dev/serial0",
+        "/dev/serial1",
         "/dev/ttyAMA0",
         "/dev/ttyS0",
         "/dev/ttyUSB0",
         "/dev/ttyUSB1",
+        "/dev/ttyUSB2",
+        "/dev/ttyUSB3",
+        "/dev/ttyACM0",
+        "/dev/ttyACM1",
     ])
+
+    # Include all currently enumerated tty devices so detection works even
+    # when adapters are assigned non-default indices.
+    try:
+        for port_info in serial.tools.list_ports.comports():
+            dev = str(getattr(port_info, "device", "")).strip()
+            if dev.startswith("/dev/tty") or dev.startswith("/dev/serial"):
+                ports.append(dev)
+    except Exception as e:
+        spi_logger.info(f"Air quality UART port enumeration failed: {e}")
 
     dedup = []
     seen = set()
@@ -457,12 +458,52 @@ def _prime_pms_uart(port):
             pass
 
 
+def _pop_valid_pm_data_frame(buf):
+    """Pop and return a valid 32-byte PMS data frame from a byte buffer."""
+    idx = 0
+    while idx <= len(buf) - 4:
+        if buf[idx] != 0x42 or buf[idx + 1] != 0x4D:
+            idx += 1
+            continue
+
+        frame_len = (buf[idx + 2] << 8) | buf[idx + 3]
+        if frame_len <= 0 or frame_len > 64:
+            idx += 1
+            continue
+
+        total_len = frame_len + 4
+        if idx + total_len > len(buf):
+            break
+
+        frame = bytes(buf[idx : idx + total_len])
+        checksum = sum(frame[:-2]) & 0xFFFF
+        expected = (frame[-2] << 8) | frame[-1]
+        if checksum != expected:
+            idx += 1
+            continue
+
+        # Consume this valid frame from the buffer.
+        del buf[: idx + total_len]
+
+        # PMSA003I data frame is 32 bytes total (length field = 28).
+        if total_len == 32 and _is_valid_pm_frame(frame):
+            return frame
+
+        # Valid non-data frame (e.g., command ack). Keep scanning.
+        idx = 0
+
+    if idx > 0:
+        del buf[:idx]
+    return None
+
+
 def _probe_pm_frame_uart(port_name, baud_rate, timeout_sec, probe_sec):
     if not os.path.exists(port_name):
         return False, f"{port_name}@{baud_rate} missing"
 
     try:
-        with serial.Serial(port_name, baudrate=baud_rate, timeout=timeout_sec) as port:
+        read_timeout = max(0.05, min(float(timeout_sec), 0.40))
+        with serial.Serial(port_name, baudrate=baud_rate, timeout=read_timeout) as port:
             try:
                 port.reset_input_buffer()
                 port.reset_output_buffer()
@@ -472,34 +513,70 @@ def _probe_pm_frame_uart(port_name, baud_rate, timeout_sec, probe_sec):
             _prime_pms_uart(port)
 
             deadline = time.monotonic() + probe_sec
+            next_request = time.monotonic() + 1.0
+            buf = bytearray()
+            saw_header = False
+
             while time.monotonic() < deadline:
-                first = port.read(1)
-                if not first or first[0] != 0x42:
-                    continue
+                try:
+                    waiting = int(getattr(port, "in_waiting", 0))
+                except Exception:
+                    waiting = 0
 
-                second = port.read(1)
-                if not second or second[0] != 0x4D:
-                    continue
+                read_size = waiting if waiting > 0 else 32
+                read_size = max(1, min(read_size, 256))
+                chunk = port.read(read_size)
 
-                rest = _read_exact_serial(port, 30)
-                if rest is None:
-                    continue
+                if chunk:
+                    buf.extend(chunk)
+                    if len(buf) > 4096:
+                        del buf[:-1024]
 
-                frame = bytes([0x42, 0x4D]) + rest
-                if _is_valid_pm_frame(frame):
-                    return True, f"valid PM frame on {port_name}@{baud_rate}"
+                    if not saw_header and b"\x42\x4D" in buf:
+                        saw_header = True
 
+                    frame = _pop_valid_pm_data_frame(buf)
+                    if frame is not None:
+                        return True, f"valid PM frame on {port_name}@{baud_rate}"
+
+                if time.monotonic() >= next_request:
+                    # Periodically request one frame in case the sensor is in passive mode.
+                    try:
+                        port.write(_build_pms_command(0xE2, 0x0000))
+                        port.flush()
+                    except Exception:
+                        pass
+                    next_request = time.monotonic() + 1.0
+
+            if saw_header:
                 return False, f"no valid PM frame on {port_name}@{baud_rate} within {probe_sec}s"
-
             return False, f"no PM header found on {port_name}@{baud_rate} within {probe_sec}s"
     except Exception as e:
-            return False, f"{port_name}@{baud_rate} error: {e}"
+        msg = str(e).lower()
+        if "resource busy" in msg or "permission denied" in msg:
+            return False, f"{port_name}@{baud_rate} busy: {e}"
+        return False, f"{port_name}@{baud_rate} error: {e}"
 
 
 def _debug_air_quality_uart_candidates():
-    # Run an explicit quick check for the most common ports and baud rates.
-    candidates = ["/dev/serial0", "/dev/ttyAMA0", "/dev/ttyS0", "/dev/ttyUSB0", "/dev/ttyUSB1"]
-    baud_rates = [9600, 115200]
+    air_cfg = _load_air_quality_cfg()
+    candidates = _build_air_uart_ports(air_cfg)
+
+    baud_cfg = air_cfg.get("baud_rate_candidates", [air_cfg.get("baud_rate", 9600), 9600, 115200])
+    baud_rates = []
+    if isinstance(baud_cfg, list):
+        for candidate in baud_cfg:
+            try:
+                baud_rates.append(int(candidate))
+            except Exception:
+                continue
+    if not baud_rates:
+        baud_rates = [9600, 115200]
+
+    # Keep diagnostics quick and readable.
+    if len(candidates) > 12:
+        candidates = candidates[:12]
+
     print("[detect] Air quality UART diagnostic scan...")
     for port_name in candidates:
         for baud in baud_rates:
@@ -600,11 +677,18 @@ def detect_air_quality():
             timeout_sec = float(air_cfg.get("read_timeout_sec", 3.0))
             probe_sec = float(air_cfg.get("frame_search_sec", max(6.0, timeout_sec * 2.0)))
             baud_rate_candidates_cfg = air_cfg.get("baud_rate_candidates", [baud_rate, 9600, 115200])
+            scan_passes = int(air_cfg.get("scan_passes", 2))
+            scan_pause_sec = float(air_cfg.get("scan_pause_sec", 0.8))
         except Exception:
             baud_rate = 9600
             timeout_sec = 3.0
             probe_sec = 8.0
             baud_rate_candidates_cfg = [9600, 115200]
+            scan_passes = 2
+            scan_pause_sec = 0.8
+
+        scan_passes = max(1, min(scan_passes, 5))
+        scan_pause_sec = max(0.0, scan_pause_sec)
 
         baud_rate_candidates = []
         if isinstance(baud_rate_candidates_cfg, list):
@@ -627,23 +711,25 @@ def detect_air_quality():
 
         ports = _build_air_uart_ports(air_cfg)
 
-        anem_port = _get_anemometer_serial_port()
-        if anem_port:
-            ports = [p for p in ports if p != anem_port]
-            print(f"[detect] Excluding anemometer serial port from air quality scan: {anem_port}")
-
         misses = []
-        for baud in baud_rate_candidates:
-            for port_name in ports:
-                ok, detail = _probe_pm_frame_uart(port_name, baud, timeout_sec, probe_sec)
-                if ok:
-                    print(f"Air Quality Sensor Found over UART: {port_name} @ {baud}")
-                    set_config_flag(CONFIG_PATH, "air_quality", "enabled", True)
-                    set_config_flag(CONFIG_PATH, "air_quality", "serial_port", port_name)
-                    set_config_flag(CONFIG_PATH, "air_quality", "baud_rate", baud)
-                    return True
-                misses.append(detail)
-                spi_logger.info(f"Air quality UART probe miss: {detail}")
+        for scan_idx in range(scan_passes):
+            if scan_passes > 1:
+                print(f"[detect] Air quality UART scan pass {scan_idx + 1}/{scan_passes}")
+
+            for baud in baud_rate_candidates:
+                for port_name in ports:
+                    ok, detail = _probe_pm_frame_uart(port_name, baud, timeout_sec, probe_sec)
+                    if ok:
+                        print(f"Air Quality Sensor Found over UART: {port_name} @ {baud}")
+                        set_config_flag(CONFIG_PATH, "air_quality", "enabled", True)
+                        set_config_flag(CONFIG_PATH, "air_quality", "serial_port", port_name)
+                        set_config_flag(CONFIG_PATH, "air_quality", "baud_rate", baud)
+                        return True
+                    misses.append(detail)
+                    spi_logger.info(f"Air quality UART probe miss: {detail}")
+
+            if scan_idx + 1 < scan_passes:
+                time.sleep(scan_pause_sec)
 
         print("Air Quality Sensor Not Found over UART")
         for miss in misses:
