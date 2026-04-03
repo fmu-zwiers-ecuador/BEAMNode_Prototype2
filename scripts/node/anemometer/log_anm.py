@@ -25,6 +25,9 @@ os.makedirs(directory, exist_ok=True)
 file_name = anm_config.get("file_name", "wind_data.json")
 file_path = os.path.join(directory, file_name)
 
+# Auto-stop settings (set either or both to None to disable)
+MAX_DURATION_SECONDS = anm_config.get("max_duration_seconds", 3600) # Set to 1 hour
+
 # Load existing data or start fresh
 try: 
     with open(file_path, "r") as f:
@@ -34,7 +37,14 @@ except (FileNotFoundError, json.JSONDecodeError):
 
 try:
     print("Logging wind data... (Ctrl+C to stop)")
+    if MAX_DURATION_SECONDS:
+        print(f" Auto-stop after: {MAX_DURATION_SECONDS}s")
     while True:
+        # Duration Check
+        if MAX_DURATION_SECONDS and (time.time() - start_time) >= MAX_DURATION_SECONDS:
+            print(f"\nDuration limit reached ({MAX_DURATION_SECONDS}s). Stopping.")
+            break
+        
         line = ser.readline().decode('utf-8').strip().replace('/r', '')
         if not line:
             continue
