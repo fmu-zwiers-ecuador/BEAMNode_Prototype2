@@ -324,7 +324,7 @@ def detect_anemometer():
         set_config_flag(CONFIG_PATH, "anemometer", "enabled", False)
 
 
-# ---------------- Air Quality (PMS Frame over SPI/I2C) ---------------- #
+# ---------------- Air Quality (PMS Frame over I2C) ---------------- #
 
 def _load_air_quality_cfg():
     try:
@@ -336,35 +336,6 @@ def _load_air_quality_cfg():
     except Exception:
         pass
     return {}
-
-
-def _build_air_spi_targets(air_cfg):
-    targets = []
-
-    candidates = air_cfg.get("spi_candidates", [])
-    if isinstance(candidates, list):
-        for item in candidates:
-            if not isinstance(item, dict):
-                continue
-            try:
-                targets.append((int(item.get("bus")), int(item.get("device"))))
-            except Exception:
-                continue
-
-    try:
-        targets.insert(0, (int(air_cfg.get("spi_bus", 0)), int(air_cfg.get("spi_device", 1))))
-    except Exception:
-        pass
-
-    targets.extend([(0, 0), (0, 1), (1, 0), (1, 1)])
-
-    dedup = []
-    seen = set()
-    for t in targets:
-        if t not in seen:
-            seen.add(t)
-            dedup.append(t)
-    return dedup
 
 
 def _parse_i2c_addr(value, default):
@@ -454,51 +425,6 @@ def _is_valid_pm_frame(frame):
     return checksum == expected
 
 
-def _probe_pm_frame_spi(bus, dev, mode, speed_hz, probe_bytes, probe_sec, poll_interval_sec):
-    dev_path = f"/dev/spidev{bus}.{dev}"
-    if not os.path.exists(dev_path):
-        return False, f"{dev_path} missing"
-
-    spi = None
-    try:
-        spi = spidev.SpiDev()
-        spi.open(bus, dev)
-        spi.mode = mode
-        spi.max_speed_hz = speed_hz
-
-        deadline = time.monotonic() + probe_sec
-        buf = bytearray()
-
-        while time.monotonic() < deadline:
-            rx = spi.xfer2([0x00] * probe_bytes)
-            if rx:
-                buf.extend(rx)
-                if len(buf) > 2048:
-                    del buf[:-512]
-
-                max_start = len(buf) - 32
-                i = 0
-                while i <= max_start:
-                    if buf[i] == 0x42 and buf[i + 1] == 0x4D:
-                        frame = bytes(buf[i : i + 32])
-                        if _is_valid_pm_frame(frame):
-                            return True, f"valid PM frame on {dev_path}"
-                    i += 1
-
-            if poll_interval_sec > 0:
-                time.sleep(poll_interval_sec)
-
-        return False, f"no valid PM frame on {dev_path} within {probe_sec}s"
-    except Exception as e:
-        return False, f"{dev_path} error: {e}"
-    finally:
-        if spi is not None:
-            try:
-                spi.close()
-            except Exception:
-                pass
-
-
 def _detect_air_quality_i2c(air_cfg):
     targets = _build_air_i2c_targets(air_cfg)
     misses = []
@@ -520,84 +446,14 @@ def _detect_air_quality_i2c(air_cfg):
     return False
 
 
-def _detect_air_quality_spi(air_cfg):
-    try:
-        mode = int(air_cfg.get("spi_mode", 0))
-        speed_hz = int(air_cfg.get("spi_max_speed_hz", 500000))
-        probe_bytes = int(air_cfg.get("spi_probe_bytes", 32))
-        probe_sec = float(air_cfg.get("spi_probe_sec", 6.0))
-        poll_interval_sec = float(air_cfg.get("spi_poll_interval_sec", 0.02))
-    except Exception:
-        mode = 0
-        speed_hz = 500000
-        probe_bytes = 32
-        probe_sec = 6.0
-        poll_interval_sec = 0.02
-
-    targets = _build_air_spi_targets(air_cfg)
-    misses = []
-    for bus, dev in targets:
-        ok, detail = _probe_pm_frame_spi(bus, dev, mode, speed_hz, probe_bytes, probe_sec, poll_interval_sec)
-        if ok:
-            print(f"Air Quality Sensor Found over SPI: /dev/spidev{bus}.{dev}")
-            set_config_flag(CONFIG_PATH, "air_quality", "enabled", True)
-            set_config_flag(CONFIG_PATH, "air_quality", "spi_bus", bus)
-            set_config_flag(CONFIG_PATH, "air_quality", "spi_device", dev)
-            return True
-        misses.append(detail)
-        spi_logger.info(f"Air quality SPI probe miss: {detail}")
-
-    print("Air Quality Sensor Not Found over SPI")
-    for miss in misses:
-        print(f"  - {miss}")
-    return False
-
-
 def detect_air_quality():
     air_cfg = _load_air_quality_cfg()
     interface = str(air_cfg.get("interface", "i2c")).strip().lower()
 
     set_config_flag(CONFIG_PATH, "air_quality", "enabled", False)
 
-    if interface == "spi":
-        try:
-            mode = int(air_cfg.get("spi_mode", 0))
-            speed_hz = int(air_cfg.get("spi_max_speed_hz", 500000))
-            probe_bytes = int(air_cfg.get("spi_probe_bytes", 32))
-            probe_sec = float(air_cfg.get("spi_probe_sec", 6.0))
-            poll_interval_sec = float(air_cfg.get("spi_poll_interval_sec", 0.02))
-        except Exception:
-            mode = 0
-            speed_hz = 500000
-            probe_bytes = 32
-            probe_sec = 6.0
-            poll_interval_sec = 0.02
-
-        targets = _build_air_spi_targets(air_cfg)
-        misses = []
-        for bus, dev in targets:
-            ok, detail = _probe_pm_frame_spi(bus, dev, mode, speed_hz, probe_bytes, probe_sec, poll_interval_sec)
-            if ok:
-                print(f"Air Quality Sensor Found over SPI: /dev/spidev{bus}.{dev}")
-                set_config_flag(CONFIG_PATH, "air_quality", "enabled", True)
-                set_config_flag(CONFIG_PATH, "air_quality", "spi_bus", bus)
-                set_config_flag(CONFIG_PATH, "air_quality", "spi_device", dev)
-                return True
-            misses.append(detail)
-            spi_logger.info(f"Air quality SPI probe miss: {detail}")
-
-        print("Air Quality Sensor Not Found over SPI")
-        for miss in misses:
-            print(f"  - {miss}")
-        return False
-
     if interface == "i2c":
         return _detect_air_quality_i2c(air_cfg)
-
-    if interface == "auto":
-        if _detect_air_quality_i2c(air_cfg):
-            return True
-        return _detect_air_quality_spi(air_cfg)
 
     print(f"Air Quality detection skipped (unsupported interface '{interface}')")
     return False
