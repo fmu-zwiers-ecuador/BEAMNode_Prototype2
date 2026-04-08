@@ -25,6 +25,7 @@ def send_ack(file_id, node_id, received):
     print(f"ACK sent for {file_id}, received chunks: {received}")
 
 def handle_data(pkt):
+    print(f"DEBUG: Received DATA packet - file_id: {pkt.get('f')}, chunk: {pkt.get('i')}")
     file_id = pkt["f"]
     node_id = pkt["n"]
 
@@ -77,8 +78,9 @@ while True:
 
     try:
         msg = json.loads(pkt.decode())
-    except:
-        
+        print(f"DEBUG: Parsed message type: {msg.get('type')}")
+    except Exception as e:
+        print(f"DEBUG: Failed to decode packet: {e}")
         continue
 
     if msg["type"] == "DATA":
