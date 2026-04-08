@@ -1,6 +1,7 @@
 import serial
 import json
 from datetime import datetime, timezone
+import time
 import os
 
 # Match arduino baud rate
@@ -41,7 +42,7 @@ try:
         print(f" Auto-stop after: {MAX_DURATION_SECONDS}s")
     while True:
         # Duration Check
-        if MAX_DURATION_SECONDS and (time.time() - start_time) >= MAX_DURATION_SECONDS:
+        if MAX_DURATION_SECONDS and (time.time() - datetime.now()) >= MAX_DURATION_SECONDS:
             print(f"\nDuration limit reached ({MAX_DURATION_SECONDS}s). Stopping.")
             break
         
