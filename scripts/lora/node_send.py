@@ -28,6 +28,7 @@ def chunk_data(data):
 
 def send_packet(obj):
     msg = json.dumps(obj).encode()
+    print(f"DEBUG: Sending packet of {len(msg)} bytes")
     rfm9x.send(msg)
 
 def wait_for_ack(file_id, timeout):
@@ -37,10 +38,17 @@ def wait_for_ack(file_id, timeout):
         if pkt:
             try:
                 msg = json.loads(pkt.decode())
+                print(f"DEBUG: Received message: {msg}")
                 if msg.get("type") == "ACK" and msg.get("f") == file_id:
+                    print(f"DEBUG: ACK matched for file_id {file_id}")
                     return msg
-            except:
+                else:
+                    print(f"DEBUG: Message doesn't match - type: {msg.get('type')}, f: {msg.get('f')}")
+            except Exception as e:
+                print(f"DEBUG: Failed to decode packet: {e}")
+                print(f"DEBUG: Raw packet: {pkt}")
                 pass
+    print(f"DEBUG: ACK timeout for file_id {file_id}")
     return None
 
 # --- MAIN SEND ---
