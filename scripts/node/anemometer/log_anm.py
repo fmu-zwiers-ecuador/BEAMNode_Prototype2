@@ -28,6 +28,7 @@ file_path = os.path.join(directory, file_name)
 
 # Auto-stop settings (set either or both to None to disable)
 MAX_DURATION_SECONDS = anm_config.get("max_duration_seconds", 3600) # Set to 1 hour
+start_time = time.time()
 
 # Load existing data or start fresh
 try: 
@@ -42,7 +43,7 @@ try:
         print(f" Auto-stop after: {MAX_DURATION_SECONDS}s")
     while True:
         # Duration Check
-        if MAX_DURATION_SECONDS and (time.time() - datetime.now()) >= MAX_DURATION_SECONDS:
+        if MAX_DURATION_SECONDS and (time.time() - start_time) >= MAX_DURATION_SECONDS:
             print(f"\nDuration limit reached ({MAX_DURATION_SECONDS}s). Stopping.")
             break
         
