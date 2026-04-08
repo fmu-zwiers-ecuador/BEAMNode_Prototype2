@@ -15,6 +15,7 @@ NODE_ID = "node1"
 CHUNK_SIZE = 100
 ACK_TIMEOUT = 20 
 MAX_RETRIES = 5
+TX_RX_TURNAROUND = 0.1
 
 # --- Helpers ---
 def prepare_file(path):
@@ -29,26 +30,39 @@ def chunk_data(data):
 def send_packet(obj):
     msg = json.dumps(obj).encode()
     print(f"DEBUG: Sending packet of {len(msg)} bytes")
-    rfm9x.send(msg)
+    try:
+        rfm9x.send(msg, keep_listening=True)
+    except TypeError:
+        # Older library versions may not support keep_listening kwarg
+        rfm9x.send(msg)
 
-def wait_for_ack(file_id, timeout):
+def wait_for_ack(file_id, chunk_index, timeout):
     start = time.time()
     while time.time() - start < timeout:
-        pkt = rfm9x.receive(timeout=0.5)
+        pkt = rfm9x.receive(timeout=0.25)
         if pkt:
             try:
                 msg = json.loads(pkt.decode())
                 print(f"DEBUG: Received message: {msg}")
-                if msg.get("type") == "ACK" and msg.get("f") == file_id:
-                    print(f"DEBUG: ACK matched for file_id {file_id}")
+                if (
+                    msg.get("type") == "ACK"
+                    and msg.get("f") == file_id
+                    and msg.get("i") == chunk_index
+                ):
+                    print(f"DEBUG: ACK matched for file_id {file_id}, chunk {chunk_index}")
                     return msg
                 else:
-                    print(f"DEBUG: Message doesn't match - type: {msg.get('type')}, f: {msg.get('f')}")
+                    print(
+                        "DEBUG: Message doesn't match - "
+                        f"type: {msg.get('type')}, "
+                        f"f: {msg.get('f')}, "
+                        f"i: {msg.get('i')} (expected {chunk_index})"
+                    )
             except Exception as e:
                 print(f"DEBUG: Failed to decode packet: {e}")
                 print(f"DEBUG: Raw packet: {pkt}")
                 pass
-    print(f"DEBUG: ACK timeout for file_id {file_id}")
+    print(f"DEBUG: ACK timeout for file_id {file_id}, chunk {chunk_index}")
     return None
 
 # --- MAIN SEND ---
@@ -84,10 +98,10 @@ def send_file(path):
             send_packet(pkt)
 
             # Allow radio to finish TX and switch to RX mode
-            time.sleep(0.5)
+            time.sleep(TX_RX_TURNAROUND)
 
             # Wait for ACK
-            ack = wait_for_ack(file_id, ACK_TIMEOUT)
+            ack = wait_for_ack(file_id, i, ACK_TIMEOUT)
 
             if ack:
                 print(f"ACK received for chunk {i}")

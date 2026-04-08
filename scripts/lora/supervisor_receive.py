@@ -12,17 +12,33 @@ rfm9x.tx_power = 23
 
 # --- STORAGE ---
 files = {}
+ACK_BACKOFF = 0.12
+ACK_REPEATS = 2
+ACK_REPEAT_GAP = 0.08
 
-def send_ack(file_id, node_id, received):
+def send_ack(file_id, node_id, chunk_index, received):
     pkt = {
         "type": "ACK",
         "f": file_id,
         "n": node_id,
+        "i": chunk_index,
         "received": list(received)
     }
-    rfm9x.send(json.dumps(pkt).encode())
-    time.sleep(0.5)  # Allow ACK to finish transmitting
-    print(f"ACK sent for {file_id}, received chunks: {received}")
+    packet = json.dumps(pkt)
+    # Give sender time to switch from TX to RX before ACK is sent.
+    time.sleep(ACK_BACKOFF)
+
+    # Send ACK more than once to improve reliability on lossy links.
+    for attempt in range(ACK_REPEATS):
+        try:
+            rfm9x.send(packet.encode(), keep_listening=True)
+        except TypeError:
+            # Older library versions may not support keep_listening kwarg
+            rfm9x.send(packet.encode())
+        if attempt < ACK_REPEATS - 1:
+            time.sleep(ACK_REPEAT_GAP)
+
+    print(f"ACK sent for {file_id}, chunk {chunk_index}, received chunks: {received}")
 
 def handle_data(pkt):
     print(f"DEBUG: Received DATA packet - file_id: {pkt.get('f')}, chunk: {pkt.get('i')}")
@@ -40,7 +56,7 @@ def handle_data(pkt):
 
     # send selective ACK
     received = set(files[file_id]["chunks"].keys())
-    send_ack(file_id, node_id, received)
+    send_ack(file_id, node_id, pkt["i"], received)
 
 def handle_end(pkt):
     file_id = pkt["f"]
