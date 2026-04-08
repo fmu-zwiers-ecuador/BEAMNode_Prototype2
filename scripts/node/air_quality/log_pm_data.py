@@ -84,25 +84,78 @@ def build_candidate_i2c_targets(configured_bus, configured_address, configured_c
     return ordered
 
 
-def read_first_valid_frame_i2c(candidate_targets, timeout_sec):
+def _frame_has_nonzero_payload(frame):
+    parsed = parse_pms_frame(frame)
+    for value in parsed.values():
+        try:
+            if int(value) > 0:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def read_first_valid_frame_i2c(candidate_targets, timeout_sec, poll_interval_sec):
     errors = []
     if SMBus is None or i2c_msg is None:
-        return None, None, ["smbus2 library is not installed"]
+        return None, None, ["smbus2 library is not installed"], {}
 
-    for bus, addr in candidate_targets:
-        try:
-            with SMBus(int(bus)) as i2c_bus:
-                read = i2c_msg.read(addr, 32)
-                i2c_bus.i2c_rdwr(read)
-                frame = bytes(read)
+    timeout_sec = max(float(timeout_sec), 0.25)
+    poll_interval_sec = max(float(poll_interval_sec), 0.02)
+    deadline = time.monotonic() + timeout_sec
 
-            if frame and is_valid_pms_frame(frame):
-                return f"/dev/i2c-{bus}@0x{addr:02X}", frame, errors
-            errors.append(f"/dev/i2c-{bus} addr 0x{addr:02X}: invalid PMS frame")
-        except Exception as e:
-            errors.append(f"/dev/i2c-{bus} addr 0x{addr:02X}: {e}")
+    latest_valid = None
+    latest_source = None
+    valid_frame_count = 0
+    nonzero_frame_count = 0
+    invalid_frame_count = 0
+    last_error_by_target = {}
 
-    return None, None, errors
+    while time.monotonic() < deadline:
+        for bus, addr in candidate_targets:
+            target_label = f"/dev/i2c-{bus} addr 0x{addr:02X}"
+            try:
+                with SMBus(int(bus)) as i2c_bus:
+                    read = i2c_msg.read(addr, 32)
+                    i2c_bus.i2c_rdwr(read)
+                    frame = bytes(read)
+
+                if frame and is_valid_pms_frame(frame):
+                    valid_frame_count += 1
+                    latest_valid = frame
+                    latest_source = f"/dev/i2c-{bus}@0x{addr:02X}"
+                    if _frame_has_nonzero_payload(frame):
+                        nonzero_frame_count += 1
+                        return latest_source, frame, errors, {
+                            "valid_frames": valid_frame_count,
+                            "nonzero_frames": nonzero_frame_count,
+                            "invalid_frames": invalid_frame_count,
+                            "used_zero_fallback": False,
+                        }
+                else:
+                    invalid_frame_count += 1
+                    last_error_by_target[target_label] = "invalid PMS frame"
+            except Exception as e:
+                last_error_by_target[target_label] = str(e)
+
+        time.sleep(poll_interval_sec)
+
+    for target, detail in sorted(last_error_by_target.items()):
+        errors.append(f"{target}: {detail}")
+
+    stats = {
+        "valid_frames": valid_frame_count,
+        "nonzero_frames": nonzero_frame_count,
+        "invalid_frames": invalid_frame_count,
+        "used_zero_fallback": False,
+    }
+
+    if latest_valid is not None:
+        stats["used_zero_fallback"] = True
+        errors.append("Only zero-valued valid PMS frames observed during polling window")
+        return latest_source, latest_valid, errors, stats
+
+    return None, None, errors, stats
 
 
 def parse_pms_frame(frame):
@@ -171,12 +224,14 @@ def main():
     file_name = pm_cfg.get("file_name", "pm_data.json")
     interface = str(pm_cfg.get("interface", "i2c")).strip().lower()
     timeout_sec = float(pm_cfg.get("read_timeout_sec", 3.0))
+    poll_interval_sec = float(pm_cfg.get("i2c_poll_interval_sec", 0.2))
 
     file_path = os.path.join(base_dir, out_dir, file_name)
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
     debug(f"Config loaded from: {CONFIG_FILE}")
     debug(f"Interface: {interface}")
     debug(f"I2C timeout: {timeout_sec}s")
+    debug(f"I2C poll interval: {poll_interval_sec}s")
     debug(f"Output file: {file_path}")
 
     try:
@@ -187,9 +242,10 @@ def main():
                 pm_cfg.get("i2c_candidates", []),
             )
             debug(f"I2C targets: {candidate_i2c_targets}")
-            selected_port, frame, read_errors = read_first_valid_frame_i2c(
+            selected_port, frame, read_errors, read_stats = read_first_valid_frame_i2c(
                 candidate_i2c_targets,
                 timeout_sec,
+                poll_interval_sec,
             )
         else:
             print(f"[air_quality] Unsupported interface '{interface}'. Use 'i2c'.", file=sys.stderr)
@@ -202,6 +258,14 @@ def main():
             "[air_quality] No PMS frame received on the configured I2C address.",
             file=sys.stderr,
         )
+        if read_stats:
+            print(
+                "[air_quality] Poll stats: "
+                f"valid={read_stats.get('valid_frames', 0)}, "
+                f"nonzero={read_stats.get('nonzero_frames', 0)}, "
+                f"invalid={read_stats.get('invalid_frames', 0)}",
+                file=sys.stderr,
+            )
         for err in read_errors:
             print(f"[air_quality]   - {err}", file=sys.stderr)
         print(
@@ -211,6 +275,19 @@ def main():
         raise SystemExit(1)
 
     debug(f"Using I2C target: {selected_port}")
+    if read_stats:
+        debug(
+            "Poll stats: "
+            f"valid={read_stats.get('valid_frames', 0)}, "
+            f"nonzero={read_stats.get('nonzero_frames', 0)}, "
+            f"invalid={read_stats.get('invalid_frames', 0)}"
+        )
+        if read_stats.get("used_zero_fallback", False):
+            print(
+                "[air_quality] Warning: only zero-valued valid frames were observed. "
+                "Data was still recorded from the latest valid frame.",
+                file=sys.stderr,
+            )
     parsed = parse_pms_frame(frame)
 
     now_utc = datetime.now(timezone.utc)
