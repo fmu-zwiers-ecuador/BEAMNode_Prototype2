@@ -1,0 +1,327 @@
+"""
+BEAM Motion Camera Burst + Video System
+"""
+
+import json
+import os
+import time
+from datetime import datetime, timezone
+
+from gpiozero import Device, MotionSensor, OutputDevice
+from gpiozero.exc import BadPinFactory
+from picamera2 import Picamera2
+from picamera2.encoders import H264Encoder
+from picamera2.outputs import FfmpegOutput
+
+try:
+    from gpiozero.pins.rpigpio import RPiGPIOFactory
+
+    Device.pin_factory = RPiGPIOFactory()
+except Exception:
+    # Fall back to gpiozero's default pin factory if RPiGPIO is unavailable.
+    pass
+
+# ---------------------------------
+# CONSTANT PATHS
+# ---------------------------------
+LUX_LOG_PATH = "/home/pi/data/tsl2591/lux_data.json"
+CONFIG_PATH = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
+
+
+with open(CONFIG_PATH, "r") as f:
+    config = json.load(f)
+
+global_config = config.get("global", {})
+cam_config = config.get("camera", {})
+
+DELAY_PROFILES = {
+    "fast": {
+        "cooldown_sec": 0.5,
+        "pir_poll_interval_sec": 0.05,
+        "pir_sample_rate": 20,
+        "pir_queue_len": 1,
+        "pir_threshold": 0.5,
+    },
+    "normal": {
+        "cooldown_sec": 1.0,
+        "pir_poll_interval_sec": 0.1,
+        "pir_sample_rate": 10,
+        "pir_queue_len": 1,
+        "pir_threshold": 0.5,
+    },
+    "slow": {
+        "cooldown_sec": 2.0,
+        "pir_poll_interval_sec": 0.2,
+        "pir_sample_rate": 5,
+        "pir_queue_len": 2,
+        "pir_threshold": 0.5,
+    },
+}
+
+RANGE_PROFILES = {
+    "widest": {
+        "pir_sample_rate": 20,
+        "pir_queue_len": 1,
+        "pir_threshold": 0.4,
+    },
+    "medium": {
+        "pir_sample_rate": 10,
+        "pir_queue_len": 1,
+        "pir_threshold": 0.5,
+    },
+    "narrow": {
+        "pir_sample_rate": 8,
+        "pir_queue_len": 2,
+        "pir_threshold": 0.7,
+    },
+}
+
+
+def build_motion_settings(camera_config):
+    delay_profile_name = str(camera_config.get("motion_delay_profile", "normal")).lower()
+    range_profile_name = str(camera_config.get("detection_range_profile", "medium")).lower()
+
+    settings = {}
+    settings.update(DELAY_PROFILES.get(delay_profile_name, DELAY_PROFILES["normal"]))
+    settings.update(RANGE_PROFILES.get(range_profile_name, RANGE_PROFILES["medium"]))
+
+    for key in (
+        "cooldown_sec",
+        "pir_warmup_sec",
+        "pir_poll_interval_sec",
+        "pir_sample_rate",
+        "pir_queue_len",
+        "pir_threshold",
+    ):
+        if key in camera_config:
+            settings[key] = camera_config[key]
+
+    settings["motion_delay_profile"] = delay_profile_name
+    settings["detection_range_profile"] = range_profile_name
+    return settings
+
+
+motion_settings = build_motion_settings(cam_config)
+
+if not cam_config.get("enabled", False):
+    print("[BEAM] Camera module disabled in config.")
+    raise SystemExit
+
+node_id = global_config.get("node_id", "unknown-node")
+base_dir = global_config.get("base_dir", "/home/pi/data")
+directory = os.path.join(base_dir, cam_config.get("directory", "camera"))
+os.makedirs(directory, exist_ok=True)
+
+log_path = os.path.join(directory, "images_log.json")
+
+pir_pin = cam_config.get("pir_gpio", cam_config.get("gpio_pin", 4))
+try:
+    pir = MotionSensor(
+        pir_pin,
+        pull_up=None,
+        active_state=True,
+        queue_len=motion_settings.get("pir_queue_len", 1),
+        sample_rate=motion_settings.get("pir_sample_rate", 10),
+        threshold=motion_settings.get("pir_threshold", 0.5),
+    )
+except (BadPinFactory, Exception) as e:
+    print(f"[BEAM] PIR setup failed on GPIO {pir_pin}: {e}")
+    raise
+
+flash_enabled = cam_config.get("flash_enabled", False)
+flash = None
+if flash_enabled:
+    flash_pin = cam_config.get("flash_gpio", 17)
+    flash = OutputDevice(flash_pin)
+
+picam = Picamera2()
+
+main_res = tuple(cam_config.get("resolution", [1920, 1080]))
+video_res = tuple(cam_config.get("video_resolution", cam_config.get("resolution", [1920, 1080])))
+still_config = picam.create_still_configuration(main={"size": main_res})
+video_config = picam.create_video_configuration(main={"size": video_res})
+
+
+def configure_camera(mode):
+    try:
+        picam.stop()
+    except Exception:
+        pass
+    if mode == "video":
+        picam.configure(video_config)
+    else:
+        picam.configure(still_config)
+    picam.start()
+    time.sleep(1)
+
+
+configure_camera("still")
+
+if global_config.get("print_debug", True):
+    print(f"[BEAM] Burst/video camera armed on GPIO {pir_pin}")
+    print(f"[BEAM] Flash enabled: {flash_enabled}")
+    print(f"[BEAM] Media directory: {directory}")
+    print(f"[BEAM] Media log: {log_path}")
+    print(
+        "[BEAM] Motion tuning: "
+        f"delay_profile={motion_settings['motion_delay_profile']}, "
+        f"range_profile={motion_settings['detection_range_profile']}, "
+        f"sample_rate={motion_settings.get('pir_sample_rate', 10)}, "
+        f"queue_len={motion_settings.get('pir_queue_len', 1)}, "
+        f"threshold={motion_settings.get('pir_threshold', 0.5)}"
+    )
+    print("[BEAM] Warming up PIR...")
+
+cooldown = motion_settings.get("cooldown_sec", 1)
+pir_warmup = motion_settings.get("pir_warmup_sec", cam_config.get("pir_warmup_sec", 5))
+poll_interval = motion_settings.get("pir_poll_interval_sec", 0.1)
+
+photo_count = int(cam_config.get("motion_photo_count", 3))
+photo_pause = float(cam_config.get("motion_photo_pause_sec", 1.0))
+video_duration = float(cam_config.get("motion_video_duration_sec", 10.0))
+video_bitrate = int(cam_config.get("video_bitrate", 10000000))
+video_prefix = cam_config.get("video_file_prefix", "motionvid_")
+image_prefix = cam_config.get("file_prefix", "motionpic_")
+
+time.sleep(pir_warmup)
+
+if global_config.get("print_debug", True):
+    print("[BEAM] PIR ready")
+
+
+def get_latest_lux():
+    try:
+        with open(LUX_LOG_PATH, "r") as f:
+            data = json.load(f)
+
+        if "records" in data and len(data["records"]) > 0:
+            return data["records"][-1]["lux"]
+
+    except Exception as e:
+        print("[BEAM] Lux read error:", e)
+
+    return None
+
+
+def should_use_flash(lux_value):
+    flash_threshold = cam_config.get("flash_lux_threshold", 10)
+    return flash_enabled and flash is not None and lux_value is not None and lux_value < flash_threshold
+
+
+def append_log(record):
+    try:
+        if os.path.exists(log_path):
+            with open(log_path, "r") as f:
+                try:
+                    data = json.load(f)
+                    if not isinstance(data, dict) or "records" not in data:
+                        data = {"node_id": node_id, "sensor": "camera", "records": []}
+                except Exception:
+                    data = {"node_id": node_id, "sensor": "camera", "records": []}
+        else:
+            data = {"node_id": node_id, "sensor": "camera", "records": []}
+
+        data["records"].append(record)
+
+        with open(log_path, "w") as f:
+            json.dump(data, f, indent=4)
+
+        print(f"[BEAM] Capture logged to: {log_path}")
+    except Exception as e:
+        print("[ERROR] Failed to save log:", e)
+
+
+last_motion_state = pir.motion_detected
+
+while True:
+    current_motion_state = pir.motion_detected
+
+    if current_motion_state and not last_motion_state:
+        now_utc = datetime.now(timezone.utc)
+        now_local = now_utc.astimezone()
+        timestamp_iso = now_utc.isoformat()
+        event_ts = now_utc.strftime("%Y%m%d_%H%M%SZ")
+
+        if global_config.get("print_debug", True):
+            print("[BEAM] Motion detected")
+
+        lux = get_latest_lux()
+        flash_active = should_use_flash(lux)
+
+        if flash_active:
+            flash.on()
+            print(f"[BEAM] Night detected (lux={lux}) -> Flash ON")
+        elif flash_enabled and flash is not None:
+            flash.off()
+
+        photo_files = []
+
+        try:
+            configure_camera("still")
+
+            for index in range(photo_count):
+                photo_name = f"{image_prefix}{event_ts}_{index + 1}.jpg"
+                photo_path = os.path.join(directory, photo_name)
+                picam.capture_file(photo_path)
+
+                if os.path.exists(photo_path):
+                    photo_files.append(photo_path)
+                    print(f"[BEAM] Picture saved: {photo_path}")
+                else:
+                    print(f"[BEAM] Capture finished but file not found: {photo_path}")
+
+                if index < photo_count - 1:
+                    time.sleep(photo_pause)
+
+            video_path = os.path.join(directory, f"{video_prefix}{event_ts}.mp4")
+            encoder = H264Encoder(bitrate=video_bitrate)
+
+            configure_camera("video")
+            picam.start_recording(encoder, FfmpegOutput(video_path))
+            print(f"[BEAM] Recording video: {video_path}")
+            time.sleep(video_duration)
+            picam.stop_recording()
+
+            if os.path.exists(video_path):
+                print(f"[BEAM] Video saved: {video_path}")
+            else:
+                print(f"[BEAM] Recording finished but file not found: {video_path}")
+
+            configure_camera("still")
+
+        except Exception as e:
+            print(f"[BEAM] Burst/video capture failed: {e}")
+            try:
+                picam.stop_recording()
+            except Exception:
+                pass
+            configure_camera("still")
+            if flash_enabled and flash is not None:
+                flash.off()
+            last_motion_state = current_motion_state
+            time.sleep(poll_interval)
+            continue
+
+        if flash_enabled and flash is not None:
+            flash.off()
+
+        record = {
+            "timestamp_utc": timestamp_iso,
+            "local_time": now_local.strftime("%Y-%m-%d %H:%M:%S"),
+            "timezone": now_local.tzname(),
+            "files": photo_files,
+            "video_file": video_path,
+            "photo_count": len(photo_files),
+            "photo_pause_sec": photo_pause,
+            "video_duration_sec": video_duration,
+            "lux": lux,
+        }
+
+        append_log(record)
+        time.sleep(cooldown)
+
+    elif not current_motion_state and last_motion_state and global_config.get("print_debug", True):
+        print("[BEAM] Motion ended")
+
+    last_motion_state = current_motion_state
+    time.sleep(poll_interval)
