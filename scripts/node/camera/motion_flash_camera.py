@@ -34,6 +34,75 @@ with open(CONFIG_PATH, "r") as f:
 global_config = config.get("global", {})
 cam_config = config.get("camera", {})
 
+DELAY_PROFILES = {
+    "fast": {
+        "cooldown_sec": 0.5,
+        "pir_poll_interval_sec": 0.05,
+        "pir_sample_rate": 20,
+        "pir_queue_len": 1,
+        "pir_threshold": 0.5,
+    },
+    "normal": {
+        "cooldown_sec": 1.0,
+        "pir_poll_interval_sec": 0.1,
+        "pir_sample_rate": 10,
+        "pir_queue_len": 1,
+        "pir_threshold": 0.5,
+    },
+    "slow": {
+        "cooldown_sec": 2.0,
+        "pir_poll_interval_sec": 0.2,
+        "pir_sample_rate": 5,
+        "pir_queue_len": 2,
+        "pir_threshold": 0.5,
+    },
+}
+
+RANGE_PROFILES = {
+    "widest": {
+        "pir_sample_rate": 20,
+        "pir_queue_len": 1,
+        "pir_threshold": 0.4,
+    },
+    "medium": {
+        "pir_sample_rate": 10,
+        "pir_queue_len": 1,
+        "pir_threshold": 0.5,
+    },
+    "narrow": {
+        "pir_sample_rate": 8,
+        "pir_queue_len": 2,
+        "pir_threshold": 0.7,
+    },
+}
+
+
+def build_motion_settings(camera_config):
+    delay_profile_name = str(camera_config.get("motion_delay_profile", "normal")).lower()
+    range_profile_name = str(camera_config.get("detection_range_profile", "medium")).lower()
+
+    settings = {}
+    settings.update(DELAY_PROFILES.get(delay_profile_name, DELAY_PROFILES["normal"]))
+    settings.update(RANGE_PROFILES.get(range_profile_name, RANGE_PROFILES["medium"]))
+
+    for key in (
+        "cooldown_sec",
+        "pir_warmup_sec",
+        "pir_poll_interval_sec",
+        "pir_sample_rate",
+        "pir_queue_len",
+        "pir_threshold",
+    ):
+        if key in camera_config:
+            settings[key] = camera_config[key]
+
+    settings["motion_delay_profile"] = delay_profile_name
+    settings["detection_range_profile"] = range_profile_name
+    return settings
+
+
+motion_settings = build_motion_settings(cam_config)
+
 # ---------------------------------
 # Check if camera module enabled
 # ---------------------------------
@@ -63,9 +132,9 @@ try:
         # internal pull resistor here.
         pull_up=None,
         active_state=True,
-        queue_len=1,
-        sample_rate=10,
-        threshold=0.5,
+        queue_len=motion_settings.get("pir_queue_len", 1),
+        sample_rate=motion_settings.get("pir_sample_rate", 10),
+        threshold=motion_settings.get("pir_threshold", 0.5),
     )
 except (BadPinFactory, Exception) as e:
     print(f"[BEAM] PIR setup failed on GPIO {pir_pin}: {e}")
@@ -100,11 +169,19 @@ if global_config.get("print_debug", True):
     print(f"[BEAM] Flash enabled: {flash_enabled}")
     print(f"[BEAM] Image directory: {directory}")
     print(f"[BEAM] Image log: {log_path}")
+    print(
+        "[BEAM] Motion tuning: "
+        f"delay_profile={motion_settings['motion_delay_profile']}, "
+        f"range_profile={motion_settings['detection_range_profile']}, "
+        f"sample_rate={motion_settings.get('pir_sample_rate', 10)}, "
+        f"queue_len={motion_settings.get('pir_queue_len', 1)}, "
+        f"threshold={motion_settings.get('pir_threshold', 0.5)}"
+    )
     print("[BEAM] Warming up PIR...")
 
-cooldown = cam_config.get("cooldown_sec", 1)
-pir_warmup = cam_config.get("pir_warmup_sec", 5)
-poll_interval = cam_config.get("pir_poll_interval_sec", 0.1)
+cooldown = motion_settings.get("cooldown_sec", 1)
+pir_warmup = motion_settings.get("pir_warmup_sec", cam_config.get("pir_warmup_sec", 5))
+poll_interval = motion_settings.get("pir_poll_interval_sec", 0.1)
 time.sleep(pir_warmup)
 
 if global_config.get("print_debug", True):

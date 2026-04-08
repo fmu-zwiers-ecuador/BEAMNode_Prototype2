@@ -35,7 +35,7 @@ Exact Raspberry Pi header wiring:
 * PIR GND -> Pin 6 (Ground)
 * PIR OUT -> Pin 18 (GPIO24)
 
-![PIR Sensor Pins](images/PIR%20sensor%20pins.jpg)
+![PIR Sensor Pins](https://qqtrading.com.my/image/contents/pir_iso_botm_annot.jpg)
 
 **3. Flash to Raspberry Pi pin assignments**
 
