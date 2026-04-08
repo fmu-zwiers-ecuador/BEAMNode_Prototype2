@@ -47,7 +47,7 @@ try:
             print(f"\nDuration limit reached ({MAX_DURATION_SECONDS}s). Stopping.")
             break
         
-        line = ser.readline().decode('utf-8').strip().replace('/r', '')
+        line = ser.readline().decode('latin-1').strip().replace('/r', '')
         if not line:
             continue
         try:
