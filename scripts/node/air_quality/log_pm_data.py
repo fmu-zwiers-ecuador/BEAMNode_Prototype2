@@ -8,14 +8,10 @@ import time
 from datetime import datetime, timezone
 
 try:
-    import serial
+    from smbus2 import SMBus, i2c_msg
 except Exception:
-    serial = None
-
-try:
-    import spidev
-except Exception:
-    spidev = None
+    SMBus = None
+    i2c_msg = None
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 NODE_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
@@ -30,16 +26,6 @@ def load_config():
     except Exception as e:
         print(f"[air_quality] Failed to load config at {CONFIG_FILE}: {e}", file=sys.stderr)
         return {}
-
-
-def read_exact(port, size):
-    data = bytearray()
-    while len(data) < size:
-        chunk = port.read(size - len(data))
-        if not chunk:
-            return None
-        data.extend(chunk)
-    return bytes(data)
 
 
 def is_valid_pms_frame(frame):
@@ -57,180 +43,119 @@ def is_valid_pms_frame(frame):
     return checksum == expected
 
 
-def read_pms_frame(port, max_wait_sec):
-    deadline = time.monotonic() + max_wait_sec
-
-    while time.monotonic() < deadline:
-        first = port.read(1)
-        if not first:
-            continue
-        if first[0] != 0x42:
-            continue
-
-        second = port.read(1)
-        if not second:
-            continue
-        if second[0] != 0x4D:
-            continue
-
-        rest = read_exact(port, 30)
-        if rest is None:
-            continue
-
-        frame = bytes([0x42, 0x4D]) + rest
-        if not is_valid_pms_frame(frame):
-            continue
-
-        return frame
-
-    return None
+def _parse_i2c_addr(value, default):
+    try:
+        if isinstance(value, str):
+            return int(value, 0)
+        return int(value)
+    except Exception:
+        return default
 
 
-def read_pms_frame_spi(spi, max_wait_sec, probe_bytes, poll_interval_sec):
-    deadline = time.monotonic() + max_wait_sec
-    buf = bytearray()
-
-    while time.monotonic() < deadline:
-        rx = spi.xfer2([0x00] * probe_bytes)
-        if rx:
-            buf.extend(rx)
-
-            # Keep memory bounded while preserving enough data for frame sync.
-            if len(buf) > 2048:
-                del buf[:-512]
-
-            max_start = len(buf) - 32
-            i = 0
-            while i <= max_start:
-                if buf[i] == 0x42 and buf[i + 1] == 0x4D:
-                    frame = bytes(buf[i : i + 32])
-                    if is_valid_pms_frame(frame):
-                        return frame
-                i += 1
-
-        if poll_interval_sec > 0:
-            time.sleep(poll_interval_sec)
-
-    return None
-
-
-def build_candidate_ports(configured_port, configured_candidates):
-    candidates = []
-
-    if isinstance(configured_candidates, list):
-        candidates.extend([p for p in configured_candidates if isinstance(p, str) and p.strip()])
-
-    if isinstance(configured_port, str) and configured_port.strip():
-        candidates.insert(0, configured_port)
-
-    # Keep a small, practical fallback set for Raspberry Pi UART naming differences.
-    candidates.extend([
-        "/dev/serial0",
-        "/dev/ttyAMA0",
-        "/dev/ttyS0",
-        "/dev/ttyUSB0",
-        "/dev/ttyUSB1",
-    ])
-
-    seen = set()
-    ordered = []
-    for port in candidates:
-        if port not in seen:
-            seen.add(port)
-            ordered.append(port)
-    return ordered
-
-
-def build_candidate_spi_targets(configured_bus, configured_device, configured_candidates):
+def build_candidate_i2c_targets(configured_bus, configured_address, configured_candidates):
     candidates = []
 
     if isinstance(configured_candidates, list):
         for item in configured_candidates:
             if not isinstance(item, dict):
                 continue
-            bus = item.get("bus")
-            dev = item.get("device")
-            try:
-                candidates.append((int(bus), int(dev)))
-            except Exception:
-                continue
+            bus = _parse_i2c_addr(item.get("bus", 1), 1)
+            addr = _parse_i2c_addr(item.get("address", item.get("address_hex", "0x12")), 0x12)
+            candidates.append((bus, addr))
 
     try:
-        candidates.insert(0, (int(configured_bus), int(configured_device)))
+        primary_bus = _parse_i2c_addr(configured_bus, 1)
+        primary_addr = _parse_i2c_addr(
+            configured_address if configured_address is not None else "0x12",
+            0x12,
+        )
+        candidates.insert(0, (primary_bus, primary_addr))
     except Exception:
         pass
 
-    candidates.extend([(0, 0), (0, 1), (1, 0), (1, 1)])
+    candidates.append((1, 0x12))
 
     seen = set()
     ordered = []
-    for bus, dev in candidates:
-        if (bus, dev) not in seen:
-            seen.add((bus, dev))
-            ordered.append((bus, dev))
+    for bus, addr in candidates:
+        if (bus, addr) not in seen:
+            seen.add((bus, addr))
+            ordered.append((bus, addr))
     return ordered
 
 
-def read_first_valid_frame(candidate_ports, baud_rate, timeout_sec, frame_search_sec, debug):
-    errors = []
-
-    for port_name in candidate_ports:
-        if not os.path.exists(port_name):
-            errors.append(f"{port_name}: device does not exist")
-            continue
-
+def _frame_has_nonzero_payload(frame):
+    parsed = parse_pms_frame(frame)
+    for value in parsed.values():
         try:
-            with serial.Serial(port_name, baudrate=baud_rate, timeout=timeout_sec) as port:
-                # Drop stale bytes before trying to parse a fresh frame.
-                port.reset_input_buffer()
-                frame = read_pms_frame(port, frame_search_sec)
-                if frame is None:
-                    errors.append(f"{port_name}: no valid PMS frame within {frame_search_sec}s")
-                    continue
-                return port_name, frame, errors
-        except Exception as e:
-            errors.append(f"{port_name}: {e}")
-
-    return None, None, errors
-
-
-def read_first_valid_frame_spi(
-    candidate_targets,
-    spi_mode,
-    spi_max_speed_hz,
-    frame_search_sec,
-    spi_probe_bytes,
-    spi_poll_interval_sec,
-):
-    errors = []
-
-    if spidev is None:
-        return None, None, ["spidev module is not installed"]
-
-    for bus, dev in candidate_targets:
-        dev_path = f"/dev/spidev{bus}.{dev}"
-        if not os.path.exists(dev_path):
-            errors.append(f"{dev_path}: device does not exist")
+            if int(value) > 0:
+                return True
+        except Exception:
             continue
+    return False
 
-        spi = None
-        try:
-            spi = spidev.SpiDev()
-            spi.open(bus, dev)
-            spi.mode = spi_mode
-            spi.max_speed_hz = spi_max_speed_hz
-            frame = read_pms_frame_spi(spi, frame_search_sec, spi_probe_bytes, spi_poll_interval_sec)
-            if frame is None:
-                errors.append(f"{dev_path}: no valid PMS frame within {frame_search_sec}s")
-                continue
-            return dev_path, frame, errors
-        except Exception as e:
-            errors.append(f"{dev_path}: {e}")
-        finally:
-            if spi is not None:
-                spi.close()
 
-    return None, None, errors
+def read_first_valid_frame_i2c(candidate_targets, timeout_sec, poll_interval_sec):
+    errors = []
+    if SMBus is None or i2c_msg is None:
+        return None, None, ["smbus2 library is not installed"], {}
+
+    timeout_sec = max(float(timeout_sec), 0.25)
+    poll_interval_sec = max(float(poll_interval_sec), 0.02)
+    deadline = time.monotonic() + timeout_sec
+
+    latest_valid = None
+    latest_source = None
+    valid_frame_count = 0
+    nonzero_frame_count = 0
+    invalid_frame_count = 0
+    last_error_by_target = {}
+
+    while time.monotonic() < deadline:
+        for bus, addr in candidate_targets:
+            target_label = f"/dev/i2c-{bus} addr 0x{addr:02X}"
+            try:
+                with SMBus(int(bus)) as i2c_bus:
+                    read = i2c_msg.read(addr, 32)
+                    i2c_bus.i2c_rdwr(read)
+                    frame = bytes(read)
+
+                if frame and is_valid_pms_frame(frame):
+                    valid_frame_count += 1
+                    latest_valid = frame
+                    latest_source = f"/dev/i2c-{bus}@0x{addr:02X}"
+                    if _frame_has_nonzero_payload(frame):
+                        nonzero_frame_count += 1
+                        return latest_source, frame, errors, {
+                            "valid_frames": valid_frame_count,
+                            "nonzero_frames": nonzero_frame_count,
+                            "invalid_frames": invalid_frame_count,
+                            "used_zero_fallback": False,
+                        }
+                else:
+                    invalid_frame_count += 1
+                    last_error_by_target[target_label] = "invalid PMS frame"
+            except Exception as e:
+                last_error_by_target[target_label] = str(e)
+
+        time.sleep(poll_interval_sec)
+
+    for target, detail in sorted(last_error_by_target.items()):
+        errors.append(f"{target}: {detail}")
+
+    stats = {
+        "valid_frames": valid_frame_count,
+        "nonzero_frames": nonzero_frame_count,
+        "invalid_frames": invalid_frame_count,
+        "used_zero_fallback": False,
+    }
+
+    if latest_valid is not None:
+        stats["used_zero_fallback"] = True
+        errors.append("Only zero-valued valid PMS frames observed during polling window")
+        return latest_source, latest_valid, errors, stats
+
+    return None, None, errors, stats
 
 
 def parse_pms_frame(frame):
@@ -297,80 +222,72 @@ def main():
     base_dir = global_cfg.get("base_dir", "/home/pi/data")
     out_dir = pm_cfg.get("directory", "air_quality")
     file_name = pm_cfg.get("file_name", "pm_data.json")
-    serial_port = pm_cfg.get("serial_port", "/dev/ttyS0")
-    serial_port_candidates = pm_cfg.get("serial_port_candidates", [])
-    baud_rate = int(pm_cfg.get("baud_rate", 9600))
+    interface = str(pm_cfg.get("interface", "i2c")).strip().lower()
     timeout_sec = float(pm_cfg.get("read_timeout_sec", 3.0))
-    frame_search_sec = float(pm_cfg.get("frame_search_sec", max(6.0, timeout_sec * 2.0)))
-    interface = str(pm_cfg.get("interface", "uart")).strip().lower()
-
-    spi_bus = int(pm_cfg.get("spi_bus", 0))
-    spi_device = int(pm_cfg.get("spi_device", 1))
-    spi_candidates = pm_cfg.get("spi_candidates", [])
-    spi_mode = int(pm_cfg.get("spi_mode", 0))
-    spi_max_speed_hz = int(pm_cfg.get("spi_max_speed_hz", 500000))
-    spi_probe_bytes = int(pm_cfg.get("spi_probe_bytes", 32))
-    spi_poll_interval_sec = float(pm_cfg.get("spi_poll_interval_sec", 0.02))
+    poll_interval_sec = float(pm_cfg.get("i2c_poll_interval_sec", 0.2))
 
     file_path = os.path.join(base_dir, out_dir, file_name)
-    candidate_ports = build_candidate_ports(serial_port, serial_port_candidates)
-    candidate_spi_targets = build_candidate_spi_targets(spi_bus, spi_device, spi_candidates)
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
     debug(f"Config loaded from: {CONFIG_FILE}")
     debug(f"Interface: {interface}")
-    debug(f"UART ports: {candidate_ports} @ {baud_rate} timeout={timeout_sec}s frame_search={frame_search_sec}s")
-    debug(
-        f"SPI targets: {candidate_spi_targets} mode={spi_mode} speed={spi_max_speed_hz} "
-        f"probe_bytes={spi_probe_bytes} frame_search={frame_search_sec}s"
-    )
+    debug(f"I2C timeout: {timeout_sec}s")
+    debug(f"I2C poll interval: {poll_interval_sec}s")
     debug(f"Output file: {file_path}")
 
     try:
-        if interface == "spi":
-            selected_port, frame, read_errors = read_first_valid_frame_spi(
-                candidate_spi_targets,
-                spi_mode,
-                spi_max_speed_hz,
-                frame_search_sec,
-                spi_probe_bytes,
-                spi_poll_interval_sec,
+        if interface == "i2c":
+            candidate_i2c_targets = build_candidate_i2c_targets(
+                pm_cfg.get("i2c_bus", 1),
+                pm_cfg.get("i2c_address", pm_cfg.get("address_hex", "0x12")),
+                pm_cfg.get("i2c_candidates", []),
             )
-        elif interface == "uart":
-            selected_port, frame, read_errors = read_first_valid_frame(
-                candidate_ports, baud_rate, timeout_sec, frame_search_sec, debug
+            debug(f"I2C targets: {candidate_i2c_targets}")
+            selected_port, frame, read_errors, read_stats = read_first_valid_frame_i2c(
+                candidate_i2c_targets,
+                timeout_sec,
+                poll_interval_sec,
             )
         else:
-            print(f"[air_quality] Unsupported interface '{interface}'. Use 'spi' or 'uart'.", file=sys.stderr)
+            print(f"[air_quality] Unsupported interface '{interface}'. Use 'i2c'.", file=sys.stderr)
             raise SystemExit(1)
     except KeyboardInterrupt:
         print("[air_quality] Interrupted by user.", file=sys.stderr)
         raise SystemExit(130)
     if frame is None:
-        if interface == "spi":
+        print(
+            "[air_quality] No PMS frame received on the configured I2C address.",
+            file=sys.stderr,
+        )
+        if read_stats:
             print(
-                "[air_quality] No PMS frame received on any candidate SPI device.",
-                file=sys.stderr,
-            )
-        else:
-            print(
-                "[air_quality] No PMS frame received on any candidate serial port.",
+                "[air_quality] Poll stats: "
+                f"valid={read_stats.get('valid_frames', 0)}, "
+                f"nonzero={read_stats.get('nonzero_frames', 0)}, "
+                f"invalid={read_stats.get('invalid_frames', 0)}",
                 file=sys.stderr,
             )
         for err in read_errors:
             print(f"[air_quality]   - {err}", file=sys.stderr)
-        if interface == "spi":
-            print(
-                "[air_quality] Check SCLK/MISO/MOSI/CS wiring, SPI enablement, and spidev device paths.",
-                file=sys.stderr,
-            )
-        else:
-            print(
-                "[air_quality] Check TX/RX wiring, disable serial console, and verify enable_uart=1.",
-                file=sys.stderr,
-            )
+        print(
+            "[air_quality] Check SDA/SCL wiring, I2C bus enablement, and that address 0x12 is present.",
+            file=sys.stderr,
+        )
         raise SystemExit(1)
 
-    debug(f"Using serial port: {selected_port}")
+    debug(f"Using I2C target: {selected_port}")
+    if read_stats:
+        debug(
+            "Poll stats: "
+            f"valid={read_stats.get('valid_frames', 0)}, "
+            f"nonzero={read_stats.get('nonzero_frames', 0)}, "
+            f"invalid={read_stats.get('invalid_frames', 0)}"
+        )
+        if read_stats.get("used_zero_fallback", False):
+            print(
+                "[air_quality] Warning: only zero-valued valid frames were observed. "
+                "Data was still recorded from the latest valid frame.",
+                file=sys.stderr,
+            )
     parsed = parse_pms_frame(frame)
 
     now_utc = datetime.now(timezone.utc)

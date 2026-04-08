@@ -324,7 +324,7 @@ def detect_anemometer():
         set_config_flag(CONFIG_PATH, "anemometer", "enabled", False)
 
 
-# ---------------- Air Quality (PMS Frame over SPI/UART) ---------------- #
+# ---------------- Air Quality (PMS Frame over I2C) ---------------- #
 
 def _load_air_quality_cfg():
     try:
@@ -336,35 +336,6 @@ def _load_air_quality_cfg():
     except Exception:
         pass
     return {}
-
-
-def _build_air_spi_targets(air_cfg):
-    targets = []
-
-    candidates = air_cfg.get("spi_candidates", [])
-    if isinstance(candidates, list):
-        for item in candidates:
-            if not isinstance(item, dict):
-                continue
-            try:
-                targets.append((int(item.get("bus")), int(item.get("device"))))
-            except Exception:
-                continue
-
-    try:
-        targets.insert(0, (int(air_cfg.get("spi_bus", 0)), int(air_cfg.get("spi_device", 1))))
-    except Exception:
-        pass
-
-    targets.extend([(0, 0), (0, 1), (1, 0), (1, 1)])
-
-    dedup = []
-    seen = set()
-    for t in targets:
-        if t not in seen:
-            seen.add(t)
-            dedup.append(t)
-    return dedup
 
 
 def _parse_i2c_addr(value, default):
@@ -400,11 +371,14 @@ def _build_air_i2c_targets(air_cfg):
             if not isinstance(item, dict):
                 continue
             bus = _parse_i2c_addr(item.get("bus", 1), 1)
-            addr = _parse_i2c_addr(item.get("address", "0x12"), 0x12)
+            addr = _parse_i2c_addr(item.get("address", item.get("address_hex", "0x12")), 0x12)
             targets.append((bus, addr))
 
     primary_bus = _parse_i2c_addr(air_cfg.get("i2c_bus", 1), 1)
-    primary_addr = _parse_i2c_addr(air_cfg.get("i2c_address", "0x12"), 0x12)
+    primary_addr = _parse_i2c_addr(
+        air_cfg.get("i2c_address", air_cfg.get("address_hex", "0x12")),
+        0x12,
+    )
     targets.insert(0, (primary_bus, primary_addr))
 
     # Common PMSA003I default target.
@@ -438,51 +412,6 @@ def _probe_pm_frame_i2c(bus, addr):
     return True, f"air quality I2C device present at {dev_path} addr 0x{addr:02X}"
 
 
-def _build_air_uart_ports(air_cfg):
-    ports = []
-
-    candidates = air_cfg.get("serial_port_candidates", [])
-    if isinstance(candidates, list):
-        for item in candidates:
-            if isinstance(item, str) and item.strip():
-                ports.append(item)
-
-    primary = air_cfg.get("serial_port", "/dev/ttyS0")
-    if isinstance(primary, str) and primary.strip():
-        ports.insert(0, primary)
-
-    ports.extend([
-        "/dev/serial0",
-        "/dev/serial1",
-        "/dev/ttyAMA0",
-        "/dev/ttyS0",
-        "/dev/ttyUSB0",
-        "/dev/ttyUSB1",
-        "/dev/ttyUSB2",
-        "/dev/ttyUSB3",
-        "/dev/ttyACM0",
-        "/dev/ttyACM1",
-    ])
-
-    # Include all currently enumerated tty devices so detection works even
-    # when adapters are assigned non-default indices.
-    try:
-        for port_info in serial.tools.list_ports.comports():
-            dev = str(getattr(port_info, "device", "")).strip()
-            if dev.startswith("/dev/tty") or dev.startswith("/dev/serial"):
-                ports.append(dev)
-    except Exception as e:
-        spi_logger.info(f"Air quality UART port enumeration failed: {e}")
-
-    dedup = []
-    seen = set()
-    for p in ports:
-        if p not in seen:
-            seen.add(p)
-            dedup.append(p)
-    return dedup
-
-
 def _is_valid_pm_frame(frame):
     if len(frame) != 32:
         return False
@@ -496,211 +425,6 @@ def _is_valid_pm_frame(frame):
     return checksum == expected
 
 
-def _read_exact_serial(port, size):
-    data = bytearray()
-    while len(data) < size:
-        chunk = port.read(size - len(data))
-        if not chunk:
-            return None
-        data.extend(chunk)
-    return bytes(data)
-
-
-def _build_pms_command(cmd, data=0):
-    packet = [0x42, 0x4D, cmd, (data >> 8) & 0xFF, data & 0xFF]
-    checksum = sum(packet) & 0xFFFF
-    packet.extend([(checksum >> 8) & 0xFF, checksum & 0xFF])
-    return bytes(packet)
-
-
-def _prime_pms_uart(port):
-    # Wake, force active mode, then request a frame in case the sensor is passive.
-    commands = [
-        _build_pms_command(0xE4, 0x0001),
-        _build_pms_command(0xE1, 0x0001),
-        _build_pms_command(0xE2, 0x0000),
-    ]
-    for command in commands:
-        try:
-            port.write(command)
-            port.flush()
-            time.sleep(0.12)
-        except Exception:
-            pass
-
-
-def _pop_valid_pm_data_frame(buf):
-    """Pop and return a valid 32-byte PMS data frame from a byte buffer."""
-    idx = 0
-    while idx <= len(buf) - 4:
-        if buf[idx] != 0x42 or buf[idx + 1] != 0x4D:
-            idx += 1
-            continue
-
-        frame_len = (buf[idx + 2] << 8) | buf[idx + 3]
-        if frame_len <= 0 or frame_len > 64:
-            idx += 1
-            continue
-
-        total_len = frame_len + 4
-        if idx + total_len > len(buf):
-            break
-
-        frame = bytes(buf[idx : idx + total_len])
-        checksum = sum(frame[:-2]) & 0xFFFF
-        expected = (frame[-2] << 8) | frame[-1]
-        if checksum != expected:
-            idx += 1
-            continue
-
-        # Consume this valid frame from the buffer.
-        del buf[: idx + total_len]
-
-        # PMSA003I data frame is 32 bytes total (length field = 28).
-        if total_len == 32 and _is_valid_pm_frame(frame):
-            return frame
-
-        # Valid non-data frame (e.g., command ack). Keep scanning.
-        idx = 0
-
-    if idx > 0:
-        del buf[:idx]
-    return None
-
-
-def _probe_pm_frame_uart(port_name, baud_rate, timeout_sec, probe_sec):
-    if not os.path.exists(port_name):
-        return False, f"{port_name}@{baud_rate} missing"
-
-    try:
-        read_timeout = max(0.05, min(float(timeout_sec), 0.40))
-        with serial.Serial(port_name, baudrate=baud_rate, timeout=read_timeout) as port:
-            try:
-                port.reset_input_buffer()
-                port.reset_output_buffer()
-            except Exception:
-                pass
-
-            _prime_pms_uart(port)
-
-            deadline = time.monotonic() + probe_sec
-            next_request = time.monotonic() + 1.0
-            buf = bytearray()
-            saw_header = False
-
-            while time.monotonic() < deadline:
-                try:
-                    waiting = int(getattr(port, "in_waiting", 0))
-                except Exception:
-                    waiting = 0
-
-                read_size = waiting if waiting > 0 else 32
-                read_size = max(1, min(read_size, 256))
-                chunk = port.read(read_size)
-
-                if chunk:
-                    buf.extend(chunk)
-                    if len(buf) > 4096:
-                        del buf[:-1024]
-
-                    if not saw_header and b"\x42\x4D" in buf:
-                        saw_header = True
-
-                    frame = _pop_valid_pm_data_frame(buf)
-                    if frame is not None:
-                        return True, f"valid PM frame on {port_name}@{baud_rate}"
-
-                if time.monotonic() >= next_request:
-                    # Periodically request one frame in case the sensor is in passive mode.
-                    try:
-                        port.write(_build_pms_command(0xE2, 0x0000))
-                        port.flush()
-                    except Exception:
-                        pass
-                    next_request = time.monotonic() + 1.0
-
-            if saw_header:
-                return False, f"no valid PM frame on {port_name}@{baud_rate} within {probe_sec}s"
-            return False, f"no PM header found on {port_name}@{baud_rate} within {probe_sec}s"
-    except Exception as e:
-        msg = str(e).lower()
-        if "resource busy" in msg or "permission denied" in msg:
-            return False, f"{port_name}@{baud_rate} busy: {e}"
-        return False, f"{port_name}@{baud_rate} error: {e}"
-
-
-def _debug_air_quality_uart_candidates():
-    air_cfg = _load_air_quality_cfg()
-    candidates = _build_air_uart_ports(air_cfg)
-
-    baud_cfg = air_cfg.get("baud_rate_candidates", [air_cfg.get("baud_rate", 9600), 9600, 115200])
-    baud_rates = []
-    if isinstance(baud_cfg, list):
-        for candidate in baud_cfg:
-            try:
-                baud_rates.append(int(candidate))
-            except Exception:
-                continue
-    if not baud_rates:
-        baud_rates = [9600, 115200]
-
-    # Keep diagnostics quick and readable.
-    if len(candidates) > 12:
-        candidates = candidates[:12]
-
-    print("[detect] Air quality UART diagnostic scan...")
-    for port_name in candidates:
-        for baud in baud_rates:
-            ok, detail = _probe_pm_frame_uart(port_name, baud, 2.0, 4.0)
-            print(f"[detect] {port_name}@{baud}: {'OK' if ok else 'FAIL'} ({detail})")
-    print("[detect] Air quality UART diagnostic complete")
-
-
-def _probe_pm_frame_spi(bus, dev, mode, speed_hz, probe_bytes, probe_sec, poll_interval_sec):
-    dev_path = f"/dev/spidev{bus}.{dev}"
-    if not os.path.exists(dev_path):
-        return False, f"{dev_path} missing"
-
-    spi = None
-    try:
-        spi = spidev.SpiDev()
-        spi.open(bus, dev)
-        spi.mode = mode
-        spi.max_speed_hz = speed_hz
-
-        deadline = time.monotonic() + probe_sec
-        buf = bytearray()
-
-        while time.monotonic() < deadline:
-            rx = spi.xfer2([0x00] * probe_bytes)
-            if rx:
-                buf.extend(rx)
-                if len(buf) > 2048:
-                    del buf[:-512]
-
-                max_start = len(buf) - 32
-                i = 0
-                while i <= max_start:
-                    if buf[i] == 0x42 and buf[i + 1] == 0x4D:
-                        frame = bytes(buf[i : i + 32])
-                        if _is_valid_pm_frame(frame):
-                            return True, f"valid PM frame on {dev_path}"
-                    i += 1
-
-            if poll_interval_sec > 0:
-                time.sleep(poll_interval_sec)
-
-        return False, f"no valid PM frame on {dev_path} within {probe_sec}s"
-    except Exception as e:
-        return False, f"{dev_path} error: {e}"
-    finally:
-        if spi is not None:
-            try:
-                spi.close()
-            except Exception:
-                pass
-
-
 def _detect_air_quality_i2c(air_cfg):
     targets = _build_air_i2c_targets(air_cfg)
     misses = []
@@ -711,6 +435,7 @@ def _detect_air_quality_i2c(air_cfg):
             set_config_flag(CONFIG_PATH, "air_quality", "enabled", True)
             set_config_flag(CONFIG_PATH, "air_quality", "i2c_bus", bus)
             set_config_flag(CONFIG_PATH, "air_quality", "i2c_address", f"0x{addr:02X}")
+            set_config_flag(CONFIG_PATH, "air_quality", "address_hex", f"0x{addr:02X}")
             return True
         misses.append(detail)
         spi_logger.info(f"Air quality I2C probe miss: {detail}")
@@ -721,130 +446,13 @@ def _detect_air_quality_i2c(air_cfg):
     return False
 
 
-def _detect_air_quality_uart(air_cfg):
-    try:
-        baud_rate = int(air_cfg.get("baud_rate", 9600))
-        timeout_sec = float(air_cfg.get("read_timeout_sec", 3.0))
-        probe_sec = float(air_cfg.get("frame_search_sec", max(6.0, timeout_sec * 2.0)))
-        baud_rate_candidates_cfg = air_cfg.get("baud_rate_candidates", [baud_rate, 9600, 115200])
-        scan_passes = int(air_cfg.get("scan_passes", 2))
-        scan_pause_sec = float(air_cfg.get("scan_pause_sec", 0.8))
-    except Exception:
-        baud_rate = 9600
-        timeout_sec = 3.0
-        probe_sec = 8.0
-        baud_rate_candidates_cfg = [9600, 115200]
-        scan_passes = 2
-        scan_pause_sec = 0.8
-
-    scan_passes = max(1, min(scan_passes, 5))
-    scan_pause_sec = max(0.0, scan_pause_sec)
-
-    baud_rate_candidates = []
-    if isinstance(baud_rate_candidates_cfg, list):
-        for candidate in baud_rate_candidates_cfg:
-            try:
-                baud_rate_candidates.append(int(candidate))
-            except Exception:
-                continue
-
-    if not baud_rate_candidates:
-        baud_rate_candidates = [baud_rate, 9600, 115200]
-
-    dedup_baud = []
-    seen_baud = set()
-    for b in baud_rate_candidates:
-        if b not in seen_baud:
-            seen_baud.add(b)
-            dedup_baud.append(b)
-    baud_rate_candidates = dedup_baud
-
-    ports = _build_air_uart_ports(air_cfg)
-
-    misses = []
-    for scan_idx in range(scan_passes):
-        if scan_passes > 1:
-            print(f"[detect] Air quality UART scan pass {scan_idx + 1}/{scan_passes}")
-
-        for baud in baud_rate_candidates:
-            for port_name in ports:
-                ok, detail = _probe_pm_frame_uart(port_name, baud, timeout_sec, probe_sec)
-                if ok:
-                    print(f"Air Quality Sensor Found over UART: {port_name} @ {baud}")
-                    set_config_flag(CONFIG_PATH, "air_quality", "enabled", True)
-                    set_config_flag(CONFIG_PATH, "air_quality", "serial_port", port_name)
-                    set_config_flag(CONFIG_PATH, "air_quality", "baud_rate", baud)
-                    return True
-                misses.append(detail)
-                spi_logger.info(f"Air quality UART probe miss: {detail}")
-
-        if scan_idx + 1 < scan_passes:
-            time.sleep(scan_pause_sec)
-
-    print("Air Quality Sensor Not Found over UART")
-    for miss in misses:
-        print(f"  - {miss}")
-    print("  - hint: check PMS TX->Pi RX wiring and keep SET/RST pulled high")
-    return False
-
-
 def detect_air_quality():
-    if os.environ.get("DETECT_AIR_QUALITY_DIAGNOSTIC", "0") == "1":
-        _debug_air_quality_uart_candidates()
-
     air_cfg = _load_air_quality_cfg()
-    interface = str(air_cfg.get("interface", "uart")).strip().lower()
+    interface = str(air_cfg.get("interface", "i2c")).strip().lower()
 
     set_config_flag(CONFIG_PATH, "air_quality", "enabled", False)
 
-    if interface == "spi":
-        try:
-            mode = int(air_cfg.get("spi_mode", 0))
-            speed_hz = int(air_cfg.get("spi_max_speed_hz", 500000))
-            probe_bytes = int(air_cfg.get("spi_probe_bytes", 32))
-            probe_sec = float(air_cfg.get("spi_probe_sec", 6.0))
-            poll_interval_sec = float(air_cfg.get("spi_poll_interval_sec", 0.02))
-        except Exception:
-            mode = 0
-            speed_hz = 500000
-            probe_bytes = 32
-            probe_sec = 6.0
-            poll_interval_sec = 0.02
-
-        targets = _build_air_spi_targets(air_cfg)
-        misses = []
-        for bus, dev in targets:
-            ok, detail = _probe_pm_frame_spi(bus, dev, mode, speed_hz, probe_bytes, probe_sec, poll_interval_sec)
-            if ok:
-                print(f"Air Quality Sensor Found over SPI: /dev/spidev{bus}.{dev}")
-                set_config_flag(CONFIG_PATH, "air_quality", "enabled", True)
-                set_config_flag(CONFIG_PATH, "air_quality", "spi_bus", bus)
-                set_config_flag(CONFIG_PATH, "air_quality", "spi_device", dev)
-                return True
-            misses.append(detail)
-            spi_logger.info(f"Air quality SPI probe miss: {detail}")
-
-        print("Air Quality Sensor Not Found over SPI")
-        for miss in misses:
-            print(f"  - {miss}")
-        return False
-
     if interface == "i2c":
-        if _detect_air_quality_i2c(air_cfg):
-            return True
-
-        fallback_on_i2c_miss = str(air_cfg.get("fallback_on_i2c_miss", "1")).strip().lower()
-        if fallback_on_i2c_miss not in ("0", "false", "no"):
-            print("[detect] Air quality I2C probe failed, falling back to UART scan")
-            return _detect_air_quality_uart(air_cfg)
-        return False
-
-    if interface == "uart":
-        return _detect_air_quality_uart(air_cfg)
-
-    if interface == "auto":
-        if _detect_air_quality_uart(air_cfg):
-            return True
         return _detect_air_quality_i2c(air_cfg)
 
     print(f"Air Quality detection skipped (unsupported interface '{interface}')")

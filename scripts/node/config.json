@@ -81,11 +81,22 @@
   },
   "air_quality": {
     "enabled": false,
-    "interface": "uart",
+    "interface": "i2c",
     "directory": "air_quality",
     "script_name": "log_pm_data.py",
     "file_name": "pm_data.json",
     "frequency": 60,
+    "read_timeout_sec": 8.0,
+    "i2c_poll_interval_sec": 0.2,
+    "i2c_bus": 1,
+    "i2c_address": "0x12",
+    "address_hex": "0x12",
+    "i2c_candidates": [
+      {
+        "bus": 1,
+        "address": "0x12"
+      }
+    ],
     "spi_bus": 0,
     "spi_device": 1,
     "spi_mode": 0,
@@ -103,14 +114,6 @@
         "device": 0
       }
     ],
-    "serial_port": "/dev/serial0",
-    "serial_port_candidates": [
-      "/dev/serial0",
-      "/dev/ttyS0"
-    ],
-    "baud_rate": 9600,
-    "read_timeout_sec": 3.0,
-    "frame_search_sec": 8.0,
     "record_schema": {
       "timestamp": "ISO8601",
       "pm1_0_atm_ug_m3": "int",
