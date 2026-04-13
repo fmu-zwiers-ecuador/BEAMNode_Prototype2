@@ -13,11 +13,12 @@ try:
 
       GPIO.output(PIN_TRIGGER, GPIO.LOW)
 
-      print "Waiting for sensor to settle"
+      print ("Waiting for sensor to settle")
 
       time.sleep(2)
 
-      print "Calculating distance"
+      print ("Calculating distance")
+
 
       GPIO.output(PIN_TRIGGER, GPIO.HIGH)
 
@@ -32,7 +33,7 @@ try:
 
       pulse_duration = pulse_end_time - pulse_start_time
       distance = round(pulse_duration * 17150, 2)
-      print "Distance:",distance,"cm"
+      print (f"Distance: {distance} cm")
 
 finally:
       GPIO.cleanup()
