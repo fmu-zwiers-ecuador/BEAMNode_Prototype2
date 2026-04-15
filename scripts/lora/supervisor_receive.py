@@ -1,4 +1,5 @@
 import time, json, base64, zlib, hashlib
+import os, re
 import board, busio, digitalio
 import adafruit_rfm9x
 
@@ -15,6 +16,32 @@ files = {}
 ACK_BACKOFF = 0.12
 ACK_REPEATS = 2
 ACK_REPEAT_GAP = 0.08
+ACK_JITTER_MAX = 0.18
+
+# Where received files are stored on the supervisor.
+OUTPUT_DIR = "/home/pi/data"
+
+
+def node_num(node_id: str) -> str:
+    """Extract a stable node number string from a node id.
+
+    Examples:
+      - "node7" -> "7"
+      - "07" -> "07"
+      - "NODE_12" -> "12"
+
+    If no digits exist, falls back to a sanitized node_id.
+    """
+    if not node_id:
+        return "unknown"
+
+    m = re.search(r"(\d+)", str(node_id))
+    if m:
+        return m.group(1)
+
+    # fallback: keep only safe characters
+    safe = re.sub(r"[^A-Za-z0-9_-]+", "_", str(node_id)).strip("_")
+    return safe or "unknown"
 
 def send_ack(file_id, node_id, chunk_index, received):
     pkt = {
@@ -26,7 +53,8 @@ def send_ack(file_id, node_id, chunk_index, received):
     }
     packet = json.dumps(pkt)
     # Give sender time to switch from TX to RX before ACK is sent.
-    time.sleep(ACK_BACKOFF)
+    # Add jitter so the supervisor's ACKs don't consistently collide with other nodes.
+    time.sleep(ACK_BACKOFF + (ACK_JITTER_MAX * (hash((node_id, file_id, chunk_index)) & 0xFFFF) / 0xFFFF))
 
     # Send ACK more than once to improve reliability on lossy links.
     for attempt in range(ACK_REPEATS):
@@ -45,24 +73,33 @@ def handle_data(pkt):
     file_id = pkt["f"]
     node_id = pkt["n"]
 
-    if file_id not in files:
-        files[file_id] = {
+    key = (node_id, file_id)
+
+    if key not in files:
+        files[key] = {
             "total": pkt["t"],
             "chunks": {},
             "node": node_id
         }
 
-    files[file_id]["chunks"][pkt["i"]] = base64.b64decode(pkt["d"])
+    files[key]["chunks"][pkt["i"]] = base64.b64decode(pkt["d"])
 
     # send selective ACK
-    received = set(files[file_id]["chunks"].keys())
+    received = set(files[key]["chunks"].keys())
     send_ack(file_id, node_id, pkt["i"], received)
 
 def handle_end(pkt):
     file_id = pkt["f"]
     checksum = pkt["checksum"]
+    node_id = pkt.get("n")
 
-    file = files[file_id]
+    key = (node_id, file_id)
+
+    if key not in files:
+        print(f"END for unknown transfer: node={node_id}, file_id={file_id}")
+        return
+
+    file = files[key]
     total = file["total"]
 
     if len(file["chunks"]) != total:
@@ -77,12 +114,16 @@ def handle_end(pkt):
 
     decompressed = zlib.decompress(data)
 
-    filename = f"{file_id}.json"
-    open(filename, "wb").write(decompressed)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    filename = f"{node_num(node_id)}_{file_id}.json"
+    out_path = os.path.join(OUTPUT_DIR, filename)
 
-    print(f"Saved {filename}")
+    with open(out_path, "wb") as f:
+        f.write(decompressed)
 
-    del files[file_id]
+    print(f"Saved {out_path}")
+
+    del files[key]
 
 # --- MAIN LOOP ---
 print("Supervisor listening...")
