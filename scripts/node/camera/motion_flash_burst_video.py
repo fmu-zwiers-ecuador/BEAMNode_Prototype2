@@ -109,7 +109,16 @@ if not cam_config.get("enabled", False):
 
 node_id = global_config.get("node_id", "unknown-node")
 base_dir = global_config.get("base_dir", "/home/pi/data")
-directory = os.path.join(base_dir, cam_config.get("directory", "camera"))
+
+
+def resolve_output_directory(root_dir, configured_dir):
+    if configured_dir in (None, "", "."):
+        return root_dir
+    return os.path.join(root_dir, configured_dir)
+
+
+directory = resolve_output_directory(base_dir, cam_config.get("directory", "camera"))
+directory = os.path.abspath(directory)
 os.makedirs(directory, exist_ok=True)
 
 log_path = os.path.join(directory, "images_log.json")
@@ -182,6 +191,9 @@ video_duration = float(cam_config.get("motion_video_duration_sec", 10.0))
 video_bitrate = int(cam_config.get("video_bitrate", 10000000))
 video_prefix = cam_config.get("video_file_prefix", "motionvid_")
 image_prefix = cam_config.get("file_prefix", "motionpic_")
+photo_flash_warmup = float(cam_config.get("motion_photo_flash_warmup_sec", 0.15))
+photo_flash_cooldown = float(cam_config.get("motion_photo_flash_cooldown_sec", 0.1))
+video_flash_duration = float(cam_config.get("motion_video_flash_duration_sec", 10.0))
 
 time.sleep(pir_warmup)
 
@@ -208,6 +220,52 @@ def should_use_flash(lux_value):
     return flash_enabled and flash is not None and lux_value is not None and lux_value < flash_threshold
 
 
+def set_flash_state(enabled):
+    if not flash_enabled or flash is None:
+        return
+    if enabled:
+        flash.on()
+    else:
+        flash.off()
+
+
+def capture_photo_with_flash(photo_path, flash_active):
+    if flash_active:
+        set_flash_state(True)
+        print(f"[BEAM] Flash pulse for photo: {os.path.basename(photo_path)}")
+        if photo_flash_warmup > 0:
+            time.sleep(photo_flash_warmup)
+
+    picam.capture_file(photo_path)
+
+    if flash_active:
+        if photo_flash_cooldown > 0:
+            time.sleep(photo_flash_cooldown)
+        set_flash_state(False)
+
+
+def record_video_with_flash(video_path, encoder, flash_active):
+    configure_camera("video")
+    picam.start_recording(encoder, FfmpegOutput(video_path))
+    print(f"[BEAM] Recording video: {video_path}")
+
+    if flash_active:
+        active_flash_time = min(video_duration, max(video_flash_duration, 0.0))
+        if active_flash_time > 0:
+            set_flash_state(True)
+            print(f"[BEAM] Flash ON for video ({active_flash_time:.1f}s)")
+            time.sleep(active_flash_time)
+            set_flash_state(False)
+
+        remaining_video_time = max(video_duration - active_flash_time, 0.0)
+        if remaining_video_time > 0:
+            time.sleep(remaining_video_time)
+    else:
+        time.sleep(video_duration)
+
+    picam.stop_recording()
+
+
 def append_log(record):
     try:
         if os.path.exists(log_path):
@@ -231,6 +289,17 @@ def append_log(record):
         print("[ERROR] Failed to save log:", e)
 
 
+def ensure_parent_directory(file_path):
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+
+def build_media_path(file_name):
+    safe_name = os.path.basename(file_name)
+    media_path = os.path.join(directory, safe_name)
+    ensure_parent_directory(media_path)
+    return media_path
+
+
 last_motion_state = pir.motion_detected
 
 while True:
@@ -249,10 +318,9 @@ while True:
         flash_active = should_use_flash(lux)
 
         if flash_active:
-            flash.on()
-            print(f"[BEAM] Night detected (lux={lux}) -> Flash ON")
-        elif flash_enabled and flash is not None:
-            flash.off()
+            print(f"[BEAM] Night detected (lux={lux}) -> Flash sequence armed")
+        else:
+            set_flash_state(False)
 
         photo_files = []
 
@@ -261,8 +329,8 @@ while True:
 
             for index in range(photo_count):
                 photo_name = f"{image_prefix}{event_ts}_{index + 1}.jpg"
-                photo_path = os.path.join(directory, photo_name)
-                picam.capture_file(photo_path)
+                photo_path = build_media_path(photo_name)
+                capture_photo_with_flash(photo_path, flash_active)
 
                 if os.path.exists(photo_path):
                     photo_files.append(photo_path)
@@ -273,14 +341,10 @@ while True:
                 if index < photo_count - 1:
                     time.sleep(photo_pause)
 
-            video_path = os.path.join(directory, f"{video_prefix}{event_ts}.mp4")
+            video_path = build_media_path(f"{video_prefix}{event_ts}.mp4")
             encoder = H264Encoder(bitrate=video_bitrate)
 
-            configure_camera("video")
-            picam.start_recording(encoder, FfmpegOutput(video_path))
-            print(f"[BEAM] Recording video: {video_path}")
-            time.sleep(video_duration)
-            picam.stop_recording()
+            record_video_with_flash(video_path, encoder, flash_active)
 
             if os.path.exists(video_path):
                 print(f"[BEAM] Video saved: {video_path}")
@@ -296,14 +360,12 @@ while True:
             except Exception:
                 pass
             configure_camera("still")
-            if flash_enabled and flash is not None:
-                flash.off()
+            set_flash_state(False)
             last_motion_state = current_motion_state
             time.sleep(poll_interval)
             continue
 
-        if flash_enabled and flash is not None:
-            flash.off()
+        set_flash_state(False)
 
         record = {
             "timestamp_utc": timestamp_iso,
@@ -314,6 +376,8 @@ while True:
             "photo_count": len(photo_files),
             "photo_pause_sec": photo_pause,
             "video_duration_sec": video_duration,
+            "video_flash_duration_sec": min(video_duration, max(video_flash_duration, 0.0)) if flash_active else 0.0,
+            "night_mode_flash_used": flash_active,
             "lux": lux,
         }
 
