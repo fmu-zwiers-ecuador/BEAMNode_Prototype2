@@ -1,5 +1,3 @@
-# ultrasonic_logger.py
-
 import RPi.GPIO as GPIO
 import time
 import os
@@ -7,7 +5,6 @@ from datetime import datetime
 
 TRIG = 20
 ECHO = 21
-
 LOG_DIR = "/home/pi/logs"
 LOG_FILE = os.path.join(LOG_DIR, "ultrasonic_log.csv")
 
@@ -18,13 +15,11 @@ GPIO.setup(ECHO, GPIO.IN)
 def get_distance():
     GPIO.output(TRIG, False)
     time.sleep(0.2)
-
     GPIO.output(TRIG, True)
     time.sleep(0.00001)
     GPIO.output(TRIG, False)
 
     timeout = time.time() + 1
-
     pulse_start = time.time()
     while GPIO.input(ECHO) == 0:
         pulse_start = time.time()
@@ -43,31 +38,22 @@ def get_distance():
 
 try:
     os.makedirs(LOG_DIR, exist_ok=True)
-
-    # make file with header if it does not exist
     if not os.path.exists(LOG_FILE):
         with open(LOG_FILE, "w") as f:
             f.write("timestamp,distance_cm\n")
 
-    print("Logging started")
-    print("Saving to:", LOG_FILE)
-
     while True:
         distance = get_distance()
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
         with open(LOG_FILE, "a") as f:
             if distance is None:
                 f.write(f"{now},ERROR\n")
-                print("Sensor read failed")
             else:
                 f.write(f"{now},{distance}\n")
-                print("Distance:", distance, "cm")
-
         time.sleep(2)
 
 except KeyboardInterrupt:
-    print("Stopped by user")
+    pass
 
 finally:
     GPIO.cleanup()
