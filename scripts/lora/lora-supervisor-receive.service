@@ -1,0 +1,17 @@
+[Unit]
+Description=BEAM LoRa Supervisor Receiver
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/BEAMNode_Prototype2/scripts/lora
+ExecStart=/usr/bin/python3 /home/pi/BEAMNode_Prototype2/scripts/lora/supervisor_receive.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/home/pi/BEAMNode_Prototype2/logs/lora_supervisor_receive.log
+StandardError=append:/home/pi/BEAMNode_Prototype2/logs/lora_supervisor_receive.log
+
+[Install]
+WantedBy=multi-user.target

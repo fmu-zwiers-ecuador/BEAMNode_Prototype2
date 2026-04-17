@@ -1,0 +1,12 @@
+[Unit]
+Description=BEAM LoRa Node Sender Task
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/home/pi/BEAMNode_Prototype2/scripts/lora
+ExecStart=/usr/bin/python3 /home/pi/BEAMNode_Prototype2/scripts/lora/node_send.py
+StandardOutput=append:/home/pi/BEAMNode_Prototype2/logs/lora_node_send.log
+StandardError=append:/home/pi/BEAMNode_Prototype2/logs/lora_node_send.log
