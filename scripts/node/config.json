@@ -145,6 +145,8 @@
     "file_name": "camera_status.json",
     "file_prefix": "motionpic_",
     "gpio_pin": 24,
+    "pir_response_profile": "instant",
+    "pir_sensitivity_profile": "high",
     "motion_delay_profile": "fast",
     "detection_range_profile": "widest",
     "pir_warmup_sec": 5,

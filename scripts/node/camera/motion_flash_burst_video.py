@@ -35,6 +35,13 @@ global_config = config.get("global", {})
 cam_config = config.get("camera", {})
 
 DELAY_PROFILES = {
+    "instant": {
+        "cooldown_sec": 0.25,
+        "pir_poll_interval_sec": 0.02,
+        "pir_sample_rate": 30,
+        "pir_queue_len": 1,
+        "pir_threshold": 0.3,
+    },
     "fast": {
         "cooldown_sec": 0.5,
         "pir_poll_interval_sec": 0.05,
@@ -59,6 +66,11 @@ DELAY_PROFILES = {
 }
 
 RANGE_PROFILES = {
+    "high": {
+        "pir_sample_rate": 30,
+        "pir_queue_len": 1,
+        "pir_threshold": 0.3,
+    },
     "widest": {
         "pir_sample_rate": 20,
         "pir_queue_len": 1,
@@ -77,9 +89,45 @@ RANGE_PROFILES = {
 }
 
 
+def normalize_delay_profile(camera_config):
+    configured = str(
+        camera_config.get(
+            "pir_response_profile",
+            camera_config.get("motion_delay_profile", "normal"),
+        )
+    ).lower()
+    aliases = {
+        "highest": "instant",
+        "high": "fast",
+        "medium": "normal",
+        "default": "normal",
+        "low": "slow",
+    }
+    return aliases.get(configured, configured)
+
+
+def normalize_range_profile(camera_config):
+    configured = str(
+        camera_config.get(
+            "pir_sensitivity_profile",
+            camera_config.get("detection_range_profile", "medium"),
+        )
+    ).lower()
+    aliases = {
+        "highest": "high",
+        "high": "high",
+        "more": "widest",
+        "medium": "medium",
+        "default": "medium",
+        "low": "narrow",
+        "narrowest": "narrow",
+    }
+    return aliases.get(configured, configured)
+
+
 def build_motion_settings(camera_config):
-    delay_profile_name = str(camera_config.get("motion_delay_profile", "normal")).lower()
-    range_profile_name = str(camera_config.get("detection_range_profile", "medium")).lower()
+    delay_profile_name = normalize_delay_profile(camera_config)
+    range_profile_name = normalize_range_profile(camera_config)
 
     settings = {}
     settings.update(DELAY_PROFILES.get(delay_profile_name, DELAY_PROFILES["normal"]))
@@ -173,11 +221,13 @@ if global_config.get("print_debug", True):
     print(f"[BEAM] Media log: {log_path}")
     print(
         "[BEAM] Motion tuning: "
-        f"delay_profile={motion_settings['motion_delay_profile']}, "
-        f"range_profile={motion_settings['detection_range_profile']}, "
+        f"response_profile={motion_settings['motion_delay_profile']}, "
+        f"sensitivity_profile={motion_settings['detection_range_profile']}, "
         f"sample_rate={motion_settings.get('pir_sample_rate', 10)}, "
         f"queue_len={motion_settings.get('pir_queue_len', 1)}, "
-        f"threshold={motion_settings.get('pir_threshold', 0.5)}"
+        f"threshold={motion_settings.get('pir_threshold', 0.5)}, "
+        f"poll_interval={motion_settings.get('pir_poll_interval_sec', 0.1)}, "
+        f"cooldown={motion_settings.get('cooldown_sec', 1)}"
     )
     print("[BEAM] Warming up PIR...")
 
