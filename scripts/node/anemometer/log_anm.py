@@ -3,6 +3,7 @@ import json
 from datetime import datetime, timezone
 import time
 import os
+import re
 
 # Match arduino baud rate
 ser = serial.Serial('/dev/ttyUSB0', 9600, timeout=1)
@@ -37,6 +38,12 @@ try:
 except (FileNotFoundError, json.JSONDecodeError):
     data = []
 
+def parse_data_line (line):
+    """Extract key=value pairs from a line using regex. Returns dict or None."""
+    matches = re.findall(r'(\w+)=([-\d.]+)', line)
+    if not matches:
+        return None
+    return {k: v for k, v in matches}
 try:
     print("Logging wind data... (Ctrl+C to stop)")
     if MAX_DURATION_SECONDS:
@@ -47,11 +54,25 @@ try:
             print(f"\nDuration limit reached ({MAX_DURATION_SECONDS}s). Stopping.")
             break
         
-        line = ser.readline().decode('latin-1').strip().replace('/r', '')
+        line = ser.readline().decode('latin-1').strip().replace('\r', '')
         if not line:
             continue
+
+        parts = parse_data_line(line)
+
+        # skip lines that aren't key=value data
+        if not parts:
+            print(f"Skipping non-data line: {line}")
+            continue
+
+        # skip lines missing required fields
+        required = {"raw", "V", "wind_mph", "avg_mph"}
+        if not required.issubset(parts.keys()):
+            print(f"Skipping incomplete line (missing fields): {line}")
+            continue
+
         try:
-            parts = dict(p.split("=") for p in line.split())
+            # parts = dict(p.split("=") for p in line.split())
             now_utc = datetime.now(timezone.utc)
             now_local = datetime.now().astimezone()
             entry = {
@@ -59,11 +80,12 @@ try:
                 "timestamp_local": now_local.strftime("%Y-%m-%d %H:%M:%S %Z"),
                 "raw": int(parts["raw"]),
                 "voltage": float(parts["V"]),
-                "wind_mph": float(parts["wind_mph"])
+                "wind_mph": float(parts["wind_mph"]),
+                "avg_mph": float(parts["avg_mph"])
             }
             data.append(entry)
             print(entry)
-        except Exception as e:
+        except (ValueError, KeyError) as e:
             print(f"Parse error: {e} | line: {line}")
 except KeyboardInterrupt:
     print("\nStopped by user.")
