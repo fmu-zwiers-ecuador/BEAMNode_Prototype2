@@ -25,7 +25,7 @@ SCRIPT_DIR_OVERRIDES = {
     "atlas_rtd": "atlas_sci",
 }
 
-SUDO_SENSORS = {"atlas_ec", "atlas_orp", "atlas_rtd"}
+SUDO_SENSORS = {"atlas_ec", "atlas_orp", "atlas_rtd", "audio"}
 
 # log funciton
 def log(msg):

@@ -4,7 +4,7 @@
 # It should return text detailing which sensors are currently online.
 #
 # Collaborators:
-# Alex Lance | Jaylen Small | Jackson Roberts
+# Alex Lance | Jaylen Small | Jackson Roberts | Noel Challa
 #********************************************************************#
 
 import spidev
@@ -457,7 +457,62 @@ def detect_air_quality():
 
     print(f"Air Quality detection skipped (unsupported interface '{interface}')")
     return False
-    
+
+# ---------------- Ultrasonic (HC-SR04) ---------------- #
+
+TRIG_PIN = 20
+ECHO_PIN = 21
+
+def detect_ultrasonic():
+    set_config_flag(CONFIG_PATH, "ultrasonic", "enabled", False)
+    try:
+        GPIO.setwarnings(False)
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(TRIG_PIN, GPIO.OUT)
+        GPIO.setup(ECHO_PIN, GPIO.IN)
+        GPIO.output(TRIG_PIN, False)
+        time.sleep(2)
+
+        detected = False
+        try:
+            # Send trigger pulse
+            GPIO.output(TRIG_PIN, True)
+            time.sleep(0.00001)
+            GPIO.output(TRIG_PIN, False)
+
+            timeout = time.time() + 1
+            while GPIO.input(ECHO_PIN) == 0:
+                pulse_start = time.time()
+                if time.time() > timeout:
+                    break
+            while GPIO.input(ECHO_PIN) == 1:
+                pulse_end = time.time()
+                detected = True
+                if time.time() > timeout:
+                    break
+        except Exception as e:
+            print(f"Ultrasonic Sensor: Error during pulse ({e})")
+            spi_logger.warning(f"Ultrasonic pulse error: {e}")
+
+        if detected:
+            print(f"Ultrasonic Sensor Found: HC-SR04 (TRIG GPIO{TRIG_PIN}, ECHO GPIO{ECHO_PIN})")
+            spi_logger.info(f"HC-SR04 detected on TRIG GPIO{TRIG_PIN} / ECHO GPIO{ECHO_PIN}")
+            set_config_flag(CONFIG_PATH, "ultrasonic", "enabled", True)
+            set_config_flag(CONFIG_PATH, "ultrasonic", "trig_pin", TRIG_PIN)
+            set_config_flag(CONFIG_PATH, "ultrasonic", "echo_pin", ECHO_PIN)
+        else:
+            print("Ultrasonic Sensor Not Found")
+            spi_logger.info("HC-SR04 not detected")
+
+        return detected
+    except Exception as e:
+        print(f"Ultrasonic Sensor detection failed: {e}")
+        spi_logger.exception("Ultrasonic detection failed")
+        return False
+    finally:
+        GPIO.cleanup()
+        spi_logger.info("GPIO cleaned up after ultrasonic detection")
+
 # ---------------- Main ---------------- #
 
 print("=== Sensor Detection Summary ===")
@@ -467,4 +522,5 @@ detect_camera()
 detect_i2c_sensors()
 detect_audiomoth()
 detect_anemometer()
+detect_ultrasonic()
 print("=== Detection Complete ===")

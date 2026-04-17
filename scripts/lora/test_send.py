@@ -1,8 +1,9 @@
 import time
 import os
 import zlib
-import struct
 import random
+import json
+import base64
 import board
 import digitalio
 import busio
@@ -10,7 +11,7 @@ import adafruit_rfm9x
 
 # -------- CONFIG --------
 FILE_PATH = "send_file.bin"
-CHUNK_SIZE = 180
+CHUNK_SIZE = 100
 MAX_RETRIES = 10
 ACK_TIMEOUT = 2
 FREQ = 915.0
@@ -25,6 +26,38 @@ reset = digitalio.DigitalInOut(board.D25)
 
 rfm9x = adafruit_rfm9x.RFM9x(spi, cs, reset, FREQ)
 rfm9x.tx_power = 23
+
+
+def send_json(message):
+    rfm9x.send(json.dumps(message, separators=(",", ":")).encode())
+
+
+def receive_json(timeout=0.5):
+    packet = rfm9x.receive(timeout=timeout)
+    if not packet:
+        return None
+    try:
+        return json.loads(packet.decode())
+    except Exception:
+        return None
+
+
+def wait_for_ack(node_id, file_id, seq, timeout):
+    start = time.time()
+    while time.time() - start < timeout:
+        msg = receive_json(timeout=0.5)
+        if not msg:
+            continue
+
+        if (
+            msg.get("type") == "ACK"
+            and msg.get("node_id") == node_id
+            and msg.get("file_id") == file_id
+            and msg.get("seq") == seq
+        ):
+            return True
+
+    return False
 
 file_size = os.path.getsize(FILE_PATH)
 file_id = str(int(time.time() * 1000))  # Unique file ID based on timestamp
@@ -43,21 +76,22 @@ backoff = random.uniform(0, COLLISION_BACKOFF_MAX)
 print(f"Collision avoidance backoff: {backoff:.2f}s")
 time.sleep(backoff)
 
-# send header with node_id and file_id
-header = f"START:{NODE_ID}:{file_id}:{file_size}:{len(chunks)}"
-node_id_bytes = NODE_ID.encode()
-file_id_bytes = file_id.encode()
-header_packet = struct.pack("B", len(node_id_bytes)) + node_id_bytes + struct.pack("B", len(file_id_bytes)) + file_id_bytes + header.encode()
-rfm9x.send(header_packet)
+# Send START metadata
+send_json(
+    {
+        "type": "START",
+        "node_id": NODE_ID,
+        "file_id": file_id,
+        "file_name": os.path.basename(FILE_PATH),
+        "file_size": file_size,
+        "total_chunks": len(chunks),
+    }
+)
 time.sleep(0.5)
 
 for seq, data in enumerate(chunks):
 
-    checksum = zlib.crc32(data)
-    # Packet format: node_id_len (1 byte) | node_id | file_id_len (1 byte) | file_id | seq (4 bytes) | checksum (4 bytes) | data
-    node_id_bytes = NODE_ID.encode()
-    file_id_bytes = file_id.encode()
-    packet = struct.pack("B", len(node_id_bytes)) + node_id_bytes + struct.pack("B", len(file_id_bytes)) + file_id_bytes + struct.pack(">I I", seq, checksum) + data
+    checksum = zlib.crc32(data) & 0xFFFFFFFF
 
     retries = 0
     acked = False
@@ -66,36 +100,21 @@ for seq, data in enumerate(chunks):
 
         print(f"Sending chunk {seq}/{len(chunks)}")
 
-        rfm9x.send(packet)
+        send_json(
+            {
+                "type": "DATA",
+                "node_id": NODE_ID,
+                "file_id": file_id,
+                "seq": seq,
+                "crc32": checksum,
+                "data_b64": base64.b64encode(data).decode(),
+            }
+        )
         time.sleep(0.1)  # Small delay to allow receiver to process
 
-        start = time.time()
-
-        while time.time() - start < ACK_TIMEOUT:
-
-            ack = rfm9x.receive(timeout=0.5)
-
-            if ack:
-                try:
-                    # Parse ACK: node_id_len | node_id | file_id_len | file_id | ack_seq (4 bytes)
-                    pos = 0
-                    ack_node_len = ack[pos]
-                    pos += 1
-                    ack_node = ack[pos:pos+ack_node_len].decode()
-                    pos += ack_node_len
-                    ack_file_len = ack[pos]
-                    pos += 1
-                    ack_file = ack[pos:pos+ack_file_len].decode()
-                    pos += ack_file_len
-                    ack_seq = int.from_bytes(ack[pos:pos+4], "big")
-
-                    if ack_node == NODE_ID and ack_file == file_id and ack_seq == seq:
-                        print(f"ACK received for chunk {seq}")
-                        acked = True
-                        break
-                except Exception as e:
-                    print(f"Failed to parse ACK: {e}")
-                    pass
+        acked = wait_for_ack(NODE_ID, file_id, seq, ACK_TIMEOUT)
+        if acked:
+            print(f"ACK received for chunk {seq}")
 
         if not acked:
             retries += 1
@@ -105,10 +124,13 @@ for seq, data in enumerate(chunks):
         print(f"Failed to deliver chunk {seq}")
         exit(1)
 
-# Send END packet with node_id and file_id
-node_id_bytes = NODE_ID.encode()
-file_id_bytes = file_id.encode()
-end_packet = struct.pack("B", len(node_id_bytes)) + node_id_bytes + struct.pack("B", len(file_id_bytes)) + file_id_bytes + b"END"
-rfm9x.send(end_packet)
+# Send END marker
+send_json(
+    {
+        "type": "END",
+        "node_id": NODE_ID,
+        "file_id": file_id,
+    }
+)
 
 print("File sent successfully")

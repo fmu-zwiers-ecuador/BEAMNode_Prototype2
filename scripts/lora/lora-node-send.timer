@@ -1,0 +1,10 @@
+[Unit]
+Description=Run LoRa Node Sender daily at 14:00
+
+[Timer]
+OnCalendar=*-*-* 14:00:00
+Persistent=true
+Unit=lora-node-send.service
+
+[Install]
+WantedBy=timers.target

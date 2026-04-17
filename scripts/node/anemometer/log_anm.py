@@ -1,6 +1,7 @@
 import serial
 import json
 from datetime import datetime, timezone
+import time
 import os
 
 # Match arduino baud rate
@@ -27,6 +28,7 @@ file_path = os.path.join(directory, file_name)
 
 # Auto-stop settings (set either or both to None to disable)
 MAX_DURATION_SECONDS = anm_config.get("max_duration_seconds", 3600) # Set to 1 hour
+start_time = time.time()
 
 # Load existing data or start fresh
 try: 
@@ -45,7 +47,7 @@ try:
             print(f"\nDuration limit reached ({MAX_DURATION_SECONDS}s). Stopping.")
             break
         
-        line = ser.readline().decode('utf-8').strip().replace('/r', '')
+        line = ser.readline().decode('latin-1').strip().replace('/r', '')
         if not line:
             continue
         try:
