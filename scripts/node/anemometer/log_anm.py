@@ -28,7 +28,7 @@ file_name = anm_config.get("file_name", "wind_data.json")
 file_path = os.path.join(directory, file_name)
 
 # Auto-stop settings (set either or both to None to disable)
-MAX_DURATION_SECONDS = anm_config.get("max_duration_seconds", 3600) # Set to 1 hour
+MAX_DURATION_SECONDS = anm_config.get("frequency_sec", 15) # Set to 1 hour
 start_time = time.time()
 
 # Load existing data or start fresh
