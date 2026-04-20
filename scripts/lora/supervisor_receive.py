@@ -20,6 +20,8 @@ ACK_JITTER_MAX = 0.18
 
 # Where received files are stored on the supervisor.
 OUTPUT_DIR = "/home/pi/data"
+SILENCE_SHUTDOWN_SEC = 15 * 60
+PATIENCE_LOG_EVERY_SEC = 10
 
 
 def node_num(node_id: str) -> str:
@@ -128,10 +130,34 @@ def handle_end(pkt):
 # --- MAIN LOOP ---
 print("Supervisor listening...")
 
+last_packet_at = time.monotonic()
+last_patience_log_at = 0.0
+
 while True:
+    now = time.monotonic()
+    silence_sec = now - last_packet_at
+
+    if silence_sec >= SILENCE_SHUTDOWN_SEC:
+        print(
+            f"No LoRa traffic for {SILENCE_SHUTDOWN_SEC // 60} minutes. "
+            "Patience exhausted; shutting down receiver."
+        )
+        break
+
+    if now - last_patience_log_at >= PATIENCE_LOG_EVERY_SEC:
+        remaining_sec = max(0.0, SILENCE_SHUTDOWN_SEC - silence_sec)
+        patience_pct = (remaining_sec / SILENCE_SHUTDOWN_SEC) * 100.0
+        print(
+            f"Listening patience: {patience_pct:.1f}% "
+            f"({int(remaining_sec)}s remaining before shutdown)"
+        )
+        last_patience_log_at = now
+
     pkt = rfm9x.receive(timeout=0.5)
     if not pkt:
         continue
+
+    last_packet_at = time.monotonic()
 
     try:
         msg = json.loads(pkt.decode())

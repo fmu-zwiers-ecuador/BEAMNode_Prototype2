@@ -1,5 +1,8 @@
 {
   "global": {
+    "lora_enabled": false,
+    "lora_send_time": "15:00",
+    "lora_receive_time": "14:00", 
     "node_id": "beam-node-01",
     "base_dir": "/home/pi/data",
     "ship_dir": "/home/pi/shipping",
