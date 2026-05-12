@@ -10,6 +10,10 @@ reset = digitalio.DigitalInOut(board.D25)
 
 rfm9x = adafruit_rfm9x.RFM9x(spi, cs, reset, 915.0)
 rfm9x.tx_power = 23
+try:
+    rfm9x.listen()
+except AttributeError:
+    pass
 
 # --- STORAGE ---
 files = {}
@@ -67,6 +71,12 @@ def send_ack(file_id, node_id, chunk_index, received):
             rfm9x.send(packet.encode())
         if attempt < ACK_REPEATS - 1:
             time.sleep(ACK_REPEAT_GAP)
+
+    # Ensure we return to RX mode after sending ACKs.
+    try:
+        rfm9x.listen()
+    except AttributeError:
+        pass
 
     print(f"ACK sent for {file_id}, chunk {chunk_index}, received chunks: {received}")
 
@@ -153,7 +163,10 @@ while True:
         )
         last_patience_log_at = now
 
-    pkt = rfm9x.receive(timeout=0.5)
+    try:
+        pkt = rfm9x.receive(timeout=0.5, keep_listening=True)
+    except TypeError:
+        pkt = rfm9x.receive(timeout=0.5)
     if not pkt:
         continue
 
