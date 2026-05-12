@@ -163,6 +163,9 @@ def parse_pms_frame(frame):
     for i in range(4, 30, 2):
         values.append((frame[i] << 8) | frame[i + 1])
 
+    now_utc = datetime.now(timezone.utc)
+    now_local = datetime.now().astimezone()
+    
     return {
         "pm1_0_cf1_ug_m3": values[0],
         "pm2_5_cf1_ug_m3": values[1],
@@ -176,6 +179,8 @@ def parse_pms_frame(frame):
         "particles_2_5um_per_0_1L": values[9],
         "particles_5_0um_per_0_1L": values[10],
         "particles_10um_per_0_1L": values[11],
+        "timestamp_utc": now_utc.strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "timestamp_local": now_local.strftime("%Y-%m-%d %H:%M:%S %Z")
     }
 
 
@@ -294,7 +299,7 @@ def main():
     now_local = now_utc.astimezone()
 
     record = {
-        "timestamp_utc": now_utc.isoformat(),
+        "utc_time": now_utc.isoformat(),
         "local_time": now_local.strftime("%Y-%m-%d %H:%M:%S"),
         "timezone": now_local.tzname(),
         **parsed,
