@@ -6,8 +6,8 @@ CONF="/etc/wpa_supplicant/wpa_supplicant-${IFACE}.conf"
 
 # ===== EDIT THESE =====
 SSID="FMU"
-IDENTITY="noel.challa"
-PASSWORD="fmu88153"
+IDENTITY="firstname.lastname"
+PASSWORD="password"
 COUNTRY="US"
 # =====================
 

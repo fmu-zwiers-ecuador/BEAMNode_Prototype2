@@ -63,7 +63,7 @@
                 ssid="FMU"
                 key_mgmt=WPA-EAP
                 eap=PEAP
-                identity="noel.challa"
+                identity="firstname.lastname"
                 password="password"
                 phase2="auth-MSCHAPV2"
                 priority=1
