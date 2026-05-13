@@ -516,7 +516,8 @@ echo
 
 # --- Register crontab for NodeInternet_Setup.sh ---
 echo "Registering crontab for NodeInternet_Setup.sh..."
-(crontab -l 2>/dev/null; echo "@reboot /bin/bash /home/pi/BEAMNode_Prototype2/scripts/node/NodeInternet_Setup.sh >> /var/log/nodeinternet-setup.log 2>&1") | crontab -
+echo "@reboot /bin/bash /home/pi/BEAMNode_Prototype2/scripts/node/NodeInternet_Setup.sh >> /var/log/nodeinternet-setup.log 2>&1" > /etc/cron.d/nodeinternet_setup
+chmod 644 /etc/cron.d/nodeinternet_setup
 echo "Crontab registered"
 
 # ======================================
