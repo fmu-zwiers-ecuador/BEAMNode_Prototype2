@@ -230,7 +230,7 @@ def detect_camera():
 # NEW ADDITIONS: atlas_ec (0x64), atlas_orp (0x62), atlas_rtd (0x66)
 I2C_ADDR_TABLE = {
     "tsl2591": [0x29], 
-    "aht": [0x38], 
+    "ahtx0": [0x38], 
     "bme680": [0x77],
     "atlas_orp": [0x62],
     "atlas_ec": [0x64],
