@@ -1,58 +1,103 @@
 import RPi.GPIO as GPIO
 import time
+import statistics
 import os
 from datetime import datetime
+
+# ---------------- CONFIG ----------------
+TRIG = 20
+ECHO = 21
 
 LOG_DIR = "/home/pi/logs"
 LOG_FILE = os.path.join(LOG_DIR, "ultrasonic_log.csv")
 
+SAMPLES = 5
+MAX_DISTANCE = 400  # cm
+TIMEOUT = 0.03      # 30 ms
+
+# ---------------- GPIO SETUP ----------------
 GPIO.setmode(GPIO.BCM)
-TRIG = 20
-ECHO = 21
 
 print("Distance measurement in progress")
 GPIO.setup(TRIG, GPIO.OUT)
 GPIO.setup(ECHO, GPIO.IN)
+
 GPIO.output(TRIG, False)
-print("Waiting for sensor to settle")
+print("Waiting for sensor to settle...")
 time.sleep(2)
 
-GPIO.output(TRIG, True)
-time.sleep(0.00001)
-GPIO.output(TRIG, False)
+def measure_distance():
+    # Ensure trigger is LOW
+    GPIO.output(TRIG, False)
+    time.sleep(0.0002)
 
-timeout = time.time() + 1
+    # Send 10 us pulse
+    GPIO.output(TRIG, True)
+    time.sleep(0.00001)
+    GPIO.output(TRIG, False)
 
-while GPIO.input(ECHO) == 0:
-    pulse_start = time.time()
-    if time.time() > timeout:
-        print("Sensor not detected")
-        GPIO.cleanup()
-        exit()
+    start_time = time.perf_counter()
+    timeout_start = start_time
 
-while GPIO.input(ECHO) == 1:
-    pulse_end = time.time()
-    if time.time() > timeout:
-        print("Sensor not detected")
-        GPIO.cleanup()
-        exit()
+    # Wait for echo to go HIGH
+    while GPIO.input(ECHO) == 0:
+        start_time = time.perf_counter()
+        if start_time - timeout_start > TIMEOUT:
+            return None
 
-pulse_duration = pulse_end - pulse_start
-distance = pulse_duration * 17150
-distance = round(distance, 2)
+    stop_time = time.perf_counter()
 
-print("Distance:", distance, "cm")
+    # Wait for echo to go LOW
+    while GPIO.input(ECHO) == 1:
+        stop_time = time.perf_counter()
+        if stop_time - start_time > TIMEOUT:
+            return None
 
-# Log result to CSV
-os.makedirs(LOG_DIR, exist_ok=True)
-if not os.path.exists(LOG_FILE):
-    with open(LOG_FILE, "w") as f:
-        f.write("timestamp,distance_cm\n")
+    elapsed = stop_time - start_time
 
-now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-with open(LOG_FILE, "a") as f:
-    f.write(f"{now},{distance}\n")
+    # Speed of sound = 34300 cm/s
+    distance = (elapsed * 34300) / 2
 
-print("Result saved to:", LOG_FILE)
+    if distance <= 0 or distance > MAX_DISTANCE:
+        return None
+
+    return round(distance, 2)
+
+
+# ---------------- TAKE MULTIPLE READINGS ----------------
+readings = []
+counter = 1
+
+for _ in range(SAMPLES):
+    d = measure_distance()
+
+    if d is not None:
+        print(f"Distance {counter}: {d} cm")
+        readings.append(d)
+
+    counter += 1
+    time.sleep(0.05)
+
+if readings:
+    distance = round(statistics.median(readings), 2)
+
+    print(f"Average distance: {distance} cm")
+
+    # -------- LOGGING --------
+    os.makedirs(LOG_DIR, exist_ok=True)
+
+    if not os.path.exists(LOG_FILE):
+        with open(LOG_FILE, "w") as f:
+            f.write("timestamp,distance_cm\n")
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    with open(LOG_FILE, "a") as f:
+        f.write(f"{now},{distance}\n")
+
+    print("Result saved to:", LOG_FILE)
+
+else:
+    print("No valid readings")
 
 GPIO.cleanup()
