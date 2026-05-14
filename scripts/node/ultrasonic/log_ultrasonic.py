@@ -7,11 +7,28 @@ import os
 from datetime import datetime
 
 # ---------------- CONFIG ----------------
-TRIG = 20
-ECHO = 21
 
-LOG_DIR = "/home/pi/logs"
-LOG_FILE = os.path.join(LOG_DIR, "ultrasonic_log.csv")
+# Find the project root path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+# Load config
+config_path = os.path.join(project_root, "config.json")
+with open(config_path, "r") as f:
+    config = json.load(f)
+
+ultrasonic_config = config["ultrasonic"]
+global_config = config["global"]
+
+node_id = global_config.get("node_id" "unknown-node")
+
+# Directory and file for logs
+directory = os.path.join(global_config.get("base_dir", os.path.join(project root, "data")), ultrasonic_config.get("directory", "ultrasonic"))
+os.makedirs(directory, exist_ok=True)
+file_name = ultrasonic_config.get("file_name", "ultrasonic_log.json")
+file_path = os.path.join(directory, file_name)
+
+TRIG = ultrasonic_config.get("trig_pin", 20)
+ECHO = ultrasonic_config.get("echo_pin", 21)
 
 SAMPLES = 5
 MAX_DISTANCE = 400  # cm
@@ -88,18 +105,27 @@ if readings:
     print(f"Average distance: {distance} cm")
 
     # -------- LOGGING --------
-    os.makedirs(LOG_DIR, exist_ok=True)
-
-    if not os.path.exists(LOG_FILE):
-        with open(LOG_FILE, "w") as f:
-            f.write("timestamp,distance_cm\n")
-
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    with open(LOG_FILE, "a") as f:
-        f.write(f"{now},{distance}\n")
-
-    print("Result saved to:", LOG_FILE)
+    try:
+        if os.path.exists(file_path):
+            with open(file_path, "r") as f:
+                try:
+                    data = json.load(f)
+                    if not isinstance(data, dict) or "records" not in data:
+                        data = {"node_id": node_id, "sensor": "ultrasonic", "records": []}
+                except Exception:
+                    data = {"node_id": node_id, "sensor": "ultrasonic", "records": []}
+        else:
+            data = {"node_id": node_id, "sensor": "ultrasonic", "records": []}
+    
+        data["records"].append(distance)
+    
+        with open(file_path, "w") as f:
+            json.dump(data, f, indent=4)
+    
+        if global_config.get("print_debug", True):
+            print(f"Ultrasonic data appended to {file_name} at {now_local.strftime('%Y-%m-%d %H:%M:%S')} {now_local.tzname()}")
+        except Exception as e:
+            print(f"Error saving ultrasonic data: {e}")    os.makedirs(LOG_DIR, exist_ok=True)
 
 else:
     print("No valid readings")
