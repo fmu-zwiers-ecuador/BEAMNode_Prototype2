@@ -580,7 +580,7 @@ fi
 # LoRa configuration: run ../scripts/lora/install_lora_automation.sh to set up the config file
 LORA_DIR="$PROJECT_ROOT/scripts/lora"
 sudo chown -R pi:pi "$LORA_DIR"
-sudo $LORA_DIR/install_lora_automation.sh
+sudo bash $LORA_DIR/install_lora_automation.sh
 
 
 echo "------------------------------------------------"

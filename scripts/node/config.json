@@ -192,6 +192,24 @@
     "i2c_bus": 1,
     "address_hex": "0x62"
   },
+  "atlas_do": {
+    "enabled": false,
+    "directory": "dissolved_oxygen",
+    "script_name": "log_atlas_do.py",
+    "file_name": "do_data.json",
+    "frequency": 60,
+    "i2c_bus": 1,
+    "address_hex": "0x61"
+  },
+  "atlas_ph": {
+    "enabled": false,
+    "directory": "ph",
+    "script_name": "log_atlas_ph.py",
+    "file_name": "ph_data.json",
+    "frequency": 60,
+    "i2c_bus": 1,
+    "address_hex": "0x63"
+  },
   "atlas_rtd": {
     "enabled": false,
     "directory": "temperature_water",
