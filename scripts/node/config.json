@@ -240,8 +240,8 @@
   "ultrasonic": {
     "enabled": false,
     "directory": "ultrasonic",
-    "script_name": "Log_ultrasonic.py",
-    "file_name": "ultrasonic_log.csv",
+    "script_name": "log_ultrasonic.py",
+    "file_name": "ultrasonic_log.json",
     "frequency": 60,
     "trig_pin": 20,
     "echo_pin": 21,
