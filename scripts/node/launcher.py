@@ -11,7 +11,7 @@ from datetime import datetime
 # --- CONFIGURATION ---
 NODE_DIR = "/home/pi/BEAMNode_Prototype2/scripts/node"
 DETECT_PATH = os.path.join(NODE_DIR, "sensor_detection/detect.py")
-CAMERA_PATH = os.path.join(NODE_DIR, "camera/camera.py")
+CAMERA_PATH = os.path.join(NODE_DIR, "camera/motion_flash_burst_video.py")
 SCHEDULER_PATH = os.path.join(NODE_DIR, "scheduler.py")
 SHIPPING_PATH = os.path.join(NODE_DIR, "shipping_queuing/shipping.py")
 LOG_PATH = "/home/pi/BEAMNode_Prototype2/logs/launcher.log"

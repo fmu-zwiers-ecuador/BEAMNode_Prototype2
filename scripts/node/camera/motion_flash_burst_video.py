@@ -5,6 +5,7 @@ BEAM Motion Camera Burst + Video System
 import json
 import os
 import time
+import logging
 from datetime import datetime, timezone
 
 from gpiozero import Device, MotionSensor, OutputDevice
@@ -26,10 +27,24 @@ except Exception:
 # ---------------------------------
 LUX_LOG_PATH = "/home/pi/data/tsl2591/lux_data.json"
 CONFIG_PATH = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
+CAM_LOG_PATH = "/home/pi/cam.log"
 
 
 with open(CONFIG_PATH, "r") as f:
     config = json.load(f)
+
+os.makedirs(os.path.dirname(CAM_LOG_PATH), exist_ok=True)
+logging.basicConfig(
+    filename=CAM_LOG_PATH,
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+logger = logging.getLogger("beam_camera")
+
+
+def log(message: str):
+    print(message)
+    logger.info(message)
 
 global_config = config.get("global", {})
 cam_config = config.get("camera", {})
@@ -152,7 +167,7 @@ def build_motion_settings(camera_config):
 motion_settings = build_motion_settings(cam_config)
 
 if not cam_config.get("enabled", False):
-    print("[BEAM] Camera module disabled in config.")
+    log("[BEAM] Camera module disabled in config.")
     raise SystemExit
 
 node_id = global_config.get("node_id", "unknown-node")
@@ -182,7 +197,7 @@ try:
         threshold=motion_settings.get("pir_threshold", 0.5),
     )
 except (BadPinFactory, Exception) as e:
-    print(f"[BEAM] PIR setup failed on GPIO {pir_pin}: {e}")
+    log(f"[BEAM] PIR setup failed on GPIO {pir_pin}: {e}")
     raise
 
 flash_enabled = cam_config.get("flash_enabled", False)
@@ -215,11 +230,11 @@ def configure_camera(mode):
 configure_camera("still")
 
 if global_config.get("print_debug", True):
-    print(f"[BEAM] Burst/video camera armed on GPIO {pir_pin}")
-    print(f"[BEAM] Flash enabled: {flash_enabled}")
-    print(f"[BEAM] Media directory: {directory}")
-    print(f"[BEAM] Media log: {log_path}")
-    print(
+    log(f"[BEAM] Burst/video camera armed on GPIO {pir_pin}")
+    log(f"[BEAM] Flash enabled: {flash_enabled}")
+    log(f"[BEAM] Media directory: {directory}")
+    log(f"[BEAM] Media log: {log_path}")
+    log(
         "[BEAM] Motion tuning: "
         f"response_profile={motion_settings['motion_delay_profile']}, "
         f"sensitivity_profile={motion_settings['detection_range_profile']}, "
@@ -229,7 +244,7 @@ if global_config.get("print_debug", True):
         f"poll_interval={motion_settings.get('pir_poll_interval_sec', 0.1)}, "
         f"cooldown={motion_settings.get('cooldown_sec', 1)}"
     )
-    print("[BEAM] Warming up PIR...")
+    log("[BEAM] Warming up PIR...")
 
 cooldown = motion_settings.get("cooldown_sec", 1)
 pir_warmup = motion_settings.get("pir_warmup_sec", cam_config.get("pir_warmup_sec", 5))
@@ -248,7 +263,7 @@ video_flash_duration = float(cam_config.get("motion_video_flash_duration_sec", 1
 time.sleep(pir_warmup)
 
 if global_config.get("print_debug", True):
-    print("[BEAM] PIR ready")
+    log("[BEAM] PIR ready")
 
 
 def get_latest_lux():
@@ -260,7 +275,7 @@ def get_latest_lux():
             return data["records"][-1]["lux"]
 
     except Exception as e:
-        print("[BEAM] Lux read error:", e)
+        log(f"[BEAM] Lux read error: {e}")
 
     return None
 
@@ -282,7 +297,7 @@ def set_flash_state(enabled):
 def capture_photo_with_flash(photo_path, flash_active):
     if flash_active:
         set_flash_state(True)
-        print(f"[BEAM] Flash pulse for photo: {os.path.basename(photo_path)}")
+        log(f"[BEAM] Flash pulse for photo: {os.path.basename(photo_path)}")
         if photo_flash_warmup > 0:
             time.sleep(photo_flash_warmup)
 
@@ -297,13 +312,13 @@ def capture_photo_with_flash(photo_path, flash_active):
 def record_video_with_flash(video_path, encoder, flash_active):
     configure_camera("video")
     picam.start_recording(encoder, FfmpegOutput(video_path))
-    print(f"[BEAM] Recording video: {video_path}")
+    log(f"[BEAM] Recording video: {video_path}")
 
     if flash_active:
         active_flash_time = min(video_duration, max(video_flash_duration, 0.0))
         if active_flash_time > 0:
             set_flash_state(True)
-            print(f"[BEAM] Flash ON for video ({active_flash_time:.1f}s)")
+            log(f"[BEAM] Flash ON for video ({active_flash_time:.1f}s)")
             time.sleep(active_flash_time)
             set_flash_state(False)
 
@@ -334,9 +349,9 @@ def append_log(record):
         with open(log_path, "w") as f:
             json.dump(data, f, indent=4)
 
-        print(f"[BEAM] Capture logged to: {log_path}")
+        log(f"[BEAM] Capture logged to: {log_path}")
     except Exception as e:
-        print("[ERROR] Failed to save log:", e)
+        log(f"[ERROR] Failed to save log: {e}")
 
 
 def ensure_parent_directory(file_path):
@@ -352,7 +367,7 @@ def build_media_path(file_name):
 
 last_motion_state = pir.motion_detected
 
-while True:
+while True and cam_config.get("enabled", True):
     current_motion_state = pir.motion_detected
 
     if current_motion_state and not last_motion_state:
@@ -362,13 +377,13 @@ while True:
         event_ts = now_utc.strftime("%Y%m%d_%H%M%SZ")
 
         if global_config.get("print_debug", True):
-            print("[BEAM] Motion detected")
+            log("[BEAM] Motion detected")
 
         lux = get_latest_lux()
         flash_active = should_use_flash(lux)
 
         if flash_active:
-            print(f"[BEAM] Night detected (lux={lux}) -> Flash sequence armed")
+            log(f"[BEAM] Night detected (lux={lux}) -> Flash sequence armed")
         else:
             set_flash_state(False)
 
@@ -384,9 +399,9 @@ while True:
 
                 if os.path.exists(photo_path):
                     photo_files.append(photo_path)
-                    print(f"[BEAM] Picture saved: {photo_path}")
+                    log(f"[BEAM] Picture saved: {photo_path}")
                 else:
-                    print(f"[BEAM] Capture finished but file not found: {photo_path}")
+                    log(f"[BEAM] Capture finished but file not found: {photo_path}")
 
                 if index < photo_count - 1:
                     time.sleep(photo_pause)
@@ -397,14 +412,14 @@ while True:
             record_video_with_flash(video_path, encoder, flash_active)
 
             if os.path.exists(video_path):
-                print(f"[BEAM] Video saved: {video_path}")
+                log(f"[BEAM] Video saved: {video_path}")
             else:
-                print(f"[BEAM] Recording finished but file not found: {video_path}")
+                log(f"[BEAM] Recording finished but file not found: {video_path}")
 
             configure_camera("still")
 
         except Exception as e:
-            print(f"[BEAM] Burst/video capture failed: {e}")
+            log(f"[BEAM] Burst/video capture failed: {e}")
             try:
                 picam.stop_recording()
             except Exception:
@@ -435,7 +450,7 @@ while True:
         time.sleep(cooldown)
 
     elif not current_motion_state and last_motion_state and global_config.get("print_debug", True):
-        print("[BEAM] Motion ended")
+        log("[BEAM] Motion ended")
 
     last_motion_state = current_motion_state
     time.sleep(poll_interval)
