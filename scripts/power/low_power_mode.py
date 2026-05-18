@@ -20,9 +20,6 @@ except ImportError:
     VEDIRECT_AVAILABLE = False
 
 
-# -----------------------------
-# CONFIGURATION
-# -----------------------------
 SERIAL_PORT = "/dev/ttyUSB0"
 
 ENTER_LOW_POWER_V = 12.0
@@ -30,19 +27,14 @@ EXIT_LOW_POWER_V = 12.6
 SHUTDOWN_V = 11.8
 
 CHECK_INTERVAL_SEC = 30
-
 SENSOR_POWER_PINS = []
 
 CPU_GOVERNOR_PATH = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"
 CPU_MAX_FREQ_PATH = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq"
-
 LOW_CPU_FREQ_KHZ = "600000"
 
 log = logging.getLogger("low_power")
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 _running = True
 _low_power = False
@@ -133,7 +125,7 @@ def _get_ve_instance():
 
 def get_battery_voltage():
     if not VEDIRECT_AVAILABLE:
-        log.error("vedirect library not installed. Run: sudo python3 -m pip install vedirect --break-system-packages")
+        log.error("vedirect library not installed.")
         return None
 
     ve = _get_ve_instance()
@@ -142,11 +134,10 @@ def get_battery_voltage():
         return None
 
     try:
-        ve.read_serial_data()
         voltage = ve.battery_volts
 
         if voltage is None:
-            log.warning("VE.Direct has no battery voltage yet.")
+            log.warning("No battery voltage received yet.")
             return None
 
         return float(voltage)
