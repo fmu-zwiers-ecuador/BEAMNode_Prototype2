@@ -250,9 +250,9 @@ cooldown = motion_settings.get("cooldown_sec", 1)
 pir_warmup = motion_settings.get("pir_warmup_sec", cam_config.get("pir_warmup_sec", 5))
 poll_interval = motion_settings.get("pir_poll_interval_sec", 0.1)
 
-photo_count = int(cam_config.get("motion_photo_count", 3))
+photo_count = 3
 photo_pause = float(cam_config.get("motion_photo_pause_sec", 1.0))
-video_duration = float(cam_config.get("motion_video_duration_sec", 10.0))
+video_duration = 10.0
 video_bitrate = int(cam_config.get("video_bitrate", 10000000))
 video_prefix = cam_config.get("video_file_prefix", "motionvid_")
 image_prefix = cam_config.get("file_prefix", "motionpic_")
