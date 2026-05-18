@@ -11,6 +11,7 @@ from datetime import datetime
 # --- CONFIGURATION ---
 NODE_DIR = "/home/pi/BEAMNode_Prototype2/scripts/node"
 DETECT_PATH = os.path.join(NODE_DIR, "sensor_detection/detect.py")
+CAMERA_PATH = os.path.join(NODE_DIR, "camera/camera.py")
 SCHEDULER_PATH = os.path.join(NODE_DIR, "scheduler.py")
 SHIPPING_PATH = os.path.join(NODE_DIR, "shipping_queuing/shipping.py")
 LOG_PATH = "/home/pi/BEAMNode_Prototype2/logs/launcher.log"
@@ -43,6 +44,15 @@ def start_scheduler_async():
         log(f"CRITICAL ERROR: Scheduler script missing.")
         return None
 
+def start_camera_async():
+    # Start camera script to run in the background
+    if os.path.exists(CAMERA_PATH):
+        log(f"Starting Background Camera Script: {CAMERA_PATH}")
+        return subprocess.Popen(["python3", CAMERA_PATH])
+    else:
+        log(f"CRITICAL ERROR: Camera script missing.")
+        return None
+
 if __name__ == "__main__":
     log("=== BEAMNode System Startup ===")
 
@@ -51,6 +61,9 @@ if __name__ == "__main__":
 
     # 2. REQUIREMENT: Start original scheduler and keep it going
     sched_proc = start_scheduler_async()
+
+    # 3. Start camera script in the background (non-blocking)
+    cam_proc = start_camera_async()
 
     if sched_proc is None:
         log("Failed to initialize scheduler. System exiting.")
@@ -68,6 +81,11 @@ if __name__ == "__main__":
                 time.sleep(5)
                 sched_proc = start_scheduler_async()
 
+            if cam_proc is None or cam_proc.poll() is not None:
+                log("ALERT: Camera process stopped. Restarting...")
+                time.sleep(5)
+                cam_proc = start_camera_async()
+
             # B. REQUIREMENT: Run Shipping.py at 13:00
             # We use a 30-second window to ensure the trigger catches
             if now.hour == 13 and now.minute == 0 and 0 <= now.second <= 30:
@@ -82,6 +100,8 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             log("Manual shutdown detected. Terminating scheduler...")
             sched_proc.terminate()
+            if cam_proc:
+                cam_proc.terminate()
             break
         except Exception as e:
             log(f"Unexpected monitor error: {e}")
