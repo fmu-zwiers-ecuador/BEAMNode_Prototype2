@@ -34,6 +34,7 @@ import logging
 import subprocess
 import signal
 
+
 try:
     import RPi.GPIO as GPIO
     GPIO_AVAILABLE = True
@@ -123,7 +124,7 @@ CPU_MAX_FREQ_PATH     = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq"
 CPU_FREQ_NORMAL_KHZ   = 1000000   # 1 GHz  (Pi Zero max)
 CPU_FREQ_LOW_KHZ      = 600000    # 600 MHz (stable, ~40% less power)
 
-LOG_FILE = "/var/log/low_power_mode.log"
+LOG_FILE = "/home/pi/logs/low_power_mode.log"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # LOGGING
@@ -278,26 +279,6 @@ def control_service(name: str, action: str) -> None:
         log.info("Service '%s' -> %s: done.", name, action)
     except subprocess.CalledProcessError as exc:
         log.warning("systemctl %s %s failed: %s", action, name, exc.stderr.decode().strip())
-
-
-def set_hdmi(enabled: bool) -> None:
-    """Enable or disable HDMI output. Silently skips if tvservice is absent."""
-    # FIX: extracted into a function so both enter and exit paths can call it,
-    #      and missing tvservice is now logged instead of silently ignored.
-    flag = "-p" if enabled else "-o"
-    result = subprocess.run(
-        ["/usr/bin/tvservice", flag],
-        capture_output=True,
-    )
-    if result.returncode == 0:
-        state = "enabled" if enabled else "disabled"
-        log.info("HDMI %s.", state)
-    else:
-        log.warning(
-            "tvservice not available or failed (rc=%d) — HDMI state unchanged.",
-            result.returncode,
-        )
-
 
 def safe_shutdown() -> None:
     log.critical("Battery critically low (<= %.1fV) — safe shutdown initiated.", CRITICAL_SHUTDOWN_V)
