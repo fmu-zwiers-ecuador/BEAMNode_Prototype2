@@ -1,5 +1,6 @@
 import time, json, base64, zlib, hashlib
 import os, re
+from datetime import datetime
 import board, busio, digitalio
 import adafruit_rfm9x
 
@@ -27,6 +28,9 @@ OUTPUT_DIR = "/home/pi/data"
 SILENCE_SHUTDOWN_SEC = 15 * 60
 PATIENCE_LOG_EVERY_SEC = 10
 
+# Per-node session output directories
+NODE_OUTPUT_DIRS = {}
+
 
 def node_num(node_id: str) -> str:
     """Extract a stable node number string from a node id.
@@ -48,6 +52,17 @@ def node_num(node_id: str) -> str:
     # fallback: keep only safe characters
     safe = re.sub(r"[^A-Za-z0-9_-]+", "_", str(node_id)).strip("_")
     return safe or "unknown"
+
+
+def get_node_output_dir(node_id: str) -> str:
+    node_key = node_num(node_id)
+    if node_key not in NODE_OUTPUT_DIRS:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        dir_name = f"node{node_key}_loradata_{timestamp}"
+        out_dir = os.path.join(OUTPUT_DIR, dir_name)
+        os.makedirs(out_dir, exist_ok=True)
+        NODE_OUTPUT_DIRS[node_key] = out_dir
+    return NODE_OUTPUT_DIRS[node_key]
 
 def send_ack(file_id, node_id, chunk_index, received):
     pkt = {
@@ -126,9 +141,9 @@ def handle_end(pkt):
 
     decompressed = zlib.decompress(data)
 
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    out_dir = get_node_output_dir(node_id)
     filename = f"{node_num(node_id)}_{file_id}.json"
-    out_path = os.path.join(OUTPUT_DIR, filename)
+    out_path = os.path.join(out_dir, filename)
 
     with open(out_path, "wb") as f:
         f.write(decompressed)

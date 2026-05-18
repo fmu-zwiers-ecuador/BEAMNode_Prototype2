@@ -3,6 +3,7 @@ import argparse
 import os
 import re
 from pathlib import Path
+import socket
 import board, busio, digitalio
 import adafruit_rfm9x
 
@@ -15,7 +16,7 @@ rfm9x = adafruit_rfm9x.RFM9x(spi, cs, reset, 915.0)
 rfm9x.tx_power = 23
 
 # --- CONFIG ---
-NODE_ID = "node1"
+NODE_ID = socket.gethostname()
 CHUNK_SIZE = 100
 ACK_TIMEOUT = 20 
 MAX_RETRIES = 5
