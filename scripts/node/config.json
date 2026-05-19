@@ -152,8 +152,7 @@
   "alsa_format": "S16_LE",
   "use_hourly_audio_if_busy": true,
   "hourly_audio_prefix": "recording_"
-}
-  },
+},
  "camera": {
   "enabled": true,
   "interface": "CSI",
