@@ -33,7 +33,7 @@ BASE_DIR = Path("/home/pi/BEAMNode_Prototype2")
 CONFIG_PATH = BASE_DIR / "config.json"
 MOTION_DIR = BASE_DIR / "scripts/node/Motion"
 
-CAMERA_SCRIPT = MOTION_DIR / "camera_motion_capture.py"
+CAMERA_SCRIPT = MOTION_DIR / "camera_motion_capture_v2.py"
 AUDIO_SCRIPT = MOTION_DIR / "audiomoth_motion_record.py"
 
 DEFAULT_DATA_DIR = Path("/home/pi/data")
