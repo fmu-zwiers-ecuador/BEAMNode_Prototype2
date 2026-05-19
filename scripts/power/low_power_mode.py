@@ -1,224 +1,240 @@
-#!/usr/bin/env python3
 
-import os
-import sys
+"""
+Low Power Mode Manager — Raspberry Pi Zero
+Reads battery voltage from a Victron MPPT controller via raw VE.Direct serial.
+Disables all sensors in config.json when voltage drops to/below LOW_VOLTAGE_THRESHOLD,
+and re-enables them once voltage recovers to/above HIGH_VOLTAGE_THRESHOLD.
+"""
+ 
+import json
+import serial
 import time
 import logging
-import subprocess
-import signal
-
-try:
-    import RPi.GPIO as GPIO
-    GPIO_AVAILABLE = True
-except ImportError:
-    GPIO_AVAILABLE = False
-
-try:
-    import vedirect
-    VEDIRECT_AVAILABLE = True
-except ImportError:
-    VEDIRECT_AVAILABLE = False
-
-
-SERIAL_PORT = "/dev/ttyUSB0"
-
-ENTER_LOW_POWER_V = 12.0
-EXIT_LOW_POWER_V = 12.6
-SHUTDOWN_V = 11.8
-
-CHECK_INTERVAL_SEC = 30
-SENSOR_POWER_PINS = []
-
-CPU_GOVERNOR_PATH = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"
-CPU_MAX_FREQ_PATH = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq"
-LOW_CPU_FREQ_KHZ = "600000"
-
-log = logging.getLogger("low_power")
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-
-_running = True
-_low_power = False
-_ve_instance = None
-
-
-def handle_signal(signum, frame):
-    global _running
-    log.info("Signal %s received - stopping monitor.", signum)
-    _running = False
-
-
-signal.signal(signal.SIGINT, handle_signal)
-signal.signal(signal.SIGTERM, handle_signal)
-
-
-def require_root():
-    if os.geteuid() != 0:
-        print("Must run as root. Use: sudo python3 low_power_mode.py")
-        sys.exit(1)
-
-
-def gpio_setup():
-    if not GPIO_AVAILABLE or not SENSOR_POWER_PINS:
-        return
-
-    GPIO.setmode(GPIO.BCM)
-
-    for pin in SENSOR_POWER_PINS:
-        GPIO.setup(pin, GPIO.OUT)
-        GPIO.output(pin, GPIO.HIGH)
-
-
-def gpio_cleanup():
-    if GPIO_AVAILABLE and SENSOR_POWER_PINS:
-        GPIO.cleanup()
-
-
-def set_sensors_power(on):
-    if not GPIO_AVAILABLE or not SENSOR_POWER_PINS:
-        return
-
-    state = GPIO.HIGH if on else GPIO.LOW
-
-    for pin in SENSOR_POWER_PINS:
-        GPIO.output(pin, state)
-
-    log.info("Sensor power -> %s", "ON" if on else "OFF")
-
-
-def write_sys(path, value):
+import os
+import sys
+ 
+# ─── Configuration ────────────────────────────────────────────────────────────
+ 
+SERIAL_PORT        = "/dev/ttyUSB0"   # Change if your Victron shows up on a different port
+BAUD_RATE          = 19200            # VE.Direct standard baud rate
+SERIAL_TIMEOUT     = 5               # seconds to wait for a full frame
+ 
+CONFIG_PATH        = "/home/pi//BEAMNode_Prototype2/scripts/node/config.json"   # Path to your sensor config file
+ 
+LOW_VOLTAGE_THRESHOLD  = 11.8        # V — turn sensors OFF at or below this
+HIGH_VOLTAGE_THRESHOLD = 13.1        # V — turn sensors back ON at or above this
+ 
+POLL_INTERVAL      = 30              # seconds between voltage checks
+MAX_PARSE_FAILURES = 5               # consecutive failures before alerting
+ 
+# ─── Logging Setup ────────────────────────────────────────────────────────────
+ 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler("/home/pi/logs/low_power_mode.log"),
+    ]
+)
+log = logging.getLogger(__name__)
+ 
+# ─── VE.Direct Raw Parser ─────────────────────────────────────────────────────
+ 
+def read_vedirect_voltage(port: str, baud: int, timeout: int) -> float | None:
+    """
+    Opens the serial port, reads one complete VE.Direct text frame, and returns
+    the battery voltage in volts (float), or None if parsing fails.
+ 
+    VE.Direct text protocol format (each line):
+        <Label>\t<Value>\r\n
+    The voltage label is 'V' and the value is in millivolts (mV).
+    A frame ends with a 'Checksum' label line.
+    """
     try:
-        with open(path, "w") as f:
-            f.write(str(value))
-        return True
-    except OSError as exc:
-        log.warning("Could not write %s = %s: %s", path, value, exc)
-        return False
-
-
-def set_cpu_governor(governor):
-    if os.path.exists(CPU_GOVERNOR_PATH):
-        if write_sys(CPU_GOVERNOR_PATH, governor):
-            log.info("CPU governor -> %s", governor)
-
-
-def set_cpu_max_freq(freq_khz):
-    if os.path.exists(CPU_MAX_FREQ_PATH):
-        if write_sys(CPU_MAX_FREQ_PATH, freq_khz):
-            log.info("CPU max freq -> %s kHz", freq_khz)
-
-
-def _get_ve_instance():
-    global _ve_instance
-
-    if _ve_instance is not None:
-        return _ve_instance
-
-    try:
-        _ve_instance = vedirect.VEDirect(SERIAL_PORT)
-        log.info("VE.Direct serial connection opened on %s", SERIAL_PORT)
-    except Exception as exc:
-        log.error("Failed to open VE.Direct port %s: %s", SERIAL_PORT, exc)
-        _ve_instance = None
-
-    return _ve_instance
-
-
-def get_battery_voltage():
-    if not VEDIRECT_AVAILABLE:
-        log.error("vedirect library not installed.")
-        return None
-
-    ve = _get_ve_instance()
-
-    if ve is None:
-        return None
-
-    try:
-        voltage = ve.battery_volts
-
-        if voltage is None:
-            log.warning("No battery voltage received yet.")
-            return None
-
-        return float(voltage)
-
-    except Exception as exc:
-        log.error("VE.Direct read error: %s", exc)
-        return None
-
-
-def enter_low_power():
-    global _low_power
-
-    if _low_power:
-        return
-
-    log.warning("Entering low-power mode.")
-    set_sensors_power(False)
-    set_cpu_governor("powersave")
-    set_cpu_max_freq(LOW_CPU_FREQ_KHZ)
-    _low_power = True
-
-
-def exit_low_power():
-    global _low_power
-
-    if not _low_power:
-        return
-
-    log.info("Exiting low-power mode.")
-    set_sensors_power(True)
-    set_cpu_governor("ondemand")
-    _low_power = False
-
-
-def shutdown_pi():
-    log.critical("Battery voltage too low. Shutting down.")
-    subprocess.run(["shutdown", "-h", "now"])
-
-
+        with serial.Serial(port, baud, timeout=timeout) as ser:
+            frame = {}
+            # Read lines until we get a complete frame (ends at Checksum line)
+            # Give up after reading 40 lines to avoid hanging
+            for _ in range(40):
+                raw = ser.readline()
+                if not raw:
+                    continue
+                try:
+                    line = raw.decode("ascii", errors="ignore").strip()
+                except Exception:
+                    continue
+ 
+                if "\t" not in line:
+                    continue
+ 
+                label, _, value = line.partition("\t")
+                label = label.strip()
+                value = value.strip()
+ 
+                if label == "Checksum":
+                    # End of frame — check if we captured voltage
+                    if "V" in frame:
+                        millivolts = int(frame["V"])
+                        volts = millivolts / 1000.0
+                        return volts
+                    else:
+                        # Frame complete but no voltage key — reset and keep reading
+                        frame = {}
+                else:
+                    frame[label] = value
+ 
+    except serial.SerialException as e:
+        log.error(f"Serial error on {port}: {e}")
+    except ValueError as e:
+        log.error(f"Voltage parse error (expected integer mV): {e}")
+ 
+    return None
+ 
+# ─── Config.json Helpers ──────────────────────────────────────────────────────
+ 
+def load_config(path: str) -> dict:
+    with open(path, "r") as f:
+        return json.load(f)
+ 
+def save_config(path: str, config: dict) -> None:
+    with open(path, "w") as f:
+        json.dump(config, f, indent=4)
+ 
+def set_all_sensors(path: str, enabled: bool) -> None:
+    """
+    Iterates every top-level key in config.json. If the value is a dict
+    containing an 'enabled' boolean field, that field is set to `enabled`.
+    All other fields (directory, script_name, frequency, etc.) are untouched.
+ 
+    Expects config.json structure like:
+    {
+        "ahtx0": {
+            "enabled": false,
+            "directory": "ahtx0",
+            "script_name": "log_ahtx0_paramdata.py",
+            ...
+        },
+        "gps": {
+            "enabled": true,
+            ...
+        }
+    }
+    """
+    config = load_config(path)
+ 
+    changed = []
+    skipped = []
+ 
+    for sensor_name, sensor_cfg in config.items():
+        if not isinstance(sensor_cfg, dict):
+            # Top-level key is not a sensor block (e.g. a plain string/int) — skip
+            skipped.append(sensor_name)
+            continue
+ 
+        if "enabled" not in sensor_cfg:
+            # Sensor block exists but has no 'enabled' field — leave it alone
+            skipped.append(sensor_name)
+            continue
+ 
+        if not isinstance(sensor_cfg["enabled"], bool):
+            log.warning(
+                f"'{sensor_name}.enabled' is not a boolean "
+                f"(got {type(sensor_cfg['enabled']).__name__}) — skipping."
+            )
+            continue
+ 
+        if sensor_cfg["enabled"] != enabled:
+            sensor_cfg["enabled"] = enabled
+            changed.append(sensor_name)
+ 
+    if skipped:
+        log.debug(f"Non-sensor keys ignored: {', '.join(skipped)}")
+ 
+    if changed:
+        save_config(path, config)
+        state_str = "ENABLED" if enabled else "DISABLED"
+        log.info(f"Sensors {state_str}: {', '.join(changed)}")
+    else:
+        log.info("No sensor states needed changing.")
+ 
+# ─── Main Loop ────────────────────────────────────────────────────────────────
+ 
 def main():
-    require_root()
-    gpio_setup()
-
-    log.info(
-        "Low-power monitor started | port=%s | enter=%.1fV | exit=%.1fV | shutdown=%.1fV",
-        SERIAL_PORT,
-        ENTER_LOW_POWER_V,
-        EXIT_LOW_POWER_V,
-        SHUTDOWN_V
-    )
-
-    log.info(
-        "Sensor control: GPIO pins=%s | USB paths=none",
-        SENSOR_POWER_PINS if SENSOR_POWER_PINS else "none"
-    )
-
-    try:
-        while _running:
-            voltage = get_battery_voltage()
-
-            if voltage is None:
-                log.warning("Voltage read failed this cycle - no action taken.")
-            else:
-                log.info("Battery voltage: %.2fV", voltage)
-
-                if voltage <= SHUTDOWN_V:
-                    shutdown_pi()
-                    break
-
-                elif voltage <= ENTER_LOW_POWER_V:
-                    enter_low_power()
-
-                elif voltage >= EXIT_LOW_POWER_V:
-                    exit_low_power()
-
-            time.sleep(CHECK_INTERVAL_SEC)
-
-    finally:
-        gpio_cleanup()
-        log.info("Monitor exited cleanly.")
-
-
+    if not os.path.exists(CONFIG_PATH):
+        log.error(f"config.json not found at: {os.path.abspath(CONFIG_PATH)}")
+        sys.exit(1)
+ 
+    log.info("═" * 50)
+    log.info("Low Power Mode Manager started")
+    log.info(f"  Serial port : {SERIAL_PORT} @ {BAUD_RATE} baud")
+    log.info(f"  Config file : {CONFIG_PATH}")
+    log.info(f"  OFF below   : {LOW_VOLTAGE_THRESHOLD} V")
+    log.info(f"  ON above    : {HIGH_VOLTAGE_THRESHOLD} V")
+    log.info(f"  Poll every  : {POLL_INTERVAL}s")
+    log.info("═" * 50)
+ 
+    # Track current power state so we only write config.json on transitions
+    # Start as None (unknown) so we always apply correct state on first read
+    low_power_active = None
+    consecutive_failures = 0
+ 
+    while True:
+        voltage = read_vedirect_voltage(SERIAL_PORT, BAUD_RATE, SERIAL_TIMEOUT)
+ 
+        if voltage is None:
+            consecutive_failures += 1
+            log.warning(
+                f"Could not read voltage from {SERIAL_PORT} "
+                f"(failure {consecutive_failures}/{MAX_PARSE_FAILURES})"
+            )
+            if consecutive_failures >= MAX_PARSE_FAILURES:
+                log.error(
+                    "Too many consecutive read failures. "
+                    "Check your serial port and Victron connection."
+                )
+                # Don't change sensor state — fail safe (leave as-is)
+            time.sleep(POLL_INTERVAL)
+            continue
+ 
+        consecutive_failures = 0
+        log.info(f"Battery voltage: {voltage:.3f} V")
+ 
+        # ── Hysteresis logic ─────────────────────────────────────────────────
+        # Only switch states at the thresholds, not in the middle band.
+        # This prevents rapid toggling when voltage sits near a threshold.
+ 
+        if voltage <= LOW_VOLTAGE_THRESHOLD and low_power_active is not True:
+            log.warning(
+                f"Voltage {voltage:.3f} V ≤ {LOW_VOLTAGE_THRESHOLD} V "
+                f"— entering LOW POWER MODE"
+            )
+            set_all_sensors(CONFIG_PATH, enabled=False)
+            low_power_active = True
+ 
+        elif voltage >= HIGH_VOLTAGE_THRESHOLD and low_power_active is not False:
+            log.info(
+                f"Voltage {voltage:.3f} V ≥ {HIGH_VOLTAGE_THRESHOLD} V "
+                f"— exiting low power mode, RESTORING SENSORS"
+            )
+            set_all_sensors(CONFIG_PATH, enabled=True)
+            low_power_active = False
+ 
+        else:
+            # Voltage is in the middle band — hold current state
+            state_str = "low power" if low_power_active else "normal"
+            log.info(f"Voltage in hold band — maintaining {state_str} state.")
+ 
+        time.sleep(POLL_INTERVAL)
+ 
+# ─── Entry Point ──────────────────────────────────────────────────────────────
+ 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        log.info("Stopped by user.")
+    except Exception as e:
+        log.exception(f"Unexpected error: {e}")
+        sys.exit(1)
+ 
