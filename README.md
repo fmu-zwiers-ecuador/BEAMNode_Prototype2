@@ -1,4 +1,4 @@
-# Prototype I - BEAM Project - Francis Marion University
+# Prototype 2 - BEAM Project - Francis Marion University
 
 ## BEAM - Biodiversity and Environmental Automated Monitoring
 
