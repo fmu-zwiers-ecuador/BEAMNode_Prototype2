@@ -1,4 +1,5 @@
-
+# Not too sure if this one will work, I recommend taking a quick glance over and dm me if something seems off
+# I will work on this tomorrow afternoon once I get back from the dmv
 """
 Low Power Mode Manager — Raspberry Pi Zero
 Reads battery voltage from a Victron MPPT controller via raw VE.Direct serial.
