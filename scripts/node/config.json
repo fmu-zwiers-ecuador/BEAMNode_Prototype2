@@ -127,17 +127,31 @@
     }
   },
   "audio": {
-    "enabled": false,
-    "directory": "audio",
-    "script_name": "record_audio.py",
-    "file_prefix": "recording_",
-    "duration_sec": 10,
-    "frequency": 60,
-    "sample_rate": 48000,
-    "channels": 1,
-    "format": "int16",
-    "chunk": 1024,
-    "mount_path": null
+  "enabled": true,
+  "directory": "audio",
+  "script_name": "record_audio.py",
+  "file_prefix": "recording_",
+  "duration_sec": 10,
+  "frequency": 60,
+  "sample_rate": 48000,
+  "channels": 1,
+  "format": "int16",
+  "chunk": 1024,
+  "mount_path": null
+},
+
+"motion_audio": {
+  "enabled": true,
+  "directory": "audio",
+  "script_name": "audiomoth_motion_record.py",
+  "file_prefix": "motionaudio_",
+  "duration_sec": 10,
+  "sample_rate": 48000,
+  "channels": 1,
+  "alsa_device": "plughw:1,0",
+  "format": "S16_LE",
+  "mount_path": null
+}
   },
  "camera": {
   "enabled": true,
