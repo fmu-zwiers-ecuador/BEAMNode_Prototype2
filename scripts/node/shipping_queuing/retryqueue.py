@@ -21,6 +21,8 @@ JSON_FILEPATH = "/home/pi/BEAMNode_Prototype2/scripts/node/shipping_queuing/node
 SUPERVISOR_DATA_ROOT = "/home/pi/data"
 REMOTE_SHIP_DIR = "/home/pi/shipping"
 LOG_FILE = "/home/pi/logs/queue.log"
+NAS_PATH = "PiSync@100.115.5.12:/BEAM test data/FEC/"
+MOVE_TO_DRIVE_SCRIPT = "move_shipping_to_beamdrive.sh"
 
 MAX_RETRIES = 5
 PING_COUNT = 1
@@ -133,6 +135,26 @@ def delete_shipping_data(full_hostname):
     except:
         log(f"{full_hostname}: WARNING - Failed to clear remote data.")
         return False
+    
+def move_to_nas():
+    """Moves data in the supervisor data folder to the remove NAS unit"""
+    cmd = ["scp", "-r"] + SSH_OPTS + [SUPERVISOR_DATA_ROOT, NAS_PATH]
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except:
+        log("WARNING - Failed to move data to the NAS unit.")
+        return False
+        
+def move_to_beamdrive():
+    """Moves data in the supervisor data folder to the local BEAM Drive"""
+    cmd = ["sudo", "bash", MOVE_TO_DRIVE_SCRIPT]
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except:
+        log("WARNING - Failed to move data to the BEAMDrive.")
+        return False
 
 # ---------------------------------------------------
 # MAIN PROCESS
@@ -194,6 +216,20 @@ def main():
                 still_failing.append(name)
             failed_nodes = still_failing
             save_nodes(nodes)
+            
+    log("=== Moving data to the remote NAS unit ===")
+    nas = move_to_nas()
+    if nas:
+        log("=== SUCCESS moving NAS data ===")
+    else:
+        log("=== FAILURE moving NAS data ===")
+        
+    log("=== Moving data to the local BEAM Drive ===")
+    beamdrive = move_to_beamdrive()
+    if beamdrive:
+        log("=== SUCCESS moving BEAM Drive data ===")
+    else:
+        log("=== FAILURE moving BEAM Drive data ===")
 
     log("=== FINAL STATUS: COMPLETED ===")
 
