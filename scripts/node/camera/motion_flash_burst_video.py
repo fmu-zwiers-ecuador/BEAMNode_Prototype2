@@ -209,7 +209,7 @@ if flash_enabled:
 picam = Picamera2()
 
 main_res = tuple(cam_config.get("resolution", [1920, 1080]))
-video_res = tuple(cam_config.get("video_resolution", cam_config.get("resolution", [1920, 1080])))
+video_res = tuple(cam_config.get("video_resolution", cam_config.get("resolution", [1280, 720])))
 still_config = picam.create_still_configuration(main={"size": main_res})
 video_config = picam.create_video_configuration(main={"size": video_res})
 
@@ -314,19 +314,23 @@ def record_video_with_flash(video_path, encoder, flash_active):
     picam.start_recording(encoder, FfmpegOutput(video_path))
     log(f"[BEAM] Recording video: {video_path}")
 
+    end_time = time.monotonic() + max(video_duration, 0.0)
+
     if flash_active:
-        active_flash_time = min(video_duration, max(video_flash_duration, 0.0))
+        active_flash_time = min(max(video_flash_duration, 0.0), max(video_duration, 0.0))
         if active_flash_time > 0:
             set_flash_state(True)
             log(f"[BEAM] Flash ON for video ({active_flash_time:.1f}s)")
             time.sleep(active_flash_time)
             set_flash_state(False)
 
-        remaining_video_time = max(video_duration - active_flash_time, 0.0)
+        remaining_video_time = max(end_time - time.monotonic(), 0.0)
         if remaining_video_time > 0:
             time.sleep(remaining_video_time)
     else:
-        time.sleep(video_duration)
+        remaining_video_time = max(end_time - time.monotonic(), 0.0)
+        if remaining_video_time > 0:
+            time.sleep(remaining_video_time)
 
     picam.stop_recording()
 
