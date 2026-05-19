@@ -131,7 +131,7 @@
   "directory": "audio",
   "script_name": "record_audio.py",
   "file_prefix": "recording_",
-  "duration_sec": 10,
+  "duration_sec": 300,
   "frequency": 60,
   "sample_rate": 48000,
   "channels": 1,
@@ -149,8 +149,9 @@
   "sample_rate": 48000,
   "channels": 1,
   "alsa_device": "plughw:1,0",
-  "format": "S16_LE",
-  "mount_path": null
+  "alsa_format": "S16_LE",
+  "use_hourly_audio_if_busy": true,
+  "hourly_audio_prefix": "recording_"
 }
   },
  "camera": {
