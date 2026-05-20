@@ -49,8 +49,7 @@ HOURLY_AUDIO_PREFIX = "recording_"
 MOTION_AUDIO_PREFIX = "motionaudio_"
 FINAL_VIDEO_PREFIX  = "motionvid_audio_"
 
-# Must match SETTLE_SEC in camera_motion_capture.py
-CAMERA_SETTLE_SEC = 2
+CAPTURE_START_DELAY_SEC = 4
 
 logger = setup_motion_logger("beam_motion_trigger")
 
@@ -162,22 +161,26 @@ def cut_audio_from_hourly(hourly_audio_file, motion_start, audio_output, duratio
     return result.returncode == 0 and audio_output.exists()
 
 
-def record_new_motion_audio(audio_output):
-    cmd = ["python3", str(AUDIO_SCRIPT), "--output", str(audio_output)]
+def record_new_motion_audio(audio_output, start_at_epoch):
+    cmd = [
+        "python3", str(AUDIO_SCRIPT),
+        "--output", str(audio_output),
+        "--start-at-epoch", str(start_at_epoch),
+    ]
     logger.info("Recording new motion audio clip: %s", audio_output)
     result = subprocess.run(cmd)
     logger.info("Audio recording command exited with code %s", result.returncode)
     return result.returncode == 0 and audio_output.exists()
 
 
-def run_camera_capture(timestamp_text, images_dir, video_dir):
+def run_camera_capture(timestamp_text, images_dir, video_dir, start_at_epoch):
     video_output = video_dir / f"motionvid_{timestamp_text}.mp4"
     cmd = [
         "python3", str(CAMERA_SCRIPT),
         "--timestamp",    timestamp_text,
         "--images-dir",   str(images_dir),
         "--video-output", str(video_output),
-        "--pre-settled",          # camera already settled — skip internal sleep
+        "--start-at-epoch", str(start_at_epoch),
     ]
     logger.info("Running camera capture: %s", video_output)
     result = subprocess.run(cmd)
@@ -208,8 +211,10 @@ def merge_video_audio(video_file, audio_file, final_output):
 
 
 def handle_motion(config):
-    motion_start   = datetime.now()
-    timestamp_text = motion_start.strftime("%Y%m%d_%H%M%S")
+    detected_at    = datetime.now()
+    timestamp_text = detected_at.strftime("%Y%m%d_%H%M%S")
+    start_at_epoch = time.time() + CAPTURE_START_DELAY_SEC
+    motion_start   = datetime.fromtimestamp(start_at_epoch)
 
     event_dir, images_dir, video_dir, audio_dir, combined_dir = \
         create_event_dirs(config, timestamp_text)
@@ -224,24 +229,20 @@ def handle_motion(config):
         motion_duration=VIDEO_SECONDS,
     )
 
-    # ── Step 1: Pre-settle the camera BEFORE audio starts ────────────────────
-    # This runs a throwaway picamera2 start so AE/AWB converge. The camera
-    # script receives --pre-settled and skips its own internal sleep, meaning
-    # the full VIDEO_SECONDS are real footage and audio starts at the same time.
-    logger.info("Pre-settling camera for %ss", CAMERA_SETTLE_SEC)
-    settle_proc = subprocess.Popen([
-        "python3", "-c",
-        f"from picamera2 import Picamera2; import time; "
-        f"c=Picamera2(); c.start(); time.sleep({CAMERA_SETTLE_SEC}); c.stop()"
-    ])
-    time.sleep(CAMERA_SETTLE_SEC)
-    settle_proc.wait()
+    logger.info(
+        "Scheduling synchronized raw capture for %s",
+        motion_start.strftime("%Y-%m-%d %H:%M:%S.%f"),
+    )
 
-    # ── Step 2: Launch video and audio at the same instant ───────────────────
     results = {"video_file": None, "audio_ready": False}
 
     def camera_thread():
-        results["video_file"] = run_camera_capture(timestamp_text, images_dir, video_dir)
+        results["video_file"] = run_camera_capture(
+            timestamp_text,
+            images_dir,
+            video_dir,
+            start_at_epoch,
+        )
 
     def audio_thread():
         if hourly_audio_file:
@@ -254,7 +255,10 @@ def handle_motion(config):
             )
         else:
             logger.info("No overlapping hourly audio; recording live audio")
-            results["audio_ready"] = record_new_motion_audio(motion_audio_file)
+            results["audio_ready"] = record_new_motion_audio(
+                motion_audio_file,
+                start_at_epoch,
+            )
 
     t_camera = threading.Thread(target=camera_thread, daemon=True)
     t_audio  = threading.Thread(target=audio_thread,  daemon=True)

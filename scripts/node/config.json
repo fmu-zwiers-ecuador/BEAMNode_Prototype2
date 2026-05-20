@@ -176,6 +176,8 @@
   "flash_gpio": 17,
   "servo_gpio": 18,
   "resolution": [1920, 1080],
+  "picture_resolution": [1920, 1080],
+  "video_resolution": [640, 480],
   "lores_resolution": [640, 480],
   "cooldown_sec": 0.5,
   "flash_lux_threshold": 10,

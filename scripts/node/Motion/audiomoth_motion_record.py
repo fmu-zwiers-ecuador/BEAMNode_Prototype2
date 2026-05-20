@@ -11,6 +11,7 @@ Duration matches VIDEO_SECONDS so the clip lines up with the video.
 import argparse
 import json
 import subprocess
+import time
 from pathlib import Path
 
 from motion_logging import setup_motion_logger
@@ -22,6 +23,17 @@ BASE_DIR    = NODE_DIR.parent.parent
 CONFIG_PATH = NODE_DIR / "config.json"
 
 logger = setup_motion_logger("audiomoth_motion_record")
+
+
+def wait_until_epoch(start_at_epoch):
+    if start_at_epoch is None:
+        return
+    wait_seconds = start_at_epoch - time.time()
+    if wait_seconds > 0:
+        logger.info("Waiting %.3fs for synchronized audio start", wait_seconds)
+        time.sleep(wait_seconds)
+    else:
+        logger.warning("Synchronized audio start is %.3fs late", abs(wait_seconds))
 
 
 def load_config():
@@ -38,6 +50,7 @@ def load_config():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True)
+    parser.add_argument("--start-at-epoch", type=float, default=None)
     args = parser.parse_args()
 
     config = load_config()
@@ -71,13 +84,16 @@ def main():
     logger.info("Recording AudioMoth audio: %s", output_path)
     logger.info("Running command: %s", " ".join(cmd))
 
+    wait_until_epoch(args.start_at_epoch)
+    record_start = time.monotonic()
     result = subprocess.run(cmd)
+    elapsed = time.monotonic() - record_start
 
     if result.returncode != 0:
         logger.error("Audio recording failed with code %s", result.returncode)
         raise SystemExit(result.returncode)
 
-    logger.info("Audio recording complete")
+    logger.info("Audio recording complete; wall-clock recording time %.3fs", elapsed)
 
 
 if __name__ == "__main__":
