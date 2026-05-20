@@ -14,8 +14,10 @@ import subprocess
 from pathlib import Path
 
 
-BASE_DIR    = Path("/home/pi/BEAMNode_Prototype2")
-CONFIG_PATH = BASE_DIR / "config.json"
+MOTION_DIR  = Path(__file__).resolve().parent
+NODE_DIR    = MOTION_DIR.parent
+BASE_DIR    = NODE_DIR.parent.parent
+CONFIG_PATH = NODE_DIR / "config.json"
 
 
 def load_config():

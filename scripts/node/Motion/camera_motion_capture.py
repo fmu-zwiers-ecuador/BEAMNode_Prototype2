@@ -23,8 +23,10 @@ from picamera2.outputs import FfmpegOutput
 from libcamera import Transform
 
 
-BASE_DIR    = Path("/home/pi/BEAMNode_Prototype2")
-CONFIG_PATH = BASE_DIR / "config.json"
+MOTION_DIR  = Path(__file__).resolve().parent
+NODE_DIR    = MOTION_DIR.parent
+BASE_DIR    = NODE_DIR.parent.parent
+CONFIG_PATH = NODE_DIR / "config.json"
 
 PHOTO_COUNT   = 3
 VIDEO_SECONDS = 10
@@ -46,6 +48,11 @@ def main():
     parser.add_argument("--timestamp",    required=True)
     parser.add_argument("--images-dir",   required=True)
     parser.add_argument("--video-output", required=True)
+    parser.add_argument(
+        "--pre-settled",
+        action="store_true",
+        help="Skip the internal AE/AWB settle delay because the caller already warmed the camera.",
+    )
     args = parser.parse_args()
 
     config        = load_config()
@@ -78,8 +85,9 @@ def main():
 
     print("Starting camera...")
     picam2.start()
-    time.sleep(2)   # let AE / AWB settle BEFORE the recording clock starts
-                    # (this does NOT eat into the 10-second clip)
+    if not args.pre_settled:
+        time.sleep(2)   # let AE / AWB settle BEFORE the recording clock starts
+                        # (this does NOT eat into the 10-second clip)
 
     # Photo-burst thread — takes 3 shots spread across the recording window.
     # Photos are scheduled at 20 %, 50 %, 80 % of video_seconds so they

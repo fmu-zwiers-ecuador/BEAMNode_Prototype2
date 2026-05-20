@@ -27,9 +27,10 @@ from pathlib import Path
 from gpiozero import MotionSensor
 
 
-BASE_DIR     = Path("/home/pi/BEAMNode_Prototype2")
-CONFIG_PATH  = BASE_DIR / "config.json"
-MOTION_DIR   = BASE_DIR / "scripts/node/Motion"
+MOTION_DIR   = Path(__file__).resolve().parent
+NODE_DIR     = MOTION_DIR.parent
+BASE_DIR     = NODE_DIR.parent.parent
+CONFIG_PATH  = NODE_DIR / "config.json"
 
 CAMERA_SCRIPT = MOTION_DIR / "camera_motion_capture.py"
 AUDIO_SCRIPT  = MOTION_DIR / "audiomoth_motion_record.py"
