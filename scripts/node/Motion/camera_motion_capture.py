@@ -58,6 +58,14 @@ def load_config():
         return {}
 
 
+def get_required_resolution(camera_config, section_name):
+    section = camera_config.get(section_name, {})
+    resolution = section.get("resolution")
+    if not resolution or len(resolution) != 2:
+        raise ValueError(f"Missing camera.{section_name}.resolution in config.json")
+    return int(resolution[0]), int(resolution[1])
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--timestamp",    required=True)
@@ -77,16 +85,12 @@ def main():
     images_dir = Path(args.images_dir)
     images_dir.mkdir(parents=True, exist_ok=True)
 
-    picture_resolution = camera_config.get(
-        "picture_resolution",
-        camera_config.get("resolution", [1920, 1080]),
-    )
-    video_resolution = camera_config.get(
-        "video_resolution",
-        camera_config.get("lores_resolution", [640, 480]),
-    )
-    picture_width, picture_height = int(picture_resolution[0]), int(picture_resolution[1])
-    video_width, video_height = int(video_resolution[0]), int(video_resolution[1])
+    try:
+        video_width, video_height = get_required_resolution(camera_config, "video")
+        picture_width, picture_height = get_required_resolution(camera_config, "pictures")
+    except ValueError as e:
+        logger.error("%s", e)
+        raise SystemExit(1)
 
     photo_prefix  = camera_config.get("file_prefix", "motionpic_")
     video_seconds = int(camera_config.get("video_duration_sec", VIDEO_SECONDS))
