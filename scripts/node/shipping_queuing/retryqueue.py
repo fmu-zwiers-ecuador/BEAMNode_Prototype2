@@ -88,7 +88,8 @@ def ping_node(full_hostname):
 def has_remote_data(full_hostname):
     """Lists remote files to verify presence of data."""
     remote_path = f"pi@{full_hostname}:{REMOTE_SHIP_DIR}/"
-    cmd = ["rsync", "--list-only", "-e", f"ssh {' '.join(SSH_OPTS)}", remote_path]
+    ssh_cmd = "ssh " + " ".join(SSH_OPTS)
+    cmd = ["rsync", "--list-only", "-e", ssh_cmd, remote_path]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
@@ -106,7 +107,7 @@ def has_remote_data(full_hostname):
             log(f"{full_hostname}: The shipping folder is empty")
             return False
     except Exception as e:
-        print(f"{full_hostname}: Exception {e}")
+        log(f"{full_hostname}: Exception {e}")
         return False
 
 def rsync_pull(full_hostname):
