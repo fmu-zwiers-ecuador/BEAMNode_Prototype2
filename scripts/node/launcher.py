@@ -11,7 +11,7 @@ from datetime import datetime
 # --- CONFIGURATION ---
 NODE_DIR = "/home/pi/BEAMNode_Prototype2/scripts/node"
 DETECT_PATH = os.path.join(NODE_DIR, "sensor_detection/detect.py")
-CAMERA_PATH = os.path.join(NODE_DIR, "Motion/beam_motion_trigger.py")
+#CAMERA_PATH = os.path.join(NODE_DIR, "Motion/beam_motion_trigger.py")
 SCHEDULER_PATH = os.path.join(NODE_DIR, "scheduler.py")
 SHIPPING_PATH = os.path.join(NODE_DIR, "shipping_queuing/shipping.py")
 LOG_PATH = "/home/pi/BEAMNode_Prototype2/logs/launcher.log"
@@ -63,7 +63,7 @@ if __name__ == "__main__":
     sched_proc = start_scheduler_async()
 
     # 3. Start camera script in the background (non-blocking)
-    cam_proc = start_camera_async()
+#    cam_proc = start_camera_async()
 
     if sched_proc is None:
         log("Failed to initialize scheduler. System exiting.")
