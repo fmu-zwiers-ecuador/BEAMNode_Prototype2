@@ -145,13 +145,15 @@
   "directory": "audio",
   "script_name": "audiomoth_motion_record.py",
   "file_prefix": "motionaudio_",
-  "duration_sec": 10,
   "sample_rate": 48000,
   "channels": 1,
   "alsa_device": "plughw:1,0",
-  "alsa_format": "S16_LE",
-  "use_hourly_audio_if_busy": true,
-  "hourly_audio_prefix": "recording_"
+  "alsa_format": "S16_LE"
+},
+"motion_capture": {
+  "directory": "motion_events",
+  "duration_sec": 10,
+  "start_delay_sec": 4
 },
  "camera": {
   "enabled": true,
@@ -175,18 +177,20 @@
   "flash_enabled": true,
   "flash_gpio": 17,
   "servo_gpio": 18,
+  "settle_sec": 2,
   "video": {
-    "resolution": [640, 480]
+    "resolution": [640, 480],
+    "fps": 30
   },
   "pictures": {
-    "resolution": [1920, 1080]
+    "resolution": [1920, 1080],
+    "count": 3,
+    "finish_timeout_sec": 5
   },
   "cooldown_sec": 0.5,
   "flash_lux_threshold": 10,
 
   "video_enabled": true,
-  "video_duration_sec": 10,
-  "video_fps": 30,
   "video_file_name": "video_raw.h264",
 
   "audio_enabled": true,
@@ -194,9 +198,6 @@
   "audio_rate": 48000,
   "audio_channels": 2,
   "audio_file_name": "audio.wav",
-
-  "picture_count": 3,
-  "picture_interval_sec": 1,
 
   "final_video_file_name": "video_with_audio.mp4",
   "session_folder_format": "%Y-%m-%d_%H-%M-%S",

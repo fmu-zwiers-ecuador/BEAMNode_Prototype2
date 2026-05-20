@@ -6,9 +6,8 @@ Runs 24/7. Watches PIR motion sensor.
 
 When motion is detected:
   1. Creates event folders
-  2. Pre-warms the camera (2s AE/AWB settle) -- audio does NOT start yet
-  3. Fires video+photos and audio in two threads at the SAME instant
-  4. Waits for both to finish, then embeds audio into the video
+  2. Schedules raw video+photos and raw audio for the same start time
+  3. Waits for both to finish, then embeds audio into the video
 
 Folder layout:
   /home/pi/data/motion_events/event_TIMESTAMP/
@@ -22,7 +21,7 @@ import json
 import subprocess
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from gpiozero import MotionSensor
 
@@ -39,17 +38,8 @@ AUDIO_SCRIPT  = MOTION_DIR / "audiomoth_motion_record.py"
 
 DEFAULT_DATA_DIR = Path("/home/pi/data")
 
-VIDEO_SECONDS         = 10
-PIR_PIN               = 24
-PIR_WARMUP_SEC        = 5
-PIR_POLL_INTERVAL_SEC = 0.05
-COOLDOWN_SEC          = 5
-
-HOURLY_AUDIO_PREFIX = "recording_"
 MOTION_AUDIO_PREFIX = "motionaudio_"
 FINAL_VIDEO_PREFIX  = "motionvid_audio_"
-
-CAPTURE_START_DELAY_SEC = 4
 
 logger = setup_motion_logger("beam_motion_trigger")
 
@@ -70,6 +60,15 @@ def get_base_data_dir(config):
     return Path(config.get("global", {}).get("base_dir", str(DEFAULT_DATA_DIR)))
 
 
+def get_required_number(config_section, key, label, value_type=float):
+    if key not in config_section:
+        raise ValueError(f"Missing {label} in config.json")
+    value = value_type(config_section[key])
+    if value <= 0:
+        raise ValueError(f"{label} must be greater than 0")
+    return value
+
+
 def create_event_dirs(config, timestamp_text):
     base_data_dir  = get_base_data_dir(config)
     generic_folder = config.get("motion_capture", {}).get("directory", "motion_events")
@@ -84,81 +83,6 @@ def create_event_dirs(config, timestamp_text):
         folder.mkdir(parents=True, exist_ok=True)
 
     return event_dir, images_dir, video_dir, audio_dir, combined_dir
-
-
-def get_hourly_audio_dir(config):
-    base_data_dir = get_base_data_dir(config)
-    audio_dir = base_data_dir / config.get("audio", {}).get("directory", "audio")
-    audio_dir.mkdir(parents=True, exist_ok=True)
-    return audio_dir
-
-
-def parse_timestamp_from_name(path):
-    stem  = path.stem
-    parts = stem.split("_")
-    candidates = []
-    if len(parts) >= 3:
-        candidates.append(parts[-2] + "_" + parts[-1])
-    if len(parts) >= 2:
-        candidates.append(parts[-1])
-    for text in candidates:
-        for fmt in ("%Y%m%d_%H%M%S", "%Y-%m-%d_%H-%M-%S", "%Y%m%d%H%M%S"):
-            try:
-                return datetime.strptime(text, fmt)
-            except ValueError:
-                pass
-    return None
-
-
-def find_hourly_audio_covering_motion(config, motion_start, motion_duration):
-    audio_config        = config.get("audio", {})
-    motion_audio_config = config.get("motion_audio", {})
-    audio_dir           = get_hourly_audio_dir(config)
-
-    hourly_prefix   = motion_audio_config.get(
-        "hourly_audio_prefix",
-        audio_config.get("file_prefix", HOURLY_AUDIO_PREFIX),
-    )
-    hourly_duration = int(audio_config.get("duration_sec", 300))
-    motion_end      = motion_start + timedelta(seconds=motion_duration)
-
-    possible_files = (
-        list(audio_dir.glob(f"{hourly_prefix}*.wav")) +
-        list(audio_dir.glob(f"{hourly_prefix}*.flac"))
-    )
-
-    newest_match = None
-    for audio_file in possible_files:
-        audio_start = parse_timestamp_from_name(audio_file)
-        if audio_start is None:
-            continue
-        audio_end = audio_start + timedelta(seconds=hourly_duration)
-        if audio_start <= motion_start and motion_end <= audio_end:
-            if newest_match is None or audio_file.stat().st_mtime > newest_match.stat().st_mtime:
-                newest_match = audio_file
-
-    return newest_match
-
-
-def cut_audio_from_hourly(hourly_audio_file, motion_start, audio_output, duration_sec):
-    audio_start = parse_timestamp_from_name(hourly_audio_file)
-    if audio_start is None:
-        return False
-    offset_sec = (motion_start - audio_start).total_seconds()
-    if offset_sec < 0:
-        return False
-    cmd = [
-        "ffmpeg", "-y",
-        "-ss", str(offset_sec),
-        "-t",  str(duration_sec),
-        "-i",  str(hourly_audio_file),
-        "-acodec", "pcm_s16le",
-        str(audio_output),
-    ]
-    logger.info("Cutting motion audio from hourly AudioMoth file: %s", hourly_audio_file)
-    result = subprocess.run(cmd)
-    logger.info("ffmpeg audio cut exited with code %s", result.returncode)
-    return result.returncode == 0 and audio_output.exists()
 
 
 def record_new_motion_audio(audio_output, start_at_epoch):
@@ -213,7 +137,25 @@ def merge_video_audio(video_file, audio_file, final_output):
 def handle_motion(config):
     detected_at    = datetime.now()
     timestamp_text = detected_at.strftime("%Y%m%d_%H%M%S")
-    start_at_epoch = time.time() + CAPTURE_START_DELAY_SEC
+
+    try:
+        motion_config = config["motion_capture"]
+        motion_duration = get_required_number(
+            motion_config,
+            "duration_sec",
+            "motion_capture.duration_sec",
+            int,
+        )
+        start_delay = get_required_number(
+            motion_config,
+            "start_delay_sec",
+            "motion_capture.start_delay_sec",
+        )
+    except (KeyError, ValueError) as e:
+        logger.error("%s", e)
+        return
+
+    start_at_epoch = time.time() + start_delay
     motion_start   = datetime.fromtimestamp(start_at_epoch)
 
     event_dir, images_dir, video_dir, audio_dir, combined_dir = \
@@ -223,15 +165,11 @@ def handle_motion(config):
     logger.info("Saving event to: %s", event_dir)
 
     motion_audio_file = audio_dir / f"{MOTION_AUDIO_PREFIX}{timestamp_text}.wav"
-    hourly_audio_file = find_hourly_audio_covering_motion(
-        config=config,
-        motion_start=motion_start,
-        motion_duration=VIDEO_SECONDS,
-    )
 
     logger.info(
-        "Scheduling synchronized raw capture for %s",
+        "Scheduling synchronized raw capture for %s with duration %ss",
         motion_start.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        motion_duration,
     )
 
     results = {"video_file": None, "audio_ready": False}
@@ -245,26 +183,17 @@ def handle_motion(config):
         )
 
     def audio_thread():
-        if hourly_audio_file:
-            logger.info("Found overlapping hourly audio: %s", hourly_audio_file)
-            results["audio_ready"] = cut_audio_from_hourly(
-                hourly_audio_file=hourly_audio_file,
-                motion_start=motion_start,
-                audio_output=motion_audio_file,
-                duration_sec=VIDEO_SECONDS,
-            )
-        else:
-            logger.info("No overlapping hourly audio; recording live audio")
-            results["audio_ready"] = record_new_motion_audio(
-                motion_audio_file,
-                start_at_epoch,
-            )
+        logger.info("Recording synchronized live audio")
+        results["audio_ready"] = record_new_motion_audio(
+            motion_audio_file,
+            start_at_epoch,
+        )
 
     t_camera = threading.Thread(target=camera_thread, daemon=True)
     t_audio  = threading.Thread(target=audio_thread,  daemon=True)
 
-    t_camera.start()
     t_audio.start()
+    t_camera.start()
 
     t_camera.join()
     t_audio.join()
@@ -301,11 +230,18 @@ def main():
         logger.info("motion_audio is disabled in config.json")
         return
 
-    pir_pin       = int(camera_config.get("gpio_pin",               PIR_PIN))
-    warmup        = float(camera_config.get("pir_warmup_sec",       PIR_WARMUP_SEC))
-    poll_interval = float(camera_config.get("pir_poll_interval_sec", PIR_POLL_INTERVAL_SEC))
-    cooldown      = float(camera_config.get("motion_cooldown_sec",
-                          camera_config.get("cooldown_sec", COOLDOWN_SEC)))
+    try:
+        pir_pin = get_required_number(camera_config, "gpio_pin", "camera.gpio_pin", int)
+        warmup = get_required_number(camera_config, "pir_warmup_sec", "camera.pir_warmup_sec")
+        poll_interval = get_required_number(
+            camera_config,
+            "pir_poll_interval_sec",
+            "camera.pir_poll_interval_sec",
+        )
+        cooldown = get_required_number(camera_config, "cooldown_sec", "camera.cooldown_sec")
+    except ValueError as e:
+        logger.error("%s", e)
+        return
 
     logger.info("Starting 24/7 PIR motion trigger")
     logger.info("PIR GPIO pin: %s", pir_pin)

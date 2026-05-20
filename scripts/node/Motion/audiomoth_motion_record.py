@@ -5,7 +5,7 @@ audiomoth_motion_record.py
 Records a motion-triggered AudioMoth USB audio clip.
 
 Only used when no hourly recording covers the motion event.
-Duration matches VIDEO_SECONDS so the clip lines up with the video.
+Duration comes from motion_capture.duration_sec so it lines up with the video.
 """
 
 import argparse
@@ -47,6 +47,15 @@ def load_config():
         return {}
 
 
+def get_required_number(config_section, key, label, value_type=float):
+    if key not in config_section:
+        raise ValueError(f"Missing {label} in config.json")
+    value = value_type(config_section[key])
+    if value <= 0:
+        raise ValueError(f"{label} must be greater than 0")
+    return value
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True)
@@ -58,7 +67,16 @@ def main():
     audio_config        = config.get("audio", {})
     motion_audio_config = config.get("motion_audio", {})
 
-    duration_sec = int(motion_audio_config.get("duration_sec", 10))
+    try:
+        duration_sec = get_required_number(
+            config["motion_capture"],
+            "duration_sec",
+            "motion_capture.duration_sec",
+            int,
+        )
+    except (KeyError, ValueError) as e:
+        logger.error("%s", e)
+        raise SystemExit(1)
     sample_rate  = int(motion_audio_config.get(
         "sample_rate", audio_config.get("sample_rate", 48000)
     ))
@@ -85,6 +103,7 @@ def main():
     logger.info("Running command: %s", " ".join(cmd))
 
     wait_until_epoch(args.start_at_epoch)
+    logger.info("Audio recording started")
     record_start = time.monotonic()
     result = subprocess.run(cmd)
     elapsed = time.monotonic() - record_start

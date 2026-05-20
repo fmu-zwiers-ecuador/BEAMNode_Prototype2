@@ -4,8 +4,8 @@ camera_motion_capture.py
 
 Records video and takes burst photos AT THE SAME TIME using a background thread.
 
-  - Starts a 10-second video recording
-  - While recording: takes 3 photos spaced evenly across the clip
+  - Starts a timed video recording using config.json
+  - While recording: takes photos spaced evenly across the clip
   - Photos are grabbed as still frames from the live stream (no mode switch needed)
 
 Uses picamera2. Called by beam_motion_trigger.py.
@@ -28,10 +28,6 @@ MOTION_DIR  = Path(__file__).resolve().parent
 NODE_DIR    = MOTION_DIR.parent
 BASE_DIR    = NODE_DIR.parent.parent
 CONFIG_PATH = NODE_DIR / "config.json"
-
-PHOTO_COUNT   = 3
-VIDEO_SECONDS = 10
-VIDEO_FPS     = 30
 
 logger = setup_motion_logger("camera_motion_capture")
 
@@ -66,6 +62,15 @@ def get_required_resolution(camera_config, section_name):
     return int(resolution[0]), int(resolution[1])
 
 
+def get_required_number(config_section, key, label, value_type=float):
+    if key not in config_section:
+        raise ValueError(f"Missing {label} in config.json")
+    value = value_type(config_section[key])
+    if value <= 0:
+        raise ValueError(f"{label} must be greater than 0")
+    return value
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--timestamp",    required=True)
@@ -86,23 +91,45 @@ def main():
     images_dir.mkdir(parents=True, exist_ok=True)
 
     try:
+        motion_config = config["motion_capture"]
+        video_settings = camera_config["video"]
+        picture_settings = camera_config["pictures"]
         video_width, video_height = get_required_resolution(camera_config, "video")
         picture_width, picture_height = get_required_resolution(camera_config, "pictures")
-    except ValueError as e:
+        video_seconds = get_required_number(
+            motion_config,
+            "duration_sec",
+            "motion_capture.duration_sec",
+            int,
+        )
+        video_fps = get_required_number(video_settings, "fps", "camera.video.fps", int)
+        picture_count = get_required_number(
+            picture_settings,
+            "count",
+            "camera.pictures.count",
+            int,
+        )
+        picture_finish_timeout = get_required_number(
+            picture_settings,
+            "finish_timeout_sec",
+            "camera.pictures.finish_timeout_sec",
+        )
+        settle_sec = get_required_number(camera_config, "settle_sec", "camera.settle_sec")
+    except (KeyError, ValueError) as e:
         logger.error("%s", e)
         raise SystemExit(1)
 
     photo_prefix  = camera_config.get("file_prefix", "motionpic_")
-    video_seconds = int(camera_config.get("video_duration_sec", VIDEO_SECONDS))
-    video_fps     = int(camera_config.get("video_fps", VIDEO_FPS))
     frame_us      = int(1_000_000 / video_fps)
     logger.info(
-        "Camera capture settings: video=%sx%s at %s fps, pictures=%sx%s",
+        "Camera capture settings: duration=%ss, video=%sx%s at %s fps, pictures=%sx%s count=%s",
+        video_seconds,
         video_width,
         video_height,
         video_fps,
         picture_width,
         picture_height,
+        picture_count,
     )
 
     video_output = Path(args.video_output)
@@ -111,7 +138,7 @@ def main():
     picam2 = Picamera2()
 
     # Encode the low-res stream for video while keeping the main stream high-res
-    # for photos. This avoids mode switching during the 10-second clip.
+    # for photos. This avoids mode switching during the clip.
     video_config = picam2.create_video_configuration(
         main={"size": (picture_width, picture_height), "format": "RGB888"},
         lores={"size": (video_width, video_height), "format": "YUV420"},
@@ -129,19 +156,18 @@ def main():
     logger.info("Starting camera")
     picam2.start()
     if not args.pre_settled:
-        logger.info("Settling camera for 2 seconds")
-        time.sleep(2)   # let AE / AWB settle BEFORE the recording clock starts
-                        # (this does NOT eat into the 10-second clip)
+        logger.info("Settling camera for %s seconds", settle_sec)
+        time.sleep(settle_sec)   # let AE / AWB settle before the recording clock starts
 
     wait_until_epoch(args.start_at_epoch)
 
-    # Photo-burst thread — takes 3 shots spread across the recording window.
-    # Photos are scheduled at 20 %, 50 %, 80 % of video_seconds so they
-    # always land well inside the clip with no risk of running over the end.
     photo_done = threading.Event()
 
     def burst_photos():
-        checkpoints = [0.20, 0.50, 0.80]   # fractions of video_seconds
+        checkpoints = [
+            photo_number / (picture_count + 1)
+            for photo_number in range(1, picture_count + 1)
+        ]
         recording_start = time.monotonic()
         for i, fraction in enumerate(checkpoints, start=1):
             target_time = fraction * video_seconds
@@ -163,15 +189,16 @@ def main():
     )
     record_start = time.monotonic()
     picam2.start_recording(encoder, output, quality=Quality.HIGH, name="lores")
+    logger.info("Video recording started")
 
     t_photos = threading.Thread(target=burst_photos, daemon=True)
     t_photos.start()
 
-    time.sleep(video_seconds)          # hold for the full 10-second clip
+    time.sleep(video_seconds)
 
     picam2.stop_recording()
     elapsed = time.monotonic() - record_start
-    photo_done.wait(timeout=5)         # let any in-flight capture finish
+    photo_done.wait(timeout=picture_finish_timeout)
     picam2.stop()
 
     logger.info("Camera capture complete; wall-clock recording time %.3fs", elapsed)
