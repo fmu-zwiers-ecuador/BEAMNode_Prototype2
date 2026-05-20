@@ -13,6 +13,7 @@ import time
 import logging
 import os
 import sys
+import re
  
 # ─── Configuration ────────────────────────────────────────────────────────────
  
@@ -104,28 +105,17 @@ def save_config(path: str, config: dict) -> None:
  
 def set_all_sensors(path: str, enabled: bool) -> None:
     """
-    Iterates every top-level key in config.json. If the value is a dict
-    containing an 'enabled' boolean field, that field is set to `enabled`.
-    All other fields (directory, script_name, frequency, etc.) are untouched.
- 
-    Expects config.json structure like:
-    {
-        "ahtx0": {
-            "enabled": false,
-            "directory": "ahtx0",
-            "script_name": "log_ahtx0_paramdata.py",
-            ...
-        },
-        "gps": {
-            "enabled": true,
-            ...
-        }
-    }
+    Reads config.json as raw text and replaces only the 'enabled' field values for sensor blocks,
+    leaving all other formatting and context untouched
     """
-    config = load_config(path)
+    with open(path, "r") as f:
+        raw = f.read()
+    # Parse json just to identify which keys are valid sensor blocks
+    config = load_config(raw)
  
     changed = []
     skipped = []
+    new_raw = raw
  
     for sensor_name, sensor_cfg in config.items():
         if not isinstance(sensor_cfg, dict):
@@ -144,16 +134,37 @@ def set_all_sensors(path: str, enabled: bool) -> None:
                 f"(got {type(sensor_cfg['enabled']).__name__}) — skipping."
             )
             continue
- 
-        if sensor_cfg["enabled"] != enabled:
-            sensor_cfg["enabled"] = enabled
-            changed.append(sensor_name)
- 
+        current = sensor_cfg["enabled"]
+        if current == enabled:
+            continue
+
+        # Replace the exact "enabled": true/false for this sensors block
+        # We anchor the search to the sensor name so we don't accidentally
+        # touch an 'enabled' field in a different section
+        old_val = "true" if current else "false"
+        new_val = "true" if enabled else "false"
+
+        # Match the sensor block opening and then find its enabled line
+        pattern = (
+            r'("' + re.escape(sensor_name) + r'"\s*:\s*\{[^}]*?'
+            r'"enabled"\s*:\s*)(' + old_val + r')'
+        )
+        replacement = r'\g<1>' + new_val
+        result, count = re.subn(pattern, replacement, new_raw, count=1, flags=re.DOTALL)
+
+        if count == 0:
+            log.warning(f"Could not find enabled field for '{sensor_name}' via regex - skipping.")
+        continue
+
+        new_raw = result
+        changed.append(sensor_name)
+
     if skipped:
         log.debug(f"Non-sensor keys ignored: {', '.join(skipped)}")
  
     if changed:
-        save_config(path, config)
+        with open(path, "w") as f:
+            f.write(new_raw)
         state_str = "ENABLED" if enabled else "DISABLED"
         log.info(f"Sensors {state_str}: {', '.join(changed)}")
     else:
