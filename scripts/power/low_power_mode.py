@@ -20,7 +20,7 @@ SERIAL_PORT        = "/dev/ttyUSB0"   # Change if your Victron shows up on a dif
 BAUD_RATE          = 19200            # VE.Direct standard baud rate
 SERIAL_TIMEOUT     = 5               # seconds to wait for a full frame
  
-CONFIG_PATH        = "/home/pi//BEAMNode_Prototype2/scripts/node/config.json"   # Path to your sensor config file
+CONFIG_PATH        = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"   # Path to your sensor config file
  
 LOW_VOLTAGE_THRESHOLD  = 11.8        # V — turn sensors OFF at or below this
 HIGH_VOLTAGE_THRESHOLD = 13.1        # V — turn sensors back ON at or above this
