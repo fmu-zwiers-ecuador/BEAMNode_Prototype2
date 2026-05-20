@@ -5,10 +5,10 @@ beam_motion_trigger.py
 Runs 24/7. Watches PIR motion sensor.
 
 When motion is detected:
-  1. Creates one event folder
-  2. Starts video recording, photo bursts, and audio capture ALL AT THE SAME TIME
-  3. Uses matching hourly AudioMoth audio if available; otherwise records a new clip
-  4. Embeds audio into the video file
+  1. Creates event folders
+  2. Pre-warms the camera (2s AE/AWB settle) -- audio does NOT start yet
+  3. Fires video+photos and audio in two threads at the SAME instant
+  4. Waits for both to finish, then embeds audio into the video
 
 Folder layout:
   /home/pi/data/motion_events/event_TIMESTAMP/
@@ -45,6 +45,9 @@ COOLDOWN_SEC          = 5
 HOURLY_AUDIO_PREFIX = "recording_"
 MOTION_AUDIO_PREFIX = "motionaudio_"
 FINAL_VIDEO_PREFIX  = "motionvid_audio_"
+
+# Must match SETTLE_SEC in camera_motion_capture.py
+CAMERA_SETTLE_SEC = 2
 
 
 def load_config():
@@ -154,7 +157,6 @@ def cut_audio_from_hourly(hourly_audio_file, motion_start, audio_output, duratio
 
 
 def record_new_motion_audio(audio_output):
-    """Run audiomoth_motion_record.py and block until it finishes."""
     cmd = ["python3", str(AUDIO_SCRIPT), "--output", str(audio_output)]
     print("Recording new motion audio clip...")
     result = subprocess.run(cmd)
@@ -162,27 +164,26 @@ def record_new_motion_audio(audio_output):
 
 
 def run_camera_capture(timestamp_text, images_dir, video_dir):
-    """Run camera_motion_capture.py (video + simultaneous photos)."""
     video_output = video_dir / f"motionvid_{timestamp_text}.mp4"
     cmd = [
         "python3", str(CAMERA_SCRIPT),
         "--timestamp",    timestamp_text,
         "--images-dir",   str(images_dir),
         "--video-output", str(video_output),
+        "--pre-settled",          # camera already settled — skip internal sleep
     ]
-    print("Running camera capture (video + photos simultaneously)...")
+    print("Running camera capture...")
     result = subprocess.run(cmd)
     if result.returncode != 0:
         print("Camera capture failed.")
         return None
     if not video_output.exists():
-        print(f"Video output was not created: {video_output}")
+        print(f"Video output not created: {video_output}")
         return None
     return video_output
 
 
 def merge_video_audio(video_file, audio_file, final_output):
-    """Mux audio into video; audio is re-encoded to AAC and embedded."""
     cmd = [
         "ffmpeg", "-y",
         "-i", str(video_file),
@@ -207,7 +208,6 @@ def handle_motion(config):
     print(f"Motion detected at {timestamp_text}")
     print(f"Saving event to: {event_dir}")
 
-    # Decide audio source before launching threads
     motion_audio_file = audio_dir / f"{MOTION_AUDIO_PREFIX}{timestamp_text}.wav"
     hourly_audio_file = find_hourly_audio_covering_motion(
         config=config,
@@ -215,13 +215,24 @@ def handle_motion(config):
         motion_duration=VIDEO_SECONDS,
     )
 
-    # Results shared between threads
+    # ── Step 1: Pre-settle the camera BEFORE audio starts ────────────────────
+    # This runs a throwaway picamera2 start so AE/AWB converge. The camera
+    # script receives --pre-settled and skips its own internal sleep, meaning
+    # the full VIDEO_SECONDS are real footage and audio starts at the same time.
+    print(f"Pre-settling camera for {CAMERA_SETTLE_SEC}s...")
+    settle_proc = subprocess.Popen([
+        "python3", "-c",
+        f"from picamera2 import Picamera2; import time; "
+        f"c=Picamera2(); c.start(); time.sleep({CAMERA_SETTLE_SEC}); c.stop()"
+    ])
+    time.sleep(CAMERA_SETTLE_SEC)
+    settle_proc.wait()
+
+    # ── Step 2: Launch video and audio at the same instant ───────────────────
     results = {"video_file": None, "audio_ready": False}
 
     def camera_thread():
-        results["video_file"] = run_camera_capture(
-            timestamp_text, images_dir, video_dir
-        )
+        results["video_file"] = run_camera_capture(timestamp_text, images_dir, video_dir)
 
     def audio_thread():
         if hourly_audio_file:
@@ -236,14 +247,12 @@ def handle_motion(config):
             print("No overlapping hourly audio — recording live audio...")
             results["audio_ready"] = record_new_motion_audio(motion_audio_file)
 
-    # Launch camera and audio at exactly the same time
     t_camera = threading.Thread(target=camera_thread, daemon=True)
     t_audio  = threading.Thread(target=audio_thread,  daemon=True)
 
     t_camera.start()
     t_audio.start()
 
-    # Wait for both to finish before merging
     t_camera.join()
     t_audio.join()
 
@@ -255,10 +264,10 @@ def handle_motion(config):
         return
 
     if not audio_ready:
-        print("Audio was not available — keeping video-only file.")
+        print("Audio not available — keeping video-only file.")
         return
 
-    # Embed audio into video
+    # ── Step 3: Embed audio into video ───────────────────────────────────────
     final_video = combined_dir / f"{FINAL_VIDEO_PREFIX}{timestamp_text}.mp4"
     if merge_video_audio(video_file, motion_audio_file, final_video):
         print(f"Final video with embedded audio: {final_video}")
