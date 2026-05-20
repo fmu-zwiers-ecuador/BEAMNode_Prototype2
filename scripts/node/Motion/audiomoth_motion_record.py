@@ -103,14 +103,15 @@ def main():
     logger.info("Running command: %s", " ".join(cmd))
 
     wait_until_epoch(args.start_at_epoch)
-    logger.info("Audio recording started")
     record_start = time.monotonic()
-    result = subprocess.run(cmd)
+    proc = subprocess.Popen(cmd)
+    logger.info("Audio recording started")
+    result = proc.wait()
     elapsed = time.monotonic() - record_start
 
-    if result.returncode != 0:
-        logger.error("Audio recording failed with code %s", result.returncode)
-        raise SystemExit(result.returncode)
+    if result != 0:
+        logger.error("Audio recording failed with code %s", result)
+        raise SystemExit(result)
 
     logger.info("Audio recording complete; wall-clock recording time %.3fs", elapsed)
 

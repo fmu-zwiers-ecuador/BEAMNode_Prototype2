@@ -153,7 +153,7 @@
 "motion_capture": {
   "directory": "motion_events",
   "duration_sec": 10,
-  "start_delay_sec": 4
+  "start_delay_sec": 10
 },
  "camera": {
   "enabled": true,
@@ -177,15 +177,15 @@
   "flash_enabled": true,
   "flash_gpio": 17,
   "servo_gpio": 18,
-  "settle_sec": 2,
+  "settle_sec": 6,
   "video": {
     "resolution": [640, 480],
-    "fps": 30
+    "fps": 18
   },
   "pictures": {
     "resolution": [1920, 1080],
     "count": 3,
-    "finish_timeout_sec": 5
+    "mode": "after_video"
   },
   "cooldown_sec": 0.5,
   "flash_lux_threshold": 10,

@@ -118,17 +118,36 @@ def run_camera_capture(timestamp_text, images_dir, video_dir, start_at_epoch):
     return video_output
 
 
-def merge_video_audio(video_file, audio_file, final_output):
+def merge_video_audio(video_file, audio_file, final_output, duration_sec):
     cmd = [
         "ffmpeg", "-y",
         "-i", str(video_file),
         "-i", str(audio_file),
-        "-c:v", "copy",
+        "-filter_complex",
+        (
+            f"[0:v]setpts=PTS-STARTPTS,"
+            f"tpad=stop_mode=clone:stop_duration={duration_sec},"
+            f"trim=duration={duration_sec},setpts=PTS-STARTPTS[v];"
+            f"[1:a]asetpts=PTS-STARTPTS,"
+            f"apad=pad_dur={duration_sec},"
+            f"atrim=duration={duration_sec},asetpts=PTS-STARTPTS[a]"
+        ),
+        "-map", "[v]",
+        "-map", "[a]",
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-tune", "zerolatency",
         "-c:a", "aac",
-        "-shortest",
+        "-t", str(duration_sec),
         str(final_output),
     ]
-    logger.info("Embedding audio into video: video=%s audio=%s output=%s", video_file, audio_file, final_output)
+    logger.info(
+        "Embedding audio into video for exactly %ss: video=%s audio=%s output=%s",
+        duration_sec,
+        video_file,
+        audio_file,
+        final_output,
+    )
     result = subprocess.run(cmd)
     logger.info("ffmpeg merge exited with code %s", result.returncode)
     return result.returncode == 0 and final_output.exists()
@@ -211,7 +230,7 @@ def handle_motion(config):
 
     # ── Step 3: Embed audio into video ───────────────────────────────────────
     final_video = combined_dir / f"{FINAL_VIDEO_PREFIX}{timestamp_text}.mp4"
-    if merge_video_audio(video_file, motion_audio_file, final_video):
+    if merge_video_audio(video_file, motion_audio_file, final_video, motion_duration):
         logger.info("Final video with embedded audio: %s", final_video)
     else:
         logger.error("Merge failed; keeping separate video and audio files")

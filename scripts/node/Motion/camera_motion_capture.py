@@ -2,18 +2,16 @@
 """
 camera_motion_capture.py
 
-Records video and takes burst photos AT THE SAME TIME using a background thread.
+Records a timed video clip, then takes high-resolution photos.
 
   - Starts a timed video recording using config.json
-  - While recording: takes photos spaced evenly across the clip
-  - Photos are grabbed as still frames from the live stream (no mode switch needed)
+  - Takes photos after the clip so still capture cannot steal video frames
 
 Uses picamera2. Called by beam_motion_trigger.py.
 """
 
 import argparse
 import json
-import threading
 import time
 from pathlib import Path
 
@@ -109,11 +107,6 @@ def main():
             "camera.pictures.count",
             int,
         )
-        picture_finish_timeout = get_required_number(
-            picture_settings,
-            "finish_timeout_sec",
-            "camera.pictures.finish_timeout_sec",
-        )
         settle_sec = get_required_number(camera_config, "settle_sec", "camera.settle_sec")
     except (KeyError, ValueError) as e:
         logger.error("%s", e)
@@ -121,6 +114,10 @@ def main():
 
     photo_prefix  = camera_config.get("file_prefix", "motionpic_")
     frame_us      = int(1_000_000 / video_fps)
+    fixed_fps_controls = {
+        "FrameRate": video_fps,
+        "FrameDurationLimits": (frame_us, frame_us),
+    }
     logger.info(
         "Camera capture settings: duration=%ss, video=%sx%s at %s fps, pictures=%sx%s count=%s",
         video_seconds,
@@ -137,50 +134,28 @@ def main():
 
     picam2 = Picamera2()
 
-    # Encode the low-res stream for video while keeping the main stream high-res
-    # for photos. This avoids mode switching during the clip.
+    # Keep the recording stream as light as possible for the Pi Zero W.
+    # High-res stills are captured after video stops.
     video_config = picam2.create_video_configuration(
-        main={"size": (picture_width, picture_height), "format": "RGB888"},
-        lores={"size": (video_width, video_height), "format": "YUV420"},
-        controls={
-            "FrameRate": video_fps,
-            "FrameDurationLimits": (frame_us, frame_us),
-        },
+        main={"size": (video_width, video_height), "format": "YUV420"},
+        controls=fixed_fps_controls,
         transform=Transform(),
     )
     picam2.configure(video_config)
+    picam2.set_controls(fixed_fps_controls)
 
     encoder = H264Encoder()
     output  = FfmpegOutput(str(video_output))
 
     logger.info("Starting camera")
     picam2.start()
+    picam2.set_controls(fixed_fps_controls)
     if not args.pre_settled:
         logger.info("Settling camera for %s seconds", settle_sec)
         time.sleep(settle_sec)   # let AE / AWB settle before the recording clock starts
 
     wait_until_epoch(args.start_at_epoch)
 
-    photo_done = threading.Event()
-
-    def burst_photos():
-        checkpoints = [
-            photo_number / (picture_count + 1)
-            for photo_number in range(1, picture_count + 1)
-        ]
-        recording_start = time.monotonic()
-        for i, fraction in enumerate(checkpoints, start=1):
-            target_time = fraction * video_seconds
-            elapsed = time.monotonic() - recording_start
-            wait = target_time - elapsed
-            if wait > 0:
-                time.sleep(wait)
-            photo_path = images_dir / f"{photo_prefix}{args.timestamp}_{i}.jpg"
-            logger.info("Taking photo %s at ~%.0f%% mark: %s", i, fraction * 100, photo_path)
-            picam2.capture_file(str(photo_path), name="main")   # grabs JPEG from high-res stream
-        photo_done.set()
-
-    # Start recording and photo thread at the same instant
     logger.info(
         "Recording video for %ss at %s fps: %s",
         video_seconds,
@@ -188,20 +163,34 @@ def main():
         video_output,
     )
     record_start = time.monotonic()
-    picam2.start_recording(encoder, output, quality=Quality.HIGH, name="lores")
+    picam2.start_recording(encoder, output, quality=Quality.HIGH)
     logger.info("Video recording started")
-
-    t_photos = threading.Thread(target=burst_photos, daemon=True)
-    t_photos.start()
 
     time.sleep(video_seconds)
 
     picam2.stop_recording()
     elapsed = time.monotonic() - record_start
-    photo_done.wait(timeout=picture_finish_timeout)
     picam2.stop()
 
     logger.info("Camera capture complete; wall-clock recording time %.3fs", elapsed)
+
+    if picture_count <= 0:
+        return
+
+    still_config = picam2.create_still_configuration(
+        main={"size": (picture_width, picture_height)}
+    )
+    picam2.configure(still_config)
+    picam2.start()
+    time.sleep(settle_sec)
+
+    for i in range(1, picture_count + 1):
+        photo_path = images_dir / f"{photo_prefix}{args.timestamp}_{i}.jpg"
+        logger.info("Taking post-video photo %s: %s", i, photo_path)
+        picam2.capture_file(str(photo_path))
+
+    picam2.stop()
+    logger.info("Post-video photos complete")
 
 
 if __name__ == "__main__":
