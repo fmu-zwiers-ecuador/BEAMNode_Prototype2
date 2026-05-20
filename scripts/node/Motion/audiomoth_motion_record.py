@@ -13,11 +13,15 @@ import json
 import subprocess
 from pathlib import Path
 
+from motion_logging import setup_motion_logger
+
 
 MOTION_DIR  = Path(__file__).resolve().parent
 NODE_DIR    = MOTION_DIR.parent
 BASE_DIR    = NODE_DIR.parent.parent
 CONFIG_PATH = NODE_DIR / "config.json"
+
+logger = setup_motion_logger("audiomoth_motion_record")
 
 
 def load_config():
@@ -27,7 +31,7 @@ def load_config():
         with open(CONFIG_PATH, "r") as f:
             return json.load(f)
     except Exception as e:
-        print(f"Could not read config.json: {e}")
+        logger.exception("Could not read config.json: %s", e)
         return {}
 
 
@@ -64,16 +68,16 @@ def main():
         str(output_path),
     ]
 
-    print(f"Recording AudioMoth audio: {output_path}")
-    print(" ".join(cmd))
+    logger.info("Recording AudioMoth audio: %s", output_path)
+    logger.info("Running command: %s", " ".join(cmd))
 
     result = subprocess.run(cmd)
 
     if result.returncode != 0:
-        print("Audio recording failed.")
+        logger.error("Audio recording failed with code %s", result.returncode)
         raise SystemExit(result.returncode)
 
-    print("Audio recording complete.")
+    logger.info("Audio recording complete")
 
 
 if __name__ == "__main__":

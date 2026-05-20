@@ -26,6 +26,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from gpiozero import MotionSensor
 
+from motion_logging import setup_motion_logger
+
 
 MOTION_DIR   = Path(__file__).resolve().parent
 NODE_DIR     = MOTION_DIR.parent
@@ -50,16 +52,18 @@ FINAL_VIDEO_PREFIX  = "motionvid_audio_"
 # Must match SETTLE_SEC in camera_motion_capture.py
 CAMERA_SETTLE_SEC = 2
 
+logger = setup_motion_logger("beam_motion_trigger")
+
 
 def load_config():
     if not CONFIG_PATH.exists():
-        print(f"Config not found: {CONFIG_PATH}")
+        logger.warning("Config not found: %s", CONFIG_PATH)
         return {}
     try:
         with open(CONFIG_PATH, "r") as f:
             return json.load(f)
     except Exception as e:
-        print(f"Could not read config.json: {e}")
+        logger.exception("Could not read config.json: %s", e)
         return {}
 
 
@@ -152,15 +156,17 @@ def cut_audio_from_hourly(hourly_audio_file, motion_start, audio_output, duratio
         "-acodec", "pcm_s16le",
         str(audio_output),
     ]
-    print("Cutting motion audio from hourly AudioMoth file...")
+    logger.info("Cutting motion audio from hourly AudioMoth file: %s", hourly_audio_file)
     result = subprocess.run(cmd)
+    logger.info("ffmpeg audio cut exited with code %s", result.returncode)
     return result.returncode == 0 and audio_output.exists()
 
 
 def record_new_motion_audio(audio_output):
     cmd = ["python3", str(AUDIO_SCRIPT), "--output", str(audio_output)]
-    print("Recording new motion audio clip...")
+    logger.info("Recording new motion audio clip: %s", audio_output)
     result = subprocess.run(cmd)
+    logger.info("Audio recording command exited with code %s", result.returncode)
     return result.returncode == 0 and audio_output.exists()
 
 
@@ -173,14 +179,15 @@ def run_camera_capture(timestamp_text, images_dir, video_dir):
         "--video-output", str(video_output),
         "--pre-settled",          # camera already settled — skip internal sleep
     ]
-    print("Running camera capture...")
+    logger.info("Running camera capture: %s", video_output)
     result = subprocess.run(cmd)
     if result.returncode != 0:
-        print("Camera capture failed.")
+        logger.error("Camera capture failed with code %s", result.returncode)
         return None
     if not video_output.exists():
-        print(f"Video output not created: {video_output}")
+        logger.error("Video output not created: %s", video_output)
         return None
+    logger.info("Camera capture complete: %s", video_output)
     return video_output
 
 
@@ -194,8 +201,9 @@ def merge_video_audio(video_file, audio_file, final_output):
         "-shortest",
         str(final_output),
     ]
-    print("Embedding audio into video...")
+    logger.info("Embedding audio into video: video=%s audio=%s output=%s", video_file, audio_file, final_output)
     result = subprocess.run(cmd)
+    logger.info("ffmpeg merge exited with code %s", result.returncode)
     return result.returncode == 0 and final_output.exists()
 
 
@@ -206,8 +214,8 @@ def handle_motion(config):
     event_dir, images_dir, video_dir, audio_dir, combined_dir = \
         create_event_dirs(config, timestamp_text)
 
-    print(f"Motion detected at {timestamp_text}")
-    print(f"Saving event to: {event_dir}")
+    logger.info("Motion detected at %s", timestamp_text)
+    logger.info("Saving event to: %s", event_dir)
 
     motion_audio_file = audio_dir / f"{MOTION_AUDIO_PREFIX}{timestamp_text}.wav"
     hourly_audio_file = find_hourly_audio_covering_motion(
@@ -220,7 +228,7 @@ def handle_motion(config):
     # This runs a throwaway picamera2 start so AE/AWB converge. The camera
     # script receives --pre-settled and skips its own internal sleep, meaning
     # the full VIDEO_SECONDS are real footage and audio starts at the same time.
-    print(f"Pre-settling camera for {CAMERA_SETTLE_SEC}s...")
+    logger.info("Pre-settling camera for %ss", CAMERA_SETTLE_SEC)
     settle_proc = subprocess.Popen([
         "python3", "-c",
         f"from picamera2 import Picamera2; import time; "
@@ -237,7 +245,7 @@ def handle_motion(config):
 
     def audio_thread():
         if hourly_audio_file:
-            print(f"Found overlapping hourly audio: {hourly_audio_file}")
+            logger.info("Found overlapping hourly audio: %s", hourly_audio_file)
             results["audio_ready"] = cut_audio_from_hourly(
                 hourly_audio_file=hourly_audio_file,
                 motion_start=motion_start,
@@ -245,7 +253,7 @@ def handle_motion(config):
                 duration_sec=VIDEO_SECONDS,
             )
         else:
-            print("No overlapping hourly audio — recording live audio...")
+            logger.info("No overlapping hourly audio; recording live audio")
             results["audio_ready"] = record_new_motion_audio(motion_audio_file)
 
     t_camera = threading.Thread(target=camera_thread, daemon=True)
@@ -261,19 +269,19 @@ def handle_motion(config):
     audio_ready = results["audio_ready"]
 
     if video_file is None:
-        print("Camera capture failed — no video to merge.")
+        logger.error("Camera capture failed; no video to merge")
         return
 
     if not audio_ready:
-        print("Audio not available — keeping video-only file.")
+        logger.warning("Audio not available; keeping video-only file")
         return
 
     # ── Step 3: Embed audio into video ───────────────────────────────────────
     final_video = combined_dir / f"{FINAL_VIDEO_PREFIX}{timestamp_text}.mp4"
     if merge_video_audio(video_file, motion_audio_file, final_video):
-        print(f"Final video with embedded audio: {final_video}")
+        logger.info("Final video with embedded audio: %s", final_video)
     else:
-        print("Merge failed — keeping separate video and audio files.")
+        logger.error("Merge failed; keeping separate video and audio files")
 
 
 def main():
@@ -283,10 +291,10 @@ def main():
     motion_audio_config = config.get("motion_audio", {})
 
     if not camera_config.get("enabled", True):
-        print("Camera is disabled in config.json.")
+        logger.info("Camera is disabled in config.json")
         return
     if not motion_audio_config.get("enabled", True):
-        print("motion_audio is disabled in config.json.")
+        logger.info("motion_audio is disabled in config.json")
         return
 
     pir_pin       = int(camera_config.get("gpio_pin",               PIR_PIN))
@@ -295,23 +303,23 @@ def main():
     cooldown      = float(camera_config.get("motion_cooldown_sec",
                           camera_config.get("cooldown_sec", COOLDOWN_SEC)))
 
-    print("Starting 24/7 PIR motion trigger...")
-    print(f"PIR GPIO pin: {pir_pin}")
-    print(f"Warmup seconds: {warmup}")
+    logger.info("Starting 24/7 PIR motion trigger")
+    logger.info("PIR GPIO pin: %s", pir_pin)
+    logger.info("Warmup seconds: %s", warmup)
 
     pir = MotionSensor(pir_pin)
     time.sleep(warmup)
-    print("Ready. Waiting for motion...")
+    logger.info("Ready. Waiting for motion")
 
     while True:
         if pir.motion_detected:
             handle_motion(config)
-            print(f"Cooling down for {cooldown} seconds...")
+            logger.info("Cooling down for %s seconds", cooldown)
             time.sleep(cooldown)
-            print("Waiting for motion to clear...")
+            logger.info("Waiting for motion to clear")
             while pir.motion_detected:
                 time.sleep(0.2)
-            print("Ready again.")
+            logger.info("Ready again")
         time.sleep(poll_interval)
 
 

@@ -17,6 +17,7 @@ import threading
 import time
 from pathlib import Path
 
+from motion_logging import setup_motion_logger
 from picamera2 import Picamera2
 from picamera2.encoders import H264Encoder, Quality
 from picamera2.outputs import FfmpegOutput
@@ -31,6 +32,8 @@ CONFIG_PATH = NODE_DIR / "config.json"
 PHOTO_COUNT   = 3
 VIDEO_SECONDS = 10
 
+logger = setup_motion_logger("camera_motion_capture")
+
 
 def load_config():
     if not CONFIG_PATH.exists():
@@ -39,7 +42,7 @@ def load_config():
         with open(CONFIG_PATH, "r") as f:
             return json.load(f)
     except Exception as e:
-        print(f"Could not read config.json: {e}")
+        logger.exception("Could not read config.json: %s", e)
         return {}
 
 
@@ -61,7 +64,7 @@ def main():
     images_dir = Path(args.images_dir)
     images_dir.mkdir(parents=True, exist_ok=True)
 
-    resolution    = camera_config.get("resolution", [1920, 1080])
+    resolution    = camera_config.get("resolution", [640, 480])
     width, height = int(resolution[0]), int(resolution[1])
 
     photo_prefix  = camera_config.get("file_prefix", "motionpic_")
@@ -83,9 +86,10 @@ def main():
     encoder = H264Encoder()
     output  = FfmpegOutput(str(video_output))
 
-    print("Starting camera...")
+    logger.info("Starting camera")
     picam2.start()
     if not args.pre_settled:
+        logger.info("Settling camera for 2 seconds")
         time.sleep(2)   # let AE / AWB settle BEFORE the recording clock starts
                         # (this does NOT eat into the 10-second clip)
 
@@ -104,12 +108,12 @@ def main():
             if wait > 0:
                 time.sleep(wait)
             photo_path = images_dir / f"{photo_prefix}{args.timestamp}_{i}.jpg"
-            print(f"Taking photo {i} at ~{fraction*100:.0f}% mark: {photo_path}")
+            logger.info("Taking photo %s at ~%.0f%% mark: %s", i, fraction * 100, photo_path)
             picam2.capture_file(str(photo_path))   # grabs JPEG from live stream
         photo_done.set()
 
     # Start recording and photo thread at the same instant
-    print(f"Recording video: {video_output}")
+    logger.info("Recording video: %s", video_output)
     picam2.start_recording(encoder, output, quality=Quality.HIGH)
 
     t_photos = threading.Thread(target=burst_photos, daemon=True)
@@ -121,7 +125,7 @@ def main():
     photo_done.wait(timeout=5)         # let any in-flight capture finish
     picam2.stop()
 
-    print("Camera capture complete.")
+    logger.info("Camera capture complete")
 
 
 if __name__ == "__main__":
