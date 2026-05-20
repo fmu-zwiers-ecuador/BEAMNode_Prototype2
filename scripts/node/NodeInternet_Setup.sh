@@ -6,11 +6,8 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-read -rp "Mesh interface [bat0]: " MESH_IF
-MESH_IF=${MESH_IF:-bat0}
-
-read -rp "Supervisor mesh IP (NTP/DNS gateway) [10.42.0.30]: " SUP_IP
-SUP_IP=${SUP_IP:-10.42.0.30}
+MESH_IF="bat0"
+SUP_IP="10.42.0.30"
 
 echo
 echo "=== Summary ==="
