@@ -106,6 +106,9 @@ def has_remote_data(full_hostname):
         else:
             log(f"{full_hostname}: The shipping folder is empty")
             return False
+    except subprocess.CalledProcessError as e:
+        log(f"{full_hostname}: rsync list failed (exit {e.returncode}): {e.stderr.strip()}")
+        return False
     except Exception as e:
         log(f"{full_hostname}: Exception {e}")
         return False
