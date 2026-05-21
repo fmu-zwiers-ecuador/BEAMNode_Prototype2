@@ -352,13 +352,26 @@ def main():
     logger.info("PIR GPIO pin: %s", pir_pin)
     logger.info("Warmup seconds: %s", warmup)
 
+    pir = None
+    camera_capture = None
     try:
+        pir = MotionSensor(
+            pir_pin,
+            pull_up=None,
+            active_state=True,
+            queue_len=int(camera_config.get("pir_queue_len", 1)),
+            sample_rate=float(camera_config.get("pir_sample_rate", 10)),
+            threshold=float(camera_config.get("pir_threshold", 0.5)),
+        )
         camera_capture = MotionCameraCapture(config)
         camera_capture.start()
-        pir = MotionSensor(pir_pin)
         time.sleep(warmup)
     except Exception as e:
         logger.exception("Startup failed: %s", e)
+        if camera_capture is not None:
+            camera_capture.close()
+        if pir is not None:
+            pir.close()
         return
 
     logger.info("Camera and PIR are armed. Waiting for motion")
@@ -377,7 +390,10 @@ def main():
     except KeyboardInterrupt:
         logger.info("Motion trigger stopped by user")
     finally:
-        camera_capture.close()
+        if camera_capture is not None:
+            camera_capture.close()
+        if pir is not None:
+            pir.close()
 
 
 if __name__ == "__main__":
