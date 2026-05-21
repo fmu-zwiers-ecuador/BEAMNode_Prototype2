@@ -13,6 +13,7 @@ import os
 import json
 from datetime import datetime
 from pathlib import Path
+import shutil
 
 # ---------------------------------------------------
 # CONFIGURATION
@@ -181,23 +182,23 @@ def move_to_beamdrive():
         return False
         
 def clear_supervisor_data():
-    """[NOT IN USE YET] Deletes data from the data folder on the supervisor after successfully backing up the tohe NAS Unit and BEAMDrive"""
+    """Deletes data from the data folder on the supervisor after successfully backing up the tohe NAS Unit and BEAMDrive"""
     cmd = ["sudo", "rm", "-rf", f"{SUPERVISOR_DATA_ROOT}/*"]
     try:
-        subprocess.run(cmd, capture_output=True, check=True, text=True)
+        for item in os.scandir(SUPERVISOR_DATA_ROOT):
+            if item.is_dir():
+                shutil.rmtree(item.path)
+            else:
+                os.remove(item.path)
         return True
     except FileNotFoundError:
-        log("ERROR: The command was not found.")
+        log(f"ERROR: {SUPERVISOR_DATA_ROOT} not found.")
         return False
-    except subprocess.CalledProcessError as e:
-        log(f"Deleting Supervisor Data ERROR: Command failed with exit code {e.returncode}")
-        log(f"Error detail: {e.stderr}")
+    except PermissionError:
+        log(f"ERROR: Permission denied clearing {SUPERVISOR_DATA_ROOT} — check ownership.")
         return False
-    except subprocess.TimeoutExpired as e:
-        log(f"Deleting Supervisor Data: Command timed out after {e.timeout} seconds")
-        return False
-    except subprocess.SubprocessError as e:
-        log(f"Deleting Supervisor Data: A general subprocess error occurred: {e}")
+    except Exception as e:
+        log(f"ERROR: Failed to clear supervisor data: {e}")
         return False
 
 # ---------------------------------------------------
@@ -278,7 +279,7 @@ def main():
     if nas & beamdrive:
         clear_sup_data = clear_supervisor_data()
         if clear_sup_data:
-            log(" === SUCCESS clearing supervisor data folder ===")
+            log("=== SUCCESS clearing supervisor data folder ===")
         else:
             log("=== FAILURE clearing suoervisor data folder ===")
     else:
