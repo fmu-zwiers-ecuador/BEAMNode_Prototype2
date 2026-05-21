@@ -96,12 +96,13 @@ class MotionCameraCapture:
             "motion_capture.duration_sec",
             int,
         )
-        self.video_fps = get_required_number(
-            video_settings,
-            "fps",
-            "camera.video.fps",
-            int,
-        )
+        configured_fps = int(video_settings.get("fps", 18))
+        if configured_fps != 18:
+            logger.warning(
+                "Overriding camera.video.fps=%s to fixed 18 fps for stable capture",
+                configured_fps,
+            )
+        self.video_fps = 18
         self.picture_count = get_required_number(
             picture_settings,
             "count",
@@ -119,9 +120,16 @@ class MotionCameraCapture:
         self.photo_prefix = self.camera_config.get("file_prefix", "motionpic_")
 
         frame_us = int(1_000_000 / self.video_fps)
+        exposure_us = int(self.camera_config.get("video_exposure_us", frame_us))
+        analogue_gain = float(self.camera_config.get("video_gain", 2.0))
+        self.video_warmup_sec = float(self.camera_config.get("video_warmup_sec", 1.0))
         self.fixed_fps_controls = {
             "FrameRate": self.video_fps,
             "FrameDurationLimits": (frame_us, frame_us),
+            "AeEnable": False,
+            "AwbEnable": False,
+            "ExposureTime": exposure_us,
+            "AnalogueGain": analogue_gain,
         }
 
         self.video_config = self.picam2.create_video_configuration(
@@ -142,6 +150,12 @@ class MotionCameraCapture:
             self.picture_width,
             self.picture_height,
             self.picture_count,
+        )
+        logger.info(
+            "Fixed video controls: exposure_us=%s gain=%s warmup_sec=%s",
+            self.fixed_fps_controls["ExposureTime"],
+            self.fixed_fps_controls["AnalogueGain"],
+            self.video_warmup_sec,
         )
 
     def start(self):
@@ -197,6 +211,13 @@ class MotionCameraCapture:
         self.picam2.configure(self.video_config)
         self.picam2.start()
         self.picam2.set_controls(self.fixed_fps_controls)
+
+        if start_at_epoch is not None:
+            remaining = start_at_epoch - time.time()
+            if self.video_warmup_sec > 0 and remaining > 0:
+                time.sleep(min(self.video_warmup_sec, remaining))
+        elif self.video_warmup_sec > 0:
+            time.sleep(self.video_warmup_sec)
 
         wait_until_epoch(start_at_epoch)
 
