@@ -14,7 +14,7 @@ DETECT_PATH = os.path.join(NODE_DIR, "sensor_detection/detect.py")
 #CAMERA_PATH = os.path.join(NODE_DIR, "Motion/beam_motion_trigger.py")
 SCHEDULER_PATH = os.path.join(NODE_DIR, "scheduler.py")
 SHIPPING_PATH = os.path.join(NODE_DIR, "shipping_queuing/shipping.py")
-LOG_PATH = "/home/pi/BEAMNode_Prototype2/logs/launcher.log"
+LOG_PATH = "/home/pi/logs/launcher.log"
 
 def log(msg):
     """Internal launcher logging."""
