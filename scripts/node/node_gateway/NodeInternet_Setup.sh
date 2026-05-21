@@ -18,7 +18,7 @@ echo "Mesh IF:   $MESH_IF"
 echo "Supervisor:$SUP_IP"
 echo
 
-echo "[1/9] Checking and installing required packages..."
+echo "[1/10] Checking and installing required packages..."
 
 # Function to check if package is installed
 is_installed() {
@@ -58,18 +58,18 @@ else
     echo "  All required packages already installed, skipping apt-get"
 fi
 
-echo "[2/9] Prevent dhclient DNS write issues..."
+echo "[2/10] Prevent dhclient DNS write issues..."
 mkdir -p /etc/dhcp/dhclient-enter-hooks.d
 cat >/etc/dhcp/dhclient-enter-hooks.d/nodns <<'EOF'
 make_resolv_conf() { :; }
 EOF
 chmod +x /etc/dhcp/dhclient-enter-hooks.d/nodns
 
-echo "[3/9] Kill any existing dhclient for mesh interface..."
+echo "[3/10] Kill any existing dhclient for mesh interface..."
 pkill -f "dhclient.*$MESH_IF" || true
 sleep 1
 
-echo "[4/9] Create robust boot helper with retries..."
+echo "[4/10] Create robust boot helper with retries..."
 cat >/usr/local/sbin/mesh-boot.sh <<'BOOTSCRIPT'
 #!/usr/bin/env bash
 set -e
@@ -203,7 +203,7 @@ PY
 
 chmod +x /usr/local/sbin/mesh-boot.sh
 
-echo "[5/9] Configure chrony for aggressive syncing..."
+echo "[5/10] Configure chrony for aggressive syncing..."
 CHRONY_CONF="/etc/chrony/chrony.conf"
 
 # Backup original
@@ -233,7 +233,7 @@ rm -f "$tmpfile"
 systemctl enable chrony
 systemctl restart chrony
 
-echo "[6/9] Create systemd service with proper dependencies..."
+echo "[6/10] Create systemd service with proper dependencies..."
 cat >/etc/systemd/system/mesh-boot.service <<'EOF'
 [Unit]
 Description=Batman mesh boot: interface up + DHCP + time sync
@@ -256,7 +256,7 @@ EOF
 systemctl daemon-reload
 systemctl enable mesh-boot.service
 
-echo "[7/9] Create delayed time sync service (runs after mesh-boot)..."
+echo "[7/10] Create delayed time sync service (runs after mesh-boot)..."
 cat >/etc/systemd/system/mesh-timesync.service <<EOF
 [Unit]
 Description=Force time sync over mesh (delayed)
@@ -278,7 +278,26 @@ EOF
 
 systemctl enable mesh-timesync.service
 
-echo "[8/9] Create a manual recovery script (if you need to run manually)..."
+echo "[8/10] Create node internet setup service..."
+cat >/etc/systemd/system/nodeinternet.service <<'EOF'
+[Unit]
+Description=Node Internet Setup
+After=network.target
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/home/pi/BEAMNode_Protoype2/scripts/node/node_gateway
+ExecStart=/bin/bash /home/pi/BEAMNode_Protoype2/scripts/node/node_gateway/NodeInternet_Setup.sh
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable nodeinternet.service
+
+echo "[9/10] Create a manual recovery script (if you need to run manually)..."
 cat >/usr/local/bin/mesh-reconnect <<'EOF'
 #!/usr/bin/env bash
 echo "Manually triggering mesh reconnection..."
@@ -289,7 +308,7 @@ echo "Done. Check status with: systemctl status mesh-boot.service"
 EOF
 chmod +x /usr/local/bin/mesh-reconnect
 
-echo "[9/9] Testing the setup now..."
+echo "[10/10] Testing the setup now..."
 /usr/local/sbin/mesh-boot.sh || true
 
 echo
