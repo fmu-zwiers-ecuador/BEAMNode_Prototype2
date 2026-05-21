@@ -2,12 +2,12 @@
 """
 camera_motion_capture.py
 
-Keeps the camera initialized in video mode, records a timed video clip, then
-captures high-resolution photos.
+Keeps the camera initialized in video mode, captures high-resolution photos,
+then records a timed video clip.
 
-  - Starts and settles the camera once
-  - Records the video clip immediately when motion is detected
-  - Takes photos after the clip so still capture cannot delay video
+    - Starts and settles the camera once
+    - Takes photos immediately when motion is detected
+    - Records the video clip after the photos
 
 Uses picamera2. Called by beam_motion_trigger.py.
 """
@@ -118,13 +118,12 @@ class MotionCameraCapture:
             "motion_capture.duration_sec",
             int,
         )
-        configured_fps = int(video_settings.get("fps", 18))
-        if configured_fps != 18:
-            logger.warning(
-                "Overriding camera.video.fps=%s to fixed 18 fps for stable capture",
-                configured_fps,
-            )
-        self.video_fps = 18
+        self.video_fps = get_required_number(
+            video_settings,
+            "fps",
+            "camera.video.fps",
+            int,
+        )
         self.picture_count = get_required_number(
             picture_settings,
             "count",
@@ -346,9 +345,9 @@ def main():
         camera_capture.start()
         if args.pre_settled:
             logger.info("Camera was requested as pre-settled; using startup warm camera")
+        camera_capture.capture_photos(args.timestamp, images_dir)
         if camera_capture.record_video(video_output, args.start_at_epoch) is None:
             raise SystemExit(1)
-        camera_capture.capture_photos(args.timestamp, images_dir)
     finally:
         camera_capture.close()
 
