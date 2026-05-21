@@ -14,13 +14,14 @@ Uses picamera2. Called by beam_motion_trigger.py.
 
 import argparse
 import json
+import subprocess
 import time
 from pathlib import Path
 
 from motion_logging import setup_motion_logger
 from picamera2 import Picamera2
-from picamera2.encoders import H264Encoder, Quality
-from picamera2.outputs import FfmpegOutput
+from picamera2.encoders import H264Encoder
+from picamera2.outputs import FileOutput
 from libcamera import Transform
 
 
@@ -69,6 +70,27 @@ def get_required_number(config_section, key, label, value_type=float):
     if value <= 0:
         raise ValueError(f"{label} must be greater than 0")
     return value
+
+
+def remux_h264_to_mp4(raw_video_path, mp4_output_path, video_fps):
+    cmd = [
+        "ffmpeg", "-y",
+        "-framerate", str(video_fps),
+        "-i", str(raw_video_path),
+        "-c:v", "copy",
+        str(mp4_output_path),
+    ]
+    logger.info("Remuxing raw H.264 to MP4: %s", mp4_output_path)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+    except FileNotFoundError:
+        logger.error("ffmpeg not found; raw video kept at %s", raw_video_path)
+        return False
+
+    if result.returncode != 0:
+        logger.error("ffmpeg remux failed: %s", result.stderr.strip())
+        return False
+    return mp4_output_path.exists()
 
 
 class MotionCameraCapture:
@@ -123,6 +145,7 @@ class MotionCameraCapture:
         exposure_us = int(self.camera_config.get("video_exposure_us", frame_us))
         analogue_gain = float(self.camera_config.get("video_gain", 2.0))
         self.video_warmup_sec = float(self.camera_config.get("video_warmup_sec", 1.0))
+        self.video_bitrate = int(self.camera_config.get("video_bitrate", 2_000_000))
         self.fixed_fps_controls = {
             "FrameRate": self.video_fps,
             "FrameDurationLimits": (frame_us, frame_us),
@@ -152,10 +175,11 @@ class MotionCameraCapture:
             self.picture_count,
         )
         logger.info(
-            "Fixed video controls: exposure_us=%s gain=%s warmup_sec=%s",
+            "Fixed video controls: exposure_us=%s gain=%s warmup_sec=%s bitrate=%s",
             self.fixed_fps_controls["ExposureTime"],
             self.fixed_fps_controls["AnalogueGain"],
             self.video_warmup_sec,
+            self.video_bitrate,
         )
 
     def start(self):
@@ -219,20 +243,21 @@ class MotionCameraCapture:
         self.start()
         video_output = Path(video_output)
         video_output.parent.mkdir(parents=True, exist_ok=True)
+        raw_video_output = video_output.with_suffix(".h264")
 
         wait_until_epoch(start_at_epoch)
 
-        encoder = H264Encoder()
-        output = FfmpegOutput(str(video_output))
+        encoder = H264Encoder(bitrate=self.video_bitrate)
+        output = FileOutput(str(raw_video_output))
 
         logger.info(
-            "Recording video for %ss at %s fps: %s",
+            "Recording raw H.264 for %ss at %s fps: %s",
             self.video_seconds,
             self.video_fps,
-            video_output,
+            raw_video_output,
         )
         record_start = time.monotonic()
-        self.picam2.start_recording(encoder, output, quality=Quality.HIGH)
+        self.picam2.start_recording(encoder, output)
         logger.info("Video recording started")
 
         time.sleep(self.video_seconds)
@@ -241,7 +266,13 @@ class MotionCameraCapture:
         elapsed = time.monotonic() - record_start
         logger.info("Video recording complete; wall-clock recording time %.3fs", elapsed)
 
-        return video_output if video_output.exists() else None
+        if not raw_video_output.exists():
+            return None
+
+        if remux_h264_to_mp4(raw_video_output, video_output, self.video_fps):
+            return video_output
+
+        return raw_video_output
 
 
 def main():

@@ -112,11 +112,11 @@ def run_camera_capture(camera_capture, timestamp_text, images_dir, video_dir, st
     if captured_video is None:
         logger.error("Camera capture failed")
         return None
-    if not video_output.exists():
-        logger.error("Video output not created: %s", video_output)
+    if not captured_video.exists():
+        logger.error("Video output not created: %s", captured_video)
         return None
-    logger.info("Camera capture complete: %s", video_output)
-    return video_output
+    logger.info("Camera capture complete: %s", captured_video)
+    return captured_video
 
 
 def merge_video_audio(video_file, audio_file, final_output, duration_sec):
