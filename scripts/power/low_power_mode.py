@@ -53,6 +53,11 @@ def read_vedirect_voltage(port: str, baud: int, timeout: int) -> float | None:
     The voltage label is 'V' and the value is in millivolts (mV).
     A frame ends with a 'Checksum' label line.
     """
+    CHARGE_STATES = {
+        "0": "Off", "2": "Fault", "3": "Bulk",
+        "4": "Absorption", "5": "Float", "7": "Equalize",
+        "245": "Starting", "247": "Auto equalize", "252": "External control"
+    }
     try:
         with serial.Serial(port, baud, timeout=timeout) as ser:
             frame = {}
@@ -77,8 +82,17 @@ def read_vedirect_voltage(port: str, baud: int, timeout: int) -> float | None:
                 if label == "Checksum":
                     # End of frame — check if we captured voltage
                     if "V" in frame:
-                        millivolts = int(frame["V"])
-                        volts = millivolts / 1000.0
+                        volts = int(frame["V"]) / 1000.0
+
+                        soc = int(frame.get("SOC", -1)) / 10.0
+                        cs_code = frame.get("CS", "?")
+                        cs_name = CHARGE_STATES.get(cs_code, f"Unknown ({cs_code})")
+
+                        if soc >= 0:
+                            log.info(f"Battery: {volts:.3f} V | {soc:.1f}% | State: {cs_name}")
+                        else:
+                            log.info(f"Battery: {volts:.3f} V | SOC unavailable | State: {cs_name}")
+
                         return volts
                     else:
                         # Frame complete but no voltage key — reset and keep reading
