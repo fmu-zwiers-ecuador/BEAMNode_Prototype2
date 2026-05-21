@@ -2,10 +2,12 @@
 """
 camera_motion_capture.py
 
-Records a timed video clip, then takes high-resolution photos.
+Keeps the camera initialized, captures high-resolution photos, then records a
+timed video clip.
 
-  - Starts a timed video recording using config.json
-  - Takes photos after the clip so still capture cannot steal video frames
+  - Starts and settles the camera once
+  - Takes photos first when motion is detected
+  - Records the video clip immediately after the photos
 
 Uses picamera2. Called by beam_motion_trigger.py.
 """
@@ -69,6 +71,162 @@ def get_required_number(config_section, key, label, value_type=float):
     return value
 
 
+class MotionCameraCapture:
+    def __init__(self, config):
+        self.config = config
+        self.camera_config = config.get("camera", {})
+        self.picam2 = Picamera2()
+        self.started = False
+
+        motion_config = config["motion_capture"]
+        video_settings = self.camera_config["video"]
+        picture_settings = self.camera_config["pictures"]
+
+        self.video_width, self.video_height = get_required_resolution(
+            self.camera_config,
+            "video",
+        )
+        self.picture_width, self.picture_height = get_required_resolution(
+            self.camera_config,
+            "pictures",
+        )
+        self.video_seconds = get_required_number(
+            motion_config,
+            "duration_sec",
+            "motion_capture.duration_sec",
+            int,
+        )
+        self.video_fps = get_required_number(
+            video_settings,
+            "fps",
+            "camera.video.fps",
+            int,
+        )
+        self.picture_count = get_required_number(
+            picture_settings,
+            "count",
+            "camera.pictures.count",
+            int,
+        )
+        self.settle_sec = get_required_number(
+            self.camera_config,
+            "settle_sec",
+            "camera.settle_sec",
+        )
+        self.picture_interval_sec = float(
+            self.camera_config.get("picture_interval_sec", 1.0)
+        )
+        self.photo_prefix = self.camera_config.get("file_prefix", "motionpic_")
+
+        frame_us = int(1_000_000 / self.video_fps)
+        self.fixed_fps_controls = {
+            "FrameRate": self.video_fps,
+            "FrameDurationLimits": (frame_us, frame_us),
+        }
+
+        self.video_config = self.picam2.create_video_configuration(
+            main={"size": (self.video_width, self.video_height), "format": "YUV420"},
+            controls=self.fixed_fps_controls,
+            transform=Transform(),
+        )
+        self.still_config = self.picam2.create_still_configuration(
+            main={"size": (self.picture_width, self.picture_height)}
+        )
+
+        logger.info(
+            "Camera initialized: duration=%ss, video=%sx%s at %s fps, pictures=%sx%s count=%s",
+            self.video_seconds,
+            self.video_width,
+            self.video_height,
+            self.video_fps,
+            self.picture_width,
+            self.picture_height,
+            self.picture_count,
+        )
+
+    def start(self):
+        if self.started:
+            return
+        logger.info("Starting and settling camera at process startup")
+        self.picam2.configure(self.still_config)
+        self.picam2.start()
+        time.sleep(self.settle_sec)
+        self.started = True
+        logger.info("Camera is armed and ready")
+
+    def close(self):
+        try:
+            self.picam2.stop_recording()
+        except Exception:
+            pass
+        try:
+            self.picam2.stop()
+        except Exception:
+            pass
+        try:
+            self.picam2.close()
+        except Exception:
+            pass
+        self.started = False
+
+    def capture_photos(self, timestamp_text, images_dir):
+        if self.picture_count <= 0:
+            return []
+
+        self.start()
+        images_dir = Path(images_dir)
+        images_dir.mkdir(parents=True, exist_ok=True)
+
+        photos = []
+        for i in range(1, self.picture_count + 1):
+            photo_path = images_dir / f"{self.photo_prefix}{timestamp_text}_{i}.jpg"
+            logger.info("Taking motion photo %s: %s", i, photo_path)
+            self.picam2.capture_file(str(photo_path))
+            photos.append(photo_path)
+            if i < self.picture_count and self.picture_interval_sec > 0:
+                time.sleep(self.picture_interval_sec)
+        return photos
+
+    def record_video(self, video_output, start_at_epoch=None):
+        self.start()
+        video_output = Path(video_output)
+        video_output.parent.mkdir(parents=True, exist_ok=True)
+
+        logger.info("Switching camera to video mode")
+        self.picam2.stop()
+        self.picam2.configure(self.video_config)
+        self.picam2.start()
+        self.picam2.set_controls(self.fixed_fps_controls)
+
+        wait_until_epoch(start_at_epoch)
+
+        encoder = H264Encoder()
+        output = FfmpegOutput(str(video_output))
+
+        logger.info(
+            "Recording video for %ss at %s fps: %s",
+            self.video_seconds,
+            self.video_fps,
+            video_output,
+        )
+        record_start = time.monotonic()
+        self.picam2.start_recording(encoder, output, quality=Quality.HIGH)
+        logger.info("Video recording started")
+
+        time.sleep(self.video_seconds)
+
+        self.picam2.stop_recording()
+        elapsed = time.monotonic() - record_start
+        logger.info("Video recording complete; wall-clock recording time %.3fs", elapsed)
+
+        logger.info("Returning camera to still-photo standby")
+        self.picam2.stop()
+        self.picam2.configure(self.still_config)
+        self.picam2.start()
+
+        return video_output if video_output.exists() else None
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--timestamp",    required=True)
@@ -89,108 +247,21 @@ def main():
     images_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        motion_config = config["motion_capture"]
-        video_settings = camera_config["video"]
-        picture_settings = camera_config["pictures"]
-        video_width, video_height = get_required_resolution(camera_config, "video")
-        picture_width, picture_height = get_required_resolution(camera_config, "pictures")
-        video_seconds = get_required_number(
-            motion_config,
-            "duration_sec",
-            "motion_capture.duration_sec",
-            int,
-        )
-        video_fps = get_required_number(video_settings, "fps", "camera.video.fps", int)
-        picture_count = get_required_number(
-            picture_settings,
-            "count",
-            "camera.pictures.count",
-            int,
-        )
-        settle_sec = get_required_number(camera_config, "settle_sec", "camera.settle_sec")
+        camera_capture = MotionCameraCapture(config)
     except (KeyError, ValueError) as e:
         logger.error("%s", e)
         raise SystemExit(1)
 
-    photo_prefix  = camera_config.get("file_prefix", "motionpic_")
-    frame_us      = int(1_000_000 / video_fps)
-    fixed_fps_controls = {
-        "FrameRate": video_fps,
-        "FrameDurationLimits": (frame_us, frame_us),
-    }
-    logger.info(
-        "Camera capture settings: duration=%ss, video=%sx%s at %s fps, pictures=%sx%s count=%s",
-        video_seconds,
-        video_width,
-        video_height,
-        video_fps,
-        picture_width,
-        picture_height,
-        picture_count,
-    )
-
     video_output = Path(args.video_output)
-    video_output.parent.mkdir(parents=True, exist_ok=True)
-
-    picam2 = Picamera2()
-
-    # Keep the recording stream as light as possible for the Pi Zero W.
-    # High-res stills are captured after video stops.
-    video_config = picam2.create_video_configuration(
-        main={"size": (video_width, video_height), "format": "YUV420"},
-        controls=fixed_fps_controls,
-        transform=Transform(),
-    )
-    picam2.configure(video_config)
-    picam2.set_controls(fixed_fps_controls)
-
-    encoder = H264Encoder()
-    output  = FfmpegOutput(str(video_output))
-
-    logger.info("Starting camera")
-    picam2.start()
-    picam2.set_controls(fixed_fps_controls)
-    if not args.pre_settled:
-        logger.info("Settling camera for %s seconds", settle_sec)
-        time.sleep(settle_sec)   # let AE / AWB settle before the recording clock starts
-
-    wait_until_epoch(args.start_at_epoch)
-
-    logger.info(
-        "Recording video for %ss at %s fps: %s",
-        video_seconds,
-        video_fps,
-        video_output,
-    )
-    record_start = time.monotonic()
-    picam2.start_recording(encoder, output, quality=Quality.HIGH)
-    logger.info("Video recording started")
-
-    time.sleep(video_seconds)
-
-    picam2.stop_recording()
-    elapsed = time.monotonic() - record_start
-    picam2.stop()
-
-    logger.info("Camera capture complete; wall-clock recording time %.3fs", elapsed)
-
-    if picture_count <= 0:
-        return
-
-    still_config = picam2.create_still_configuration(
-        main={"size": (picture_width, picture_height)}
-    )
-    picam2.configure(still_config)
-    picam2.start()
-    time.sleep(settle_sec)
-
-    for i in range(1, picture_count + 1):
-        photo_path = images_dir / f"{photo_prefix}{args.timestamp}_{i}.jpg"
-        logger.info("Taking post-video photo %s: %s", i, photo_path)
-        picam2.capture_file(str(photo_path))
-
-    picam2.stop()
-    logger.info("Post-video photos complete")
+    try:
+        camera_capture.start()
+        if args.pre_settled:
+            logger.info("Camera was requested as pre-settled; using startup warm camera")
+        camera_capture.capture_photos(args.timestamp, images_dir)
+        if camera_capture.record_video(video_output, args.start_at_epoch) is None:
+            raise SystemExit(1)
+    finally:
+        camera_capture.close()
 
 
 if __name__ == "__main__":

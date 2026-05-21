@@ -25,6 +25,7 @@ from datetime import datetime
 from pathlib import Path
 from gpiozero import MotionSensor
 
+from camera_motion_capture import MotionCameraCapture
 from motion_logging import setup_motion_logger
 
 
@@ -33,7 +34,6 @@ NODE_DIR     = MOTION_DIR.parent
 BASE_DIR     = NODE_DIR.parent.parent
 CONFIG_PATH  = NODE_DIR / "config.json"
 
-CAMERA_SCRIPT = MOTION_DIR / "camera_motion_capture.py"
 AUDIO_SCRIPT  = MOTION_DIR / "audiomoth_motion_record.py"
 
 DEFAULT_DATA_DIR = Path("/home/pi/data")
@@ -69,6 +69,13 @@ def get_required_number(config_section, key, label, value_type=float):
     return value
 
 
+def get_nonnegative_number(config_section, key, default, value_type=float):
+    value = value_type(config_section.get(key, default))
+    if value < 0:
+        raise ValueError(f"{key} must be 0 or greater")
+    return value
+
+
 def create_event_dirs(config, timestamp_text):
     base_data_dir  = get_base_data_dir(config)
     generic_folder = config.get("motion_capture", {}).get("directory", "motion_events")
@@ -97,19 +104,12 @@ def record_new_motion_audio(audio_output, start_at_epoch):
     return result.returncode == 0 and audio_output.exists()
 
 
-def run_camera_capture(timestamp_text, images_dir, video_dir, start_at_epoch):
+def run_camera_capture(camera_capture, timestamp_text, images_dir, video_dir, start_at_epoch):
     video_output = video_dir / f"motionvid_{timestamp_text}.mp4"
-    cmd = [
-        "python3", str(CAMERA_SCRIPT),
-        "--timestamp",    timestamp_text,
-        "--images-dir",   str(images_dir),
-        "--video-output", str(video_output),
-        "--start-at-epoch", str(start_at_epoch),
-    ]
-    logger.info("Running camera capture: %s", video_output)
-    result = subprocess.run(cmd)
-    if result.returncode != 0:
-        logger.error("Camera capture failed with code %s", result.returncode)
+    logger.info("Running warm-camera video capture: %s", video_output)
+    captured_video = camera_capture.record_video(video_output, start_at_epoch)
+    if captured_video is None:
+        logger.error("Camera capture failed")
         return None
     if not video_output.exists():
         logger.error("Video output not created: %s", video_output)
@@ -153,7 +153,7 @@ def merge_video_audio(video_file, audio_file, final_output, duration_sec):
     return result.returncode == 0 and final_output.exists()
 
 
-def handle_motion(config):
+def handle_motion(config, camera_capture):
     detected_at    = datetime.now()
     timestamp_text = detected_at.strftime("%Y%m%d_%H%M%S")
 
@@ -165,28 +165,34 @@ def handle_motion(config):
             "motion_capture.duration_sec",
             int,
         )
-        start_delay = get_required_number(
+        video_start_delay = get_nonnegative_number(
             motion_config,
-            "start_delay_sec",
-            "motion_capture.start_delay_sec",
+            "video_start_delay_sec",
+            0.25,
         )
     except (KeyError, ValueError) as e:
         logger.error("%s", e)
         return
-
-    start_at_epoch = time.time() + start_delay
-    motion_start   = datetime.fromtimestamp(start_at_epoch)
 
     event_dir, images_dir, video_dir, audio_dir, combined_dir = \
         create_event_dirs(config, timestamp_text)
 
     logger.info("Motion detected at %s", timestamp_text)
     logger.info("Saving event to: %s", event_dir)
+    logger.info("Capturing immediate motion photos before video")
+    try:
+        camera_capture.capture_photos(timestamp_text, images_dir)
+    except Exception as e:
+        logger.exception("Photo capture failed: %s", e)
+        return
+
+    start_at_epoch = time.time() + video_start_delay
+    motion_start   = datetime.fromtimestamp(start_at_epoch)
 
     motion_audio_file = audio_dir / f"{MOTION_AUDIO_PREFIX}{timestamp_text}.wav"
 
     logger.info(
-        "Scheduling synchronized raw capture for %s with duration %ss",
+        "Scheduling synchronized video/audio for %s with duration %ss after immediate photos",
         motion_start.strftime("%Y-%m-%d %H:%M:%S.%f"),
         motion_duration,
     )
@@ -194,19 +200,26 @@ def handle_motion(config):
     results = {"video_file": None, "audio_ready": False}
 
     def camera_thread():
-        results["video_file"] = run_camera_capture(
-            timestamp_text,
-            images_dir,
-            video_dir,
-            start_at_epoch,
-        )
+        try:
+            results["video_file"] = run_camera_capture(
+                camera_capture,
+                timestamp_text,
+                images_dir,
+                video_dir,
+                start_at_epoch,
+            )
+        except Exception as e:
+            logger.exception("Camera video capture failed: %s", e)
 
     def audio_thread():
-        logger.info("Recording synchronized live audio")
-        results["audio_ready"] = record_new_motion_audio(
-            motion_audio_file,
-            start_at_epoch,
-        )
+        try:
+            logger.info("Recording synchronized live audio")
+            results["audio_ready"] = record_new_motion_audio(
+                motion_audio_file,
+                start_at_epoch,
+            )
+        except Exception as e:
+            logger.exception("Audio capture failed: %s", e)
 
     t_camera = threading.Thread(target=camera_thread, daemon=True)
     t_audio  = threading.Thread(target=audio_thread,  daemon=True)
@@ -266,20 +279,32 @@ def main():
     logger.info("PIR GPIO pin: %s", pir_pin)
     logger.info("Warmup seconds: %s", warmup)
 
-    pir = MotionSensor(pir_pin)
-    time.sleep(warmup)
-    logger.info("Ready. Waiting for motion")
+    try:
+        camera_capture = MotionCameraCapture(config)
+        camera_capture.start()
+        pir = MotionSensor(pir_pin)
+        time.sleep(warmup)
+    except Exception as e:
+        logger.exception("Startup failed: %s", e)
+        return
 
-    while True:
-        if pir.motion_detected:
-            handle_motion(config)
-            logger.info("Cooling down for %s seconds", cooldown)
-            time.sleep(cooldown)
-            logger.info("Waiting for motion to clear")
-            while pir.motion_detected:
-                time.sleep(0.2)
-            logger.info("Ready again")
-        time.sleep(poll_interval)
+    logger.info("Camera and PIR are armed. Waiting for motion")
+
+    try:
+        while True:
+            if pir.motion_detected:
+                handle_motion(config, camera_capture)
+                logger.info("Cooling down for %s seconds", cooldown)
+                time.sleep(cooldown)
+                logger.info("Waiting for motion to clear")
+                while pir.motion_detected:
+                    time.sleep(0.2)
+                logger.info("Ready again")
+            time.sleep(poll_interval)
+    except KeyboardInterrupt:
+        logger.info("Motion trigger stopped by user")
+    finally:
+        camera_capture.close()
 
 
 if __name__ == "__main__":
