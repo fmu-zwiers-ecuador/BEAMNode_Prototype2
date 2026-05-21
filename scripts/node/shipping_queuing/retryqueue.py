@@ -137,7 +137,7 @@ def delete_shipping_data(full_hostname):
         log(f"{full_hostname}: Remote folder cleared.")
         return True
     except:
-        log(f"{full_hostname}: WARNING - Failed to clear remote data.")
+        log(f"{full_hostname}: WARNING: Failed to clear remote data.")
         return False
     
 def move_to_nas():
@@ -148,13 +148,17 @@ def move_to_nas():
         return True
     except FileNotFoundError:
         log("ERROR: The command was not found.")
+        return False
     except subprocess.CalledProcessError as e:
         log(f"Moving to NAS ERROR: Command failed with exit code {e.returncode}")
         log(f"Error detail: {e.stderr}")
+        return False
     except subprocess.TimeoutExpired as e:
         log(f"Moving to NAS: Command timed out after {e.timeout} seconds")
+        return False
     except subprocess.SubprocessError as e:
         log(f"Moving to NAS: A general subprocess error occurred: {e}")
+        return False
         
 def move_to_beamdrive():
     """Moves data in the supervisor data folder to the local BEAM Drive"""
@@ -164,28 +168,37 @@ def move_to_beamdrive():
         return True
     except FileNotFoundError:
         log(f"ERROR: The script {MOVE_TO_DRIVE_SCRIPT} was not found.")
+        return False
     except subprocess.CalledProcessError as e:
         log(f"Move To BEAMDrive ERROR: Command failed with exit code {e.returncode}")
         log(f"Error detail: {e.stderr}")
+        return False
     except subprocess.TimeoutExpired as e:
         log(f"Move To BEAMDrive: Command timed out after {e.timeout} seconds")
+        return False
     except subprocess.SubprocessError as e:
         log(f"Move To BEAMDrive: A general subprocess error occurred: {e}")
+        return False
         
 def clear_supervisor_data():
     """[NOT IN USE YET] Deletes data from the data folder on the supervisor after successfully backing up the tohe NAS Unit and BEAMDrive"""
     cmd = ["sudo", "rm", "-rf", f"{SUPERVISOR_DATA_ROOT}/*"]
     try:
         subprocess.run(cmd, capture_output=True, check=True, text=True)
+        return True
     except FileNotFoundError:
         log("ERROR: The command was not found.")
+        return False
     except subprocess.CalledProcessError as e:
         log(f"Deleting Supervisor Data ERROR: Command failed with exit code {e.returncode}")
         log(f"Error detail: {e.stderr}")
+        return False
     except subprocess.TimeoutExpired as e:
         log(f"Deleting Supervisor Data: Command timed out after {e.timeout} seconds")
+        return False
     except subprocess.SubprocessError as e:
         log(f"Deleting Supervisor Data: A general subprocess error occurred: {e}")
+        return False
 
 # ---------------------------------------------------
 # MAIN PROCESS
@@ -261,6 +274,15 @@ def main():
         log("=== SUCCESS moving BEAM Drive data ===")
     else:
         log("=== FAILURE moving BEAM Drive data ===")
+        
+    if nas & beamdrive:
+        clear_sup_data = clear_supervisor_data()
+        if clear_sup_data:
+            log(" === SUCCESS clearing supervisor data folder ===")
+        else:
+            log("=== FAILURE clearing suoervisor data folder ===")
+    else:
+        log("=== WARNING: Did not clear supervisor data as either NAS unit or BEAMDrive backup failed")
 
     log("=== FINAL STATUS: COMPLETED ===")
 
