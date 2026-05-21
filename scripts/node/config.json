@@ -164,6 +164,7 @@
   "directory": "camera",
   "file_name": "camera_status.json",
   "file_prefix": "motionpic_",
+  "pir_gpio": 24,
   "gpio_pin": 24,
   "pir_response_profile": "instant",
   "pir_sensitivity_profile": "high",

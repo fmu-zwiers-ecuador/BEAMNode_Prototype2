@@ -85,6 +85,24 @@ def get_nonnegative_number(config_section, key, default, value_type=float):
     return value
 
 
+def get_pir_gpio(camera_config):
+    if "pir_gpio" in camera_config:
+        return get_required_number(camera_config, "pir_gpio", "camera.pir_gpio", int)
+    return get_required_number(camera_config, "gpio_pin", "camera.gpio_pin", int)
+
+
+def validate_camera_gpio(camera_config, pir_pin):
+    if not camera_config.get("flash_enabled", False):
+        return
+
+    flash_pin = int(camera_config.get("flash_gpio", 26))
+    if pir_pin == flash_pin:
+        raise ValueError(
+            "camera.pir_gpio/gpio_pin and camera.flash_gpio cannot both be "
+            f"GPIO{pir_pin}. PIR should use GPIO24 and flash should use GPIO26."
+        )
+
+
 def create_event_dirs(config, timestamp_text):
     base_data_dir  = get_base_data_dir(config)
     generic_folder = config.get("motion_capture", {}).get("directory", "motion_events")
@@ -317,7 +335,8 @@ def main():
         return
 
     try:
-        pir_pin = get_required_number(camera_config, "gpio_pin", "camera.gpio_pin", int)
+        pir_pin = get_pir_gpio(camera_config)
+        validate_camera_gpio(camera_config, pir_pin)
         warmup = get_required_number(camera_config, "pir_warmup_sec", "camera.pir_warmup_sec")
         poll_interval = get_required_number(
             camera_config,
