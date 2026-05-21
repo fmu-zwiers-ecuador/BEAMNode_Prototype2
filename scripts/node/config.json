@@ -178,6 +178,10 @@
   "flash_gpio": 17,
   "servo_gpio": 18,
   "settle_sec": 6,
+  "video_bitrate": 2000000,
+  "video_exposure_us": 55555,
+  "video_gain": 2.0,
+  "video_warmup_sec": 1.0,
   "video": {
     "resolution": [640, 480],
     "fps": 18

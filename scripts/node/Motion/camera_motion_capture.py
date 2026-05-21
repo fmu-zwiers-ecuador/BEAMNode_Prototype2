@@ -276,6 +276,13 @@ class MotionCameraCapture:
                 metadata = self.picam2.capture_metadata()
                 frame_number = metadata.get("FrameNumber")
                 if frame_number is None:
+                    request = self.picam2.capture_request()
+                    try:
+                        request_metadata = request.get_metadata()
+                        frame_number = request_metadata.get("FrameNumber")
+                    finally:
+                        request.release()
+                if frame_number is None:
                     if not fps_warned:
                         logger.warning("FPS logging unavailable: FrameNumber missing in metadata")
                         fps_warned = True
