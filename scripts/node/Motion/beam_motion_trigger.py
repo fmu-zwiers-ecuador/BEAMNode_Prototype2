@@ -6,8 +6,9 @@ Runs 24/7. Watches PIR motion sensor.
 
 When motion is detected:
   1. Creates event folders
-  2. Schedules raw video+photos and raw audio for the same start time
-  3. Waits for both to finish, then embeds audio into the video
+  2. Starts raw video and raw audio immediately
+  3. Takes still photos after the video so photos do not delay the clip
+  4. Embeds audio into the video
 
 Folder layout:
   /home/pi/data/motion_events/event_TIMESTAMP/
@@ -177,22 +178,15 @@ def handle_motion(config, camera_capture):
     event_dir, images_dir, video_dir, audio_dir, combined_dir = \
         create_event_dirs(config, timestamp_text)
 
-    logger.info("Motion detected at %s", timestamp_text)
-    logger.info("Saving event to: %s", event_dir)
-    logger.info("Capturing immediate motion photos before video")
-    try:
-        camera_capture.capture_photos(timestamp_text, images_dir)
-    except Exception as e:
-        logger.exception("Photo capture failed: %s", e)
-        return
-
     start_at_epoch = time.time() + video_start_delay
     motion_start   = datetime.fromtimestamp(start_at_epoch)
 
     motion_audio_file = audio_dir / f"{MOTION_AUDIO_PREFIX}{timestamp_text}.wav"
 
+    logger.info("Motion detected at %s", timestamp_text)
+    logger.info("Saving event to: %s", event_dir)
     logger.info(
-        "Scheduling synchronized video/audio for %s with duration %ss after immediate photos",
+        "Scheduling immediate synchronized video/audio for %s with duration %ss",
         motion_start.strftime("%Y-%m-%d %H:%M:%S.%f"),
         motion_duration,
     )
@@ -236,6 +230,12 @@ def handle_motion(config, camera_capture):
     if video_file is None:
         logger.error("Camera capture failed; no video to merge")
         return
+
+    logger.info("Capturing motion photos after video")
+    try:
+        camera_capture.capture_photos(timestamp_text, images_dir)
+    except Exception as e:
+        logger.exception("Photo capture failed after video: %s", e)
 
     if not audio_ready:
         logger.warning("Audio not available; keeping video-only file")

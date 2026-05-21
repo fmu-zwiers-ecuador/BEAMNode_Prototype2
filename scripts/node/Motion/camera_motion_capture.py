@@ -2,12 +2,12 @@
 """
 camera_motion_capture.py
 
-Keeps the camera initialized, captures high-resolution photos, then records a
-timed video clip.
+Keeps the camera initialized in video mode, records a timed video clip, then
+captures high-resolution photos.
 
   - Starts and settles the camera once
-  - Takes photos first when motion is detected
-  - Records the video clip immediately after the photos
+  - Records the video clip immediately when motion is detected
+  - Takes photos after the clip so still capture cannot delay video
 
 Uses picamera2. Called by beam_motion_trigger.py.
 """
@@ -162,8 +162,9 @@ class MotionCameraCapture:
         if self.started:
             return
         logger.info("Starting and settling camera at process startup")
-        self.picam2.configure(self.still_config)
+        self.picam2.configure(self.video_config)
         self.picam2.start()
+        self.picam2.set_controls(self.fixed_fps_controls)
         time.sleep(self.settle_sec)
         self.started = True
         logger.info("Camera is armed and ready")
@@ -191,6 +192,11 @@ class MotionCameraCapture:
         images_dir = Path(images_dir)
         images_dir.mkdir(parents=True, exist_ok=True)
 
+        logger.info("Switching camera to still-photo mode")
+        self.picam2.stop()
+        self.picam2.configure(self.still_config)
+        self.picam2.start()
+
         photos = []
         for i in range(1, self.picture_count + 1):
             photo_path = images_dir / f"{self.photo_prefix}{timestamp_text}_{i}.jpg"
@@ -199,25 +205,20 @@ class MotionCameraCapture:
             photos.append(photo_path)
             if i < self.picture_count and self.picture_interval_sec > 0:
                 time.sleep(self.picture_interval_sec)
+
+        logger.info("Returning camera to video standby")
+        self.picam2.stop()
+        self.picam2.configure(self.video_config)
+        self.picam2.start()
+        self.picam2.set_controls(self.fixed_fps_controls)
+        if self.video_warmup_sec > 0:
+            time.sleep(self.video_warmup_sec)
         return photos
 
     def record_video(self, video_output, start_at_epoch=None):
         self.start()
         video_output = Path(video_output)
         video_output.parent.mkdir(parents=True, exist_ok=True)
-
-        logger.info("Switching camera to video mode")
-        self.picam2.stop()
-        self.picam2.configure(self.video_config)
-        self.picam2.start()
-        self.picam2.set_controls(self.fixed_fps_controls)
-
-        if start_at_epoch is not None:
-            remaining = start_at_epoch - time.time()
-            if self.video_warmup_sec > 0 and remaining > 0:
-                time.sleep(min(self.video_warmup_sec, remaining))
-        elif self.video_warmup_sec > 0:
-            time.sleep(self.video_warmup_sec)
 
         wait_until_epoch(start_at_epoch)
 
@@ -239,11 +240,6 @@ class MotionCameraCapture:
         self.picam2.stop_recording()
         elapsed = time.monotonic() - record_start
         logger.info("Video recording complete; wall-clock recording time %.3fs", elapsed)
-
-        logger.info("Returning camera to still-photo standby")
-        self.picam2.stop()
-        self.picam2.configure(self.still_config)
-        self.picam2.start()
 
         return video_output if video_output.exists() else None
 
@@ -278,9 +274,9 @@ def main():
         camera_capture.start()
         if args.pre_settled:
             logger.info("Camera was requested as pre-settled; using startup warm camera")
-        camera_capture.capture_photos(args.timestamp, images_dir)
         if camera_capture.record_video(video_output, args.start_at_epoch) is None:
             raise SystemExit(1)
+        camera_capture.capture_photos(args.timestamp, images_dir)
     finally:
         camera_capture.close()
 
