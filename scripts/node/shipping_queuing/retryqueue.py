@@ -22,7 +22,7 @@ SUPERVISOR_DATA_ROOT = "/home/pi/data"
 REMOTE_SHIP_DIR = "/home/pi/shipping"
 LOG_FILE = "/home/pi/logs/queue.log"
 NAS_PATH = "PiSync@100.115.5.12:/BEAM test data/FEC/"
-MOVE_TO_DRIVE_SCRIPT = "move_shipping_to_beamdrive.sh"
+MOVE_TO_DRIVE_SCRIPT = "move_supervisor_data_to_beamdrive.sh"
 
 MAX_RETRIES = 5
 PING_COUNT = 1
@@ -158,7 +158,7 @@ def move_to_nas():
         
 def move_to_beamdrive():
     """Moves data in the supervisor data folder to the local BEAM Drive"""
-    cmd = ["sudo", "bash", MOVE_TO_DRIVE_SCRIPT]
+    cmd = ["bash", MOVE_TO_DRIVE_SCRIPT]
     try:
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return True
