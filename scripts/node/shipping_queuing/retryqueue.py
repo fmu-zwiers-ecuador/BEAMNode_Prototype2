@@ -146,9 +146,15 @@ def move_to_nas():
     try:
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return True
-    except:
-        log("WARNING - Failed to move data to the NAS unit.")
-        return False
+    except FileNotFoundError:
+        log("ERROR: The command was not found.")
+    except subprocess.CalledProcessError as e:
+        log(f"Moving to NAS ERROR: Command failed with exit code {e.returncode}")
+        log(f"Error detail: {e.stderr}")
+    except subprocess.TimeoutExpired as e:
+        log(f"Moving to NAS: Command timed out after {e.timeout} seconds")
+    except subprocess.SubprocessError as e:
+        log(f"Moving to NAS: A general subprocess error occurred: {e}")
         
 def move_to_beamdrive():
     """Moves data in the supervisor data folder to the local BEAM Drive"""
@@ -156,9 +162,15 @@ def move_to_beamdrive():
     try:
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return True
-    except:
-        log("WARNING - Failed to move data to the BEAMDrive.")
-        return False
+    except FileNotFoundError:
+        log(f"ERROR: The script {MOVE_TO_DRIVE_SCRIPT} was not found.")
+    except subprocess.CalledProcessError as e:
+        log(f"Move To BEAMDrive ERROR: Command failed with exit code {e.returncode}")
+        log(f"Error detail: {e.stderr}")
+    except subprocess.TimeoutExpired as e:
+        log(f"Move To BEAMDrive: Command timed out after {e.timeout} seconds")
+    except subprocess.SubprocessError as e:
+        log(f"Move To BEAMDrive: A general subprocess error occurred: {e}")
 
 # ---------------------------------------------------
 # MAIN PROCESS
