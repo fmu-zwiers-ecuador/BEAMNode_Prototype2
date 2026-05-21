@@ -111,7 +111,7 @@ def set_all_sensors(path: str, enabled: bool) -> None:
     with open(path, "r") as f:
         raw = f.read()
     # Parse json just to identify which keys are valid sensor blocks
-    config = load_config(raw)
+    config = load_config(path)
  
     changed = []
     skipped = []
@@ -154,7 +154,7 @@ def set_all_sensors(path: str, enabled: bool) -> None:
 
         if count == 0:
             log.warning(f"Could not find enabled field for '{sensor_name}' via regex - skipping.")
-        continue
+            continue
 
         new_raw = result
         changed.append(sensor_name)
