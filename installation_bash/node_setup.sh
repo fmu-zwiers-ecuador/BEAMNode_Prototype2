@@ -584,10 +584,6 @@ fi
 sudo raspi-config nonint do_i2c 0
 sudo raspi-config nonint do_spi 0
 
-# Setting up internet
-sudo chmod +x /home/pi/BEAMNode_Prototype2/scripts/node/node_gateway/NodeInternet_Setup.sh
-sudo bash /home/pi/BEAMNode_Prototype2/scripts/node/node_gateway/NodeInternet_Setup.sh
-
 # Configuring low power mode
 sudo chmod +x /home/pi/BEAMNode_Prototype2/scripts/power/Lpm.sh
 sudo bash /home/pi/BEAMNode_Prototype2/scripts/power/Lpm.sh
