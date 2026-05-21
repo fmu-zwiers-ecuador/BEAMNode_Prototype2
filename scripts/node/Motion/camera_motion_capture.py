@@ -260,7 +260,48 @@ class MotionCameraCapture:
         self.picam2.start_recording(encoder, output)
         logger.info("Video recording started")
 
-        time.sleep(self.video_seconds)
+        fps_warned = False
+        last_frame = None
+        last_time = time.monotonic()
+        start_frame = None
+        target_frames = int(self.video_fps * self.video_seconds)
+        max_wall_time = self.video_seconds * 2
+
+        while True:
+            elapsed = time.monotonic() - record_start
+            if elapsed >= max_wall_time:
+                logger.warning("Frame-based stop timed out; stopping at %.2fs", elapsed)
+                break
+            time.sleep(0.25)
+            try:
+                metadata = self.picam2.capture_metadata()
+                frame_number = metadata.get("FrameNumber")
+                if frame_number is None:
+                    if not fps_warned:
+                        logger.warning("FPS logging unavailable: FrameNumber missing in metadata")
+                        fps_warned = True
+                    if elapsed >= self.video_seconds:
+                        break
+                    continue
+                if start_frame is None:
+                    start_frame = frame_number
+                if start_frame is not None and (frame_number - start_frame) >= target_frames:
+                    break
+
+                now = time.monotonic()
+                if last_frame is not None:
+                    dt = now - last_time
+                    if dt > 0:
+                        fps = (frame_number - last_frame) / dt
+                        logger.info("Recording FPS: %.2f", fps)
+                last_frame = frame_number
+                last_time = now
+            except Exception as exc:
+                if not fps_warned:
+                    logger.warning("FPS logging unavailable: %s", exc)
+                    fps_warned = True
+                if elapsed >= self.video_seconds:
+                    break
 
         self.picam2.stop_recording()
         elapsed = time.monotonic() - record_start
