@@ -37,12 +37,12 @@ sudo bash ./scripts/Batman_mesh/install-batman.sh
 echo "**************************************************"
 echo "Configuring low power mode..."
 echo "**************************************************"
-sudo chmod +x ./installation_bash/Lpm.sh
-sudo bash ./installation_bash/Lpm.sh
+sudo chmod +x /home/pi/BEAMNode_Prototype2/scripts/power/Lpm.sh
+sudo bash /home/pi/BEAMNode_Prototype2/scripts/power/Lpm.sh
 
 # node internet setup
 echo "**************************************************"
 echo "Setting up node internet..."
 echo "**************************************************"
-sudo chmod +x ./installation_bash/NodeInternet_Setup.sh
-sudo bash ./installation_bash/NodeInternet_Setup.sh
+sudo chmod +x /home/pi/BEAMNode_Prototype2/scripts/node/node_gateway/NodeInternet_Setup.sh
+sudo bash /home/pi/BEAMNode_Prototype2/scripts/node/node_gateway/NodeInternet_Setup.sh
