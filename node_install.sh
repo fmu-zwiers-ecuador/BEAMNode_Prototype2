@@ -32,3 +32,17 @@ echo "Installing batman-adv for mesh networking..."
 echo "**************************************************"
 
 sudo bash ./scripts/Batman_mesh/install-batman.sh
+
+# low power mode
+echo "**************************************************"
+echo "Configuring low power mode..."
+echo "**************************************************"
+sudo chmod +x ./installation_bash/Lpm.sh
+sudo bash ./installation_bash/Lpm.sh
+
+# node internet setup
+echo "**************************************************"
+echo "Setting up node internet..."
+echo "**************************************************"
+sudo chmod +x ./installation_bash/NodeInternet_Setup.sh
+sudo bash ./installation_bash/NodeInternet_Setup.sh
