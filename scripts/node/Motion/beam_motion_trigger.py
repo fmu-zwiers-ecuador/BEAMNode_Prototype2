@@ -24,7 +24,14 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from gpiozero import MotionSensor
+from gpiozero import Device, MotionSensor
+
+try:
+    from gpiozero.pins.rpigpio import RPiGPIOFactory
+
+    Device.pin_factory = RPiGPIOFactory()
+except Exception:
+    pass
 
 from camera_motion_capture import MotionCameraCapture
 from motion_logging import setup_motion_logger
@@ -34,6 +41,7 @@ MOTION_DIR   = Path(__file__).resolve().parent
 NODE_DIR     = MOTION_DIR.parent
 BASE_DIR     = NODE_DIR.parent.parent
 CONFIG_PATH  = NODE_DIR / "config.json"
+LUX_LOG_PATH = Path("/home/pi/data/tsl2591/lux_data.json")
 
 AUDIO_SCRIPT  = MOTION_DIR / "audiomoth_motion_record.py"
 
@@ -93,6 +101,28 @@ def create_event_dirs(config, timestamp_text):
     return event_dir, images_dir, video_dir, audio_dir, combined_dir
 
 
+def get_latest_lux():
+    try:
+        with open(LUX_LOG_PATH, "r") as f:
+            data = json.load(f)
+
+        records = data.get("records", [])
+        if records:
+            return records[-1].get("lux")
+    except Exception as e:
+        logger.warning("Lux read error: %s", e)
+
+    return None
+
+
+def should_use_flash(camera_config, camera_capture, lux_value):
+    if not camera_capture.flash_available:
+        return False
+
+    flash_threshold = camera_config.get("flash_lux_threshold", 10)
+    return lux_value is not None and lux_value < flash_threshold
+
+
 def record_new_motion_audio(audio_output, start_at_epoch):
     cmd = [
         "python3", str(AUDIO_SCRIPT),
@@ -105,10 +135,21 @@ def record_new_motion_audio(audio_output, start_at_epoch):
     return result.returncode == 0 and audio_output.exists()
 
 
-def run_camera_capture(camera_capture, timestamp_text, images_dir, video_dir, start_at_epoch):
+def run_camera_capture(
+    camera_capture,
+    timestamp_text,
+    images_dir,
+    video_dir,
+    start_at_epoch,
+    flash_active=False,
+):
     video_output = video_dir / f"motionvid_{timestamp_text}.mp4"
     logger.info("Running warm-camera video capture: %s", video_output)
-    captured_video = camera_capture.record_video(video_output, start_at_epoch)
+    captured_video = camera_capture.record_video(
+        video_output,
+        start_at_epoch,
+        flash_active=flash_active,
+    )
     if captured_video is None:
         logger.error("Camera capture failed")
         return None
@@ -191,6 +232,14 @@ def handle_motion(config, camera_capture):
         motion_duration,
     )
 
+    camera_config = config.get("camera", {})
+    lux = get_latest_lux()
+    flash_active = should_use_flash(camera_config, camera_capture, lux)
+    if flash_active:
+        logger.info("Night detected, lux=%s. Flash sequence armed", lux)
+    else:
+        logger.info("Flash not used for event; lux=%s", lux)
+
     results = {"video_file": None, "audio_ready": False}
 
     def camera_thread():
@@ -201,6 +250,7 @@ def handle_motion(config, camera_capture):
                 images_dir,
                 video_dir,
                 start_at_epoch,
+                flash_active=flash_active,
             )
         except Exception as e:
             logger.exception("Camera video capture failed: %s", e)
@@ -233,7 +283,11 @@ def handle_motion(config, camera_capture):
 
     logger.info("Capturing motion photos after video")
     try:
-        camera_capture.capture_photos(timestamp_text, images_dir)
+        camera_capture.capture_photos(
+            timestamp_text,
+            images_dir,
+            flash_active=flash_active,
+        )
     except Exception as e:
         logger.exception("Photo capture failed after video: %s", e)
 

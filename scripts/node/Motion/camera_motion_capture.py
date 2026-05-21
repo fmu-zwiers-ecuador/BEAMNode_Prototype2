@@ -18,17 +18,26 @@ import subprocess
 import time
 from pathlib import Path
 
+from gpiozero import Device, OutputDevice
 from motion_logging import setup_motion_logger
 from picamera2 import Picamera2
 from picamera2.encoders import H264Encoder
 from picamera2.outputs import FileOutput
 from libcamera import Transform
 
+try:
+    from gpiozero.pins.rpigpio import RPiGPIOFactory
+
+    Device.pin_factory = RPiGPIOFactory()
+except Exception:
+    pass
+
 
 MOTION_DIR  = Path(__file__).resolve().parent
 NODE_DIR    = MOTION_DIR.parent
 BASE_DIR    = NODE_DIR.parent.parent
 CONFIG_PATH = NODE_DIR / "config.json"
+DEFAULT_FLASH_GPIO = 26
 
 logger = setup_motion_logger("camera_motion_capture")
 
@@ -139,6 +148,24 @@ class MotionCameraCapture:
             self.camera_config.get("picture_interval_sec", 1.0)
         )
         self.photo_prefix = self.camera_config.get("file_prefix", "motionpic_")
+        self.flash_enabled = self.camera_config.get("flash_enabled", False)
+        self.flash_pin = int(self.camera_config.get("flash_gpio", DEFAULT_FLASH_GPIO))
+        self.flash = None
+        self.photo_flash_warmup_sec = float(
+            self.camera_config.get("motion_photo_flash_warmup_sec", 0.15)
+        )
+        self.photo_flash_cooldown_sec = float(
+            self.camera_config.get("motion_photo_flash_cooldown_sec", 0.1)
+        )
+        self.video_flash_duration_sec = float(
+            self.camera_config.get(
+                "motion_video_flash_duration_sec",
+                self.video_seconds,
+            )
+        )
+        if self.flash_enabled:
+            self.flash = OutputDevice(self.flash_pin)
+            self.set_flash_state(False)
 
         frame_us = int(1_000_000 / self.video_fps)
         exposure_us = int(self.camera_config.get("video_exposure_us", frame_us))
@@ -180,6 +207,23 @@ class MotionCameraCapture:
             self.video_warmup_sec,
             self.video_bitrate,
         )
+        logger.info(
+            "Flash enabled=%s gpio=%s",
+            self.flash_enabled,
+            self.flash_pin,
+        )
+
+    @property
+    def flash_available(self):
+        return self.flash_enabled and self.flash is not None
+
+    def set_flash_state(self, enabled):
+        if not self.flash_available:
+            return
+        if enabled:
+            self.flash.on()
+        else:
+            self.flash.off()
 
     def start(self):
         if self.started:
@@ -193,6 +237,7 @@ class MotionCameraCapture:
         logger.info("Camera is armed and ready")
 
     def close(self):
+        self.set_flash_state(False)
         try:
             self.picam2.stop_recording()
         except Exception:
@@ -205,9 +250,14 @@ class MotionCameraCapture:
             self.picam2.close()
         except Exception:
             pass
+        try:
+            if self.flash is not None:
+                self.flash.close()
+        except Exception:
+            pass
         self.started = False
 
-    def capture_photos(self, timestamp_text, images_dir):
+    def capture_photos(self, timestamp_text, images_dir, flash_active=False):
         if self.picture_count <= 0:
             return []
 
@@ -224,7 +274,18 @@ class MotionCameraCapture:
         for i in range(1, self.picture_count + 1):
             photo_path = images_dir / f"{self.photo_prefix}{timestamp_text}_{i}.jpg"
             logger.info("Taking motion photo %s: %s", i, photo_path)
-            self.picam2.capture_file(str(photo_path))
+            if flash_active:
+                self.set_flash_state(True)
+                logger.info("Flash pulse for photo: %s", photo_path.name)
+                if self.photo_flash_warmup_sec > 0:
+                    time.sleep(self.photo_flash_warmup_sec)
+            try:
+                self.picam2.capture_file(str(photo_path))
+            finally:
+                if flash_active:
+                    if self.photo_flash_cooldown_sec > 0:
+                        time.sleep(self.photo_flash_cooldown_sec)
+                    self.set_flash_state(False)
             photos.append(photo_path)
             if i < self.picture_count and self.picture_interval_sec > 0:
                 time.sleep(self.picture_interval_sec)
@@ -238,7 +299,7 @@ class MotionCameraCapture:
             time.sleep(self.video_warmup_sec)
         return photos
 
-    def record_video(self, video_output, start_at_epoch=None):
+    def record_video(self, video_output, start_at_epoch=None, flash_active=False):
         self.start()
         video_output = Path(video_output)
         video_output.parent.mkdir(parents=True, exist_ok=True)
@@ -259,57 +320,75 @@ class MotionCameraCapture:
         self.picam2.start_recording(encoder, output)
         logger.info("Video recording started")
 
-        fps_warned = False
-        last_frame = None
-        last_time = time.monotonic()
-        start_frame = None
-        target_frames = int(self.video_fps * self.video_seconds)
-        max_wall_time = self.video_seconds * 2
+        try:
+            fps_warned = False
+            last_frame = None
+            last_time = time.monotonic()
+            start_frame = None
+            target_frames = int(self.video_fps * self.video_seconds)
+            max_wall_time = self.video_seconds * 2
+            flash_off_at = None
 
-        while True:
-            elapsed = time.monotonic() - record_start
-            if elapsed >= max_wall_time:
-                logger.warning("Frame-based stop timed out; stopping at %.2fs", elapsed)
-                break
-            time.sleep(0.25)
-            try:
-                metadata = self.picam2.capture_metadata()
-                frame_number = metadata.get("FrameNumber")
-                if frame_number is None:
-                    request = self.picam2.capture_request()
-                    try:
-                        request_metadata = request.get_metadata()
-                        frame_number = request_metadata.get("FrameNumber")
-                    finally:
-                        request.release()
-                if frame_number is None:
+            if flash_active:
+                active_flash_time = min(
+                    max(self.video_flash_duration_sec, 0.0),
+                    max(float(self.video_seconds), 0.0),
+                )
+                if active_flash_time > 0:
+                    self.set_flash_state(True)
+                    logger.info("Flash ON for video (%.1fs)", active_flash_time)
+                    flash_off_at = record_start + active_flash_time
+
+            while True:
+                elapsed = time.monotonic() - record_start
+                if flash_off_at is not None and time.monotonic() >= flash_off_at:
+                    self.set_flash_state(False)
+                    flash_off_at = None
+
+                if elapsed >= max_wall_time:
+                    logger.warning("Frame-based stop timed out; stopping at %.2fs", elapsed)
+                    break
+                time.sleep(0.25)
+                try:
+                    metadata = self.picam2.capture_metadata()
+                    frame_number = metadata.get("FrameNumber")
+                    if frame_number is None:
+                        request = self.picam2.capture_request()
+                        try:
+                            request_metadata = request.get_metadata()
+                            frame_number = request_metadata.get("FrameNumber")
+                        finally:
+                            request.release()
+                    if frame_number is None:
+                        if not fps_warned:
+                            logger.warning("FPS logging unavailable: FrameNumber missing in metadata")
+                            fps_warned = True
+                        if elapsed >= self.video_seconds:
+                            break
+                        continue
+                    if start_frame is None:
+                        start_frame = frame_number
+                    if start_frame is not None and (frame_number - start_frame) >= target_frames:
+                        break
+
+                    now = time.monotonic()
+                    if last_frame is not None:
+                        dt = now - last_time
+                        if dt > 0:
+                            fps = (frame_number - last_frame) / dt
+                            logger.info("Recording FPS: %.2f", fps)
+                    last_frame = frame_number
+                    last_time = now
+                except Exception as exc:
                     if not fps_warned:
-                        logger.warning("FPS logging unavailable: FrameNumber missing in metadata")
+                        logger.warning("FPS logging unavailable: %s", exc)
                         fps_warned = True
                     if elapsed >= self.video_seconds:
                         break
-                    continue
-                if start_frame is None:
-                    start_frame = frame_number
-                if start_frame is not None and (frame_number - start_frame) >= target_frames:
-                    break
+        finally:
+            self.set_flash_state(False)
+            self.picam2.stop_recording()
 
-                now = time.monotonic()
-                if last_frame is not None:
-                    dt = now - last_time
-                    if dt > 0:
-                        fps = (frame_number - last_frame) / dt
-                        logger.info("Recording FPS: %.2f", fps)
-                last_frame = frame_number
-                last_time = now
-            except Exception as exc:
-                if not fps_warned:
-                    logger.warning("FPS logging unavailable: %s", exc)
-                    fps_warned = True
-                if elapsed >= self.video_seconds:
-                    break
-
-        self.picam2.stop_recording()
         elapsed = time.monotonic() - record_start
         logger.info("Video recording complete; wall-clock recording time %.3fs", elapsed)
 

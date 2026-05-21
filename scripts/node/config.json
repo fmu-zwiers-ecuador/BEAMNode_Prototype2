@@ -175,7 +175,7 @@
   "pir_queue_len": 1,
   "pir_threshold": 0.4,
   "flash_enabled": true,
-  "flash_gpio": 17,
+  "flash_gpio": 26,
   "servo_gpio": 18,
   "settle_sec": 6,
   "video_bitrate": 2000000,
