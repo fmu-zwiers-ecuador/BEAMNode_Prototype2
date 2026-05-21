@@ -144,7 +144,7 @@ def move_to_nas():
     """Moves data in the supervisor data folder to the remove NAS unit"""
     cmd = ["scp", "-r"] + SSH_OPTS + [SUPERVISOR_DATA_ROOT, NAS_PATH]
     try:
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(cmd, capture_output=True, check=True, text=True)
         return True
     except FileNotFoundError:
         log("ERROR: The command was not found.")
@@ -160,7 +160,7 @@ def move_to_beamdrive():
     """Moves data in the supervisor data folder to the local BEAM Drive"""
     cmd = ["bash", MOVE_TO_DRIVE_SCRIPT]
     try:
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(cmd, capture_output=True, check=True, text=True)
         return True
     except FileNotFoundError:
         log(f"ERROR: The script {MOVE_TO_DRIVE_SCRIPT} was not found.")
@@ -171,6 +171,21 @@ def move_to_beamdrive():
         log(f"Move To BEAMDrive: Command timed out after {e.timeout} seconds")
     except subprocess.SubprocessError as e:
         log(f"Move To BEAMDrive: A general subprocess error occurred: {e}")
+        
+def clear_supervisor_data():
+    """[NOT IN USE YET] Deletes data from the data folder on the supervisor after successfully backing up the tohe NAS Unit and BEAMDrive"""
+    cmd = ["sudo", "rm", "-rf", f"{SUPERVISOR_DATA_ROOT}/*"]
+    try:
+        subprocess.run(cmd, capture_output=True, check=True, text=True)
+    except FileNotFoundError:
+        log("ERROR: The command was not found.")
+    except subprocess.CalledProcessError as e:
+        log(f"Deleting Supervisor Data ERROR: Command failed with exit code {e.returncode}")
+        log(f"Error detail: {e.stderr}")
+    except subprocess.TimeoutExpired as e:
+        log(f"Deleting Supervisor Data: Command timed out after {e.timeout} seconds")
+    except subprocess.SubprocessError as e:
+        log(f"Deleting Supervisor Data: A general subprocess error occurred: {e}")
 
 # ---------------------------------------------------
 # MAIN PROCESS

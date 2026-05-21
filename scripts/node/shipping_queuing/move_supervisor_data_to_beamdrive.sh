@@ -7,7 +7,7 @@ MOUNT_POINT="/home/pi/usbmnt"
 mkdir -p "$MOUNT_POINT"
 
 echo "Mounting USB..."
-sudo mount LABEL=BEAMDrive "$MOUNT_POINT"
+sudo mount /dev/sda1 "$MOUNT_POINT"
 trap 'echo "Unmounting USB..."; sudo umount "$MOUNT_POINT"' EXIT
 
 echo "Copying data..."
