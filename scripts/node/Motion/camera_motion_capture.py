@@ -209,6 +209,9 @@ class MotionCameraCapture:
         self.photo_flash_cooldown_sec = float(
             self.camera_config.get("motion_photo_flash_cooldown_sec", 0.1)
         )
+        self.photo_awb_settle_sec = float(
+            self.camera_config.get("photo_awb_settle_sec", 1.0)
+        )
         self.video_flash_duration_sec = float(
             self.camera_config.get(
                 "motion_video_flash_duration_sec",
@@ -232,6 +235,10 @@ class MotionCameraCapture:
             "ExposureTime": exposure_us,
             "AnalogueGain": analogue_gain,
         }
+        self.photo_controls = {
+            "AeEnable": True,
+            "AwbEnable": True,
+        }
 
         self.video_config = self.picam2.create_video_configuration(
             main={"size": (self.video_width, self.video_height), "format": "YUV420"},
@@ -239,7 +246,8 @@ class MotionCameraCapture:
             transform=Transform(),
         )
         self.still_config = self.picam2.create_still_configuration(
-            main={"size": (self.picture_width, self.picture_height)}
+            main={"size": (self.picture_width, self.picture_height)},
+            controls=self.photo_controls,
         )
 
         logger.info(
@@ -263,6 +271,11 @@ class MotionCameraCapture:
             "Flash enabled=%s gpio=%s",
             self.flash_enabled,
             self.flash_pin,
+        )
+        logger.info(
+            "Photo auto controls: awb_settle_sec=%s flash_warmup_sec=%s",
+            self.photo_awb_settle_sec,
+            self.photo_flash_warmup_sec,
         )
 
     @property
@@ -321,6 +334,13 @@ class MotionCameraCapture:
         self.picam2.stop()
         self.picam2.configure(self.still_config)
         self.picam2.start()
+        self.picam2.set_controls(self.photo_controls)
+        if self.photo_awb_settle_sec > 0:
+            logger.info(
+                "Settling still-photo exposure and white balance for %.2fs",
+                self.photo_awb_settle_sec,
+            )
+            time.sleep(self.photo_awb_settle_sec)
 
         photos = []
         for i in range(1, self.picture_count + 1):
@@ -329,6 +349,7 @@ class MotionCameraCapture:
             if flash_active:
                 self.set_flash_state(True)
                 logger.info("Flash pulse for photo: %s", photo_path.name)
+                self.picam2.set_controls(self.photo_controls)
                 if self.photo_flash_warmup_sec > 0:
                     time.sleep(self.photo_flash_warmup_sec)
             try:
