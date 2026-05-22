@@ -19,8 +19,8 @@ Folder layout:
 """
 
 import json
+import math
 import subprocess
-import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -43,7 +43,6 @@ BASE_DIR     = NODE_DIR.parent.parent
 CONFIG_PATH  = NODE_DIR / "config.json"
 LUX_LOG_PATH = Path("/home/pi/data/tsl2591/lux_data.json")
 
-AUDIO_SCRIPT  = MOTION_DIR / "audiomoth_motion_record.py"
 MERGE_WORKER  = MOTION_DIR / "motion_merge_worker.py"
 
 DEFAULT_DATA_DIR = Path("/home/pi/data")
@@ -144,19 +143,92 @@ def should_use_flash(camera_config, camera_capture, lux_value):
     return lux_value is not None and lux_value < flash_threshold
 
 
-def record_new_motion_audio(audio_output, start_at_epoch, duration_sec, metadata_output=None):
+def get_motion_audio_settings(config):
+    audio_config = config.get("audio", {})
+    motion_audio_config = config.get("motion_audio", {})
+    return {
+        "sample_rate": int(motion_audio_config.get(
+            "sample_rate", audio_config.get("sample_rate", 48000)
+        )),
+        "channels": int(motion_audio_config.get(
+            "channels", audio_config.get("channels", 1)
+        )),
+        "alsa_device": motion_audio_config.get("alsa_device", "plughw:1,0"),
+        "alsa_format": motion_audio_config.get("alsa_format", "S16_LE"),
+    }
+
+
+def write_audio_metadata(metadata_output, metadata):
+    if metadata_output is None:
+        return
+    try:
+        metadata_output = Path(metadata_output)
+        metadata_output.parent.mkdir(parents=True, exist_ok=True)
+        with open(metadata_output, "w") as f:
+            json.dump(metadata, f, indent=2)
+    except Exception as e:
+        logger.warning("Could not write audio metadata %s: %s", metadata_output, e)
+
+
+def start_motion_audio_recording(config, audio_output, duration_sec, metadata_output=None):
+    settings = get_motion_audio_settings(config)
+    audio_output = Path(audio_output)
+    audio_output.parent.mkdir(parents=True, exist_ok=True)
+
     cmd = [
-        "python3", str(AUDIO_SCRIPT),
-        "--output", str(audio_output),
-        "--start-at-epoch", str(start_at_epoch),
-        "--duration-sec", str(duration_sec),
+        "arecord",
+        "-D", settings["alsa_device"],
+        "-f", settings["alsa_format"],
+        "-r", str(settings["sample_rate"]),
+        "-c", str(settings["channels"]),
+        "-d", str(int(math.ceil(duration_sec))),
+        str(audio_output),
     ]
-    if metadata_output is not None:
-        cmd.extend(["--metadata-output", str(metadata_output)])
-    logger.info("Recording new motion audio clip: %s", audio_output)
-    result = subprocess.run(cmd)
-    logger.info("Audio recording command exited with code %s", result.returncode)
-    return result.returncode == 0 and audio_output.exists()
+    logger.info("Starting live audio recording before video: %s", audio_output)
+    logger.info("Running command: %s", " ".join(cmd))
+    proc = subprocess.Popen(cmd)
+    start_epoch = time.time()
+    start_monotonic = time.monotonic()
+    write_audio_metadata(metadata_output, {
+        "record_start_epoch": start_epoch,
+        "requested_duration_sec": duration_sec,
+        "output": str(audio_output),
+        "command": cmd,
+    })
+    return proc, start_epoch, start_monotonic
+
+
+def finish_motion_audio_recording(
+    proc,
+    audio_output,
+    metadata_output,
+    start_epoch,
+    start_monotonic,
+    timeout_sec,
+):
+    try:
+        result = proc.wait(timeout=timeout_sec)
+    except subprocess.TimeoutExpired:
+        logger.warning("Audio recording timed out; terminating arecord")
+        proc.terminate()
+        try:
+            result = proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            result = proc.wait()
+
+    elapsed = time.monotonic() - start_monotonic
+    end_epoch = time.time()
+    write_audio_metadata(metadata_output, {
+        "record_start_epoch": start_epoch,
+        "record_end_epoch": end_epoch,
+        "elapsed_sec": elapsed,
+        "returncode": result,
+        "output": str(audio_output),
+    })
+    logger.info("Audio recording command exited with code %s", result)
+    logger.info("Audio recording complete; wall-clock recording time %.3fs", elapsed)
+    return result == 0 and Path(audio_output).exists()
 
 
 def load_audio_metadata(metadata_path):
@@ -373,17 +445,28 @@ def handle_motion(config, camera_capture):
         except Exception as e:
             logger.exception("High-resolution photo capture failed before video: %s", e)
 
-    start_at_epoch       = time.time() + video_start_delay
-    audio_start_at_epoch = max(time.time(), start_at_epoch - audio_preroll_sec)
-    audio_duration       = (
-        motion_duration
-        + max(start_at_epoch - audio_start_at_epoch, 0.0)
-        + audio_postroll_sec
-    )
-    audio_trim_start_sec = (
-        max(start_at_epoch - audio_start_at_epoch, 0.0)
-        + audio_sync_offset_sec
-    )
+    target_audio_preroll_sec = max(video_start_delay, audio_preroll_sec)
+    audio_duration = motion_duration + target_audio_preroll_sec + audio_postroll_sec
+
+    try:
+        audio_proc, audio_start_epoch, audio_start_monotonic = start_motion_audio_recording(
+            config,
+            motion_audio_file,
+            audio_duration,
+            motion_audio_metadata_file,
+        )
+    except Exception as e:
+        logger.exception("Audio capture failed to start: %s", e)
+        audio_proc = None
+        audio_start_epoch = None
+        audio_start_monotonic = None
+
+    if audio_start_epoch is not None:
+        start_at_epoch = audio_start_epoch + target_audio_preroll_sec
+    else:
+        start_at_epoch = time.time() + video_start_delay
+
+    audio_trim_start_sec = target_audio_preroll_sec + audio_sync_offset_sec
     motion_start         = datetime.fromtimestamp(start_at_epoch)
 
     logger.info(
@@ -393,59 +476,40 @@ def handle_motion(config, camera_capture):
     )
     logger.info(
         "Audio pre-roll %.3fs, post-roll %.3fs, sync offset %.3fs, total audio %.3fs",
-        max(start_at_epoch - audio_start_at_epoch, 0.0),
+        target_audio_preroll_sec,
         audio_postroll_sec,
         audio_sync_offset_sec,
         audio_duration,
     )
 
-    results = {
-        "video_file": None,
-        "video_duration_sec": None,
-        "video_start_epoch": None,
-        "audio_ready": False,
-    }
+    try:
+        video_file = run_camera_capture(
+            camera_capture,
+            timestamp_text,
+            images_dir,
+            video_dir,
+            start_at_epoch,
+            flash_active=flash_active,
+        )
+        video_duration_sec = camera_capture.last_video_elapsed_sec or motion_duration
+        video_start_epoch = camera_capture.last_video_start_epoch
+    except Exception as e:
+        logger.exception("Camera video capture failed: %s", e)
+        video_file = None
+        video_duration_sec = motion_duration
+        video_start_epoch = None
 
-    def camera_thread():
-        try:
-            results["video_file"] = run_camera_capture(
-                camera_capture,
-                timestamp_text,
-                images_dir,
-                video_dir,
-                start_at_epoch,
-                flash_active=flash_active,
-            )
-            results["video_duration_sec"] = camera_capture.last_video_elapsed_sec
-            results["video_start_epoch"] = camera_capture.last_video_start_epoch
-        except Exception as e:
-            logger.exception("Camera video capture failed: %s", e)
-
-    def audio_thread():
-        try:
-            logger.info("Recording synchronized live audio")
-            results["audio_ready"] = record_new_motion_audio(
-                motion_audio_file,
-                audio_start_at_epoch,
-                audio_duration,
-                motion_audio_metadata_file,
-            )
-        except Exception as e:
-            logger.exception("Audio capture failed: %s", e)
-
-    t_camera = threading.Thread(target=camera_thread, daemon=True)
-    t_audio  = threading.Thread(target=audio_thread,  daemon=True)
-
-    t_audio.start()
-    t_camera.start()
-
-    t_camera.join()
-    t_audio.join()
-
-    video_file  = results["video_file"]
-    video_duration_sec = results["video_duration_sec"] or motion_duration
-    video_start_epoch = results["video_start_epoch"]
-    audio_ready = results["audio_ready"]
+    if audio_proc is not None:
+        audio_ready = finish_motion_audio_recording(
+            audio_proc,
+            motion_audio_file,
+            motion_audio_metadata_file,
+            audio_start_epoch,
+            audio_start_monotonic,
+            audio_duration + 5,
+        )
+    else:
+        audio_ready = False
 
     if video_file is None:
         logger.error("Camera capture failed; no video to merge")
