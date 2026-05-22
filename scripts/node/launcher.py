@@ -18,9 +18,9 @@ SHIPPING_PATH = os.path.join(NODE_DIR, "shipping_queuing/shipping.py")
 MOTION_TRIGGER_PATH = os.path.join(NODE_DIR, "Motion/beam_motion_trigger.py")
 DATA_DIR = "/home/pi/data"
 SHIPPING_DIR = "/home/pi/shipping"
-LOG_PATH = "/home/pi/BEAMNode_Prototype2/logs/launcher.log"
-SHIPPING_LOG_PATH = "/home/pi/BEAMNode_Prototype2/logs/shipping.log"
-MOTION_LOG_PATH = "/home/pi/BEAMNode_Prototype2/logs/motion_output.log"
+LOG_PATH = "/home/pi/logs/launcher.log"
+SHIPPING_LOG_PATH = "/home/pi/logs/shipping.log"
+MOTION_LOG_PATH = "/home/pi/logs/motion_output.log"
 
 _MOTION_LOG_HANDLE = None
 
@@ -122,6 +122,7 @@ def move_data_to_shipping():
 
 if __name__ == "__main__":
     log("=== BEAMNode System Startup ===")
+    log("Daily data move scheduled for 18:00 UTC")
 
     # 1. REQUIREMENT: Run detect.py once on startup
     run_script_sync(DETECT_PATH)
