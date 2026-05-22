@@ -34,7 +34,7 @@ fi
 PROJECT_ROOT="/home/pi/BEAMNode_Prototype2"
 LORA_DIR="$PROJECT_ROOT/scripts/lora"
 SYSTEMD_DIR="/etc/systemd/system"
-LOG_DIR="$PROJECT_ROOT/logs"
+LOG_DIR="/home/pi/logs"
 CONFIG_PATH="$PROJECT_ROOT/scripts/node/config.json"
 
 read_lora_config() {
