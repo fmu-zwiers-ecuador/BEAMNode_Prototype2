@@ -81,15 +81,65 @@ def get_required_number(config_section, key, label, value_type=float):
     return value
 
 
-def remux_h264_to_mp4(raw_video_path, mp4_output_path, video_fps):
+def count_h264_frames(raw_video_path):
+    cmd = [
+        "ffprobe",
+        "-v", "error",
+        "-count_frames",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=nb_read_frames",
+        "-of", "default=nokey=1:noprint_wrappers=1",
+        str(raw_video_path),
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+    except FileNotFoundError:
+        logger.warning("ffprobe not found; using configured video fps")
+        return None
+
+    if result.returncode != 0:
+        logger.warning("ffprobe frame count failed: %s", result.stderr.strip())
+        return None
+
+    try:
+        frame_count = int(result.stdout.strip())
+    except ValueError:
+        logger.warning("ffprobe returned invalid frame count: %s", result.stdout.strip())
+        return None
+
+    if frame_count <= 0:
+        logger.warning("ffprobe returned no video frames")
+        return None
+
+    return frame_count
+
+
+def remux_h264_to_mp4(raw_video_path, mp4_output_path, video_fps, wall_duration_sec=None):
+    remux_fps = float(video_fps)
+    frame_count = None
+    if wall_duration_sec is not None and wall_duration_sec > 0:
+        frame_count = count_h264_frames(raw_video_path)
+        if frame_count is not None:
+            measured_fps = frame_count / wall_duration_sec
+            if measured_fps > 0:
+                remux_fps = measured_fps
+                logger.info(
+                    "Measured video fps %.3f from %s frames over %.3fs",
+                    remux_fps,
+                    frame_count,
+                    wall_duration_sec,
+                )
+
     cmd = [
         "ffmpeg", "-y",
-        "-framerate", str(video_fps),
+        "-fflags", "+genpts",
+        "-r", f"{remux_fps:.6f}",
         "-i", str(raw_video_path),
         "-c:v", "copy",
+        "-video_track_timescale", "90000",
         str(mp4_output_path),
     ]
-    logger.info("Remuxing raw H.264 to MP4: %s", mp4_output_path)
+    logger.info("Remuxing raw H.264 to MP4 at %.3f fps: %s", remux_fps, mp4_output_path)
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
     except FileNotFoundError:
@@ -108,6 +158,7 @@ class MotionCameraCapture:
         self.camera_config = config.get("camera", {})
         self.picam2 = Picamera2()
         self.started = False
+        self.last_video_elapsed_sec = None
 
         motion_config = config["motion_capture"]
         video_settings = self.camera_config["video"]
@@ -323,10 +374,7 @@ class MotionCameraCapture:
         try:
             fps_warned = False
             last_frame = None
-            last_time = time.monotonic()
-            start_frame = None
-            target_frames = int(self.video_fps * self.video_seconds)
-            max_wall_time = self.video_seconds * 2
+            last_time  = time.monotonic()
             flash_off_at = None
 
             if flash_active:
@@ -341,61 +389,41 @@ class MotionCameraCapture:
 
             while True:
                 elapsed = time.monotonic() - record_start
+
                 if flash_off_at is not None and time.monotonic() >= flash_off_at:
                     self.set_flash_state(False)
                     flash_off_at = None
 
-                if elapsed >= max_wall_time:
-                    logger.warning("Frame-based stop timed out; stopping at %.2fs", elapsed)
+                if elapsed >= self.video_seconds:
                     break
-                time.sleep(0.25)
-                try:
-                    metadata = self.picam2.capture_metadata()
-                    frame_number = metadata.get("FrameNumber")
-                    if frame_number is None:
-                        request = self.picam2.capture_request()
-                        try:
-                            request_metadata = request.get_metadata()
-                            frame_number = request_metadata.get("FrameNumber")
-                        finally:
-                            request.release()
-                    if frame_number is None:
-                        if not fps_warned:
-                            logger.warning("FPS logging unavailable: FrameNumber missing in metadata")
-                            fps_warned = True
-                        if elapsed >= self.video_seconds:
-                            break
-                        continue
-                    if start_frame is None:
-                        start_frame = frame_number
-                    if start_frame is not None and (frame_number - start_frame) >= target_frames:
-                        break
 
-                    now = time.monotonic()
-                    if last_frame is not None:
-                        dt = now - last_time
+                time.sleep(0.25)
+
+                try:
+                    metadata     = self.picam2.capture_metadata()
+                    frame_number = metadata.get("FrameNumber")
+                    if frame_number is not None and last_frame is not None:
+                        dt = time.monotonic() - last_time
                         if dt > 0:
-                            fps = (frame_number - last_frame) / dt
-                            logger.info("Recording FPS: %.2f", fps)
+                            logger.info("Recording FPS: %.2f", (frame_number - last_frame) / dt)
                     last_frame = frame_number
-                    last_time = now
+                    last_time  = time.monotonic()
                 except Exception as exc:
                     if not fps_warned:
                         logger.warning("FPS logging unavailable: %s", exc)
                         fps_warned = True
-                    if elapsed >= self.video_seconds:
-                        break
         finally:
             self.set_flash_state(False)
             self.picam2.stop_recording()
 
         elapsed = time.monotonic() - record_start
+        self.last_video_elapsed_sec = elapsed
         logger.info("Video recording complete; wall-clock recording time %.3fs", elapsed)
 
         if not raw_video_output.exists():
             return None
 
-        if remux_h264_to_mp4(raw_video_output, video_output, self.video_fps):
+        if remux_h264_to_mp4(raw_video_output, video_output, self.video_fps, elapsed):
             return video_output
 
         return raw_video_output

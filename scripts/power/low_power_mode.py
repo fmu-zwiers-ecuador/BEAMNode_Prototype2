@@ -14,20 +14,15 @@ import logging
 import os
 import sys
 import re
- 
+
 # ─── Configuration ────────────────────────────────────────────────────────────
- 
-SERIAL_PORT        = "/dev/ttyUSB0"   # Change if your Victron shows up on a different port
-BAUD_RATE          = 19200            # VE.Direct standard baud rate
-SERIAL_TIMEOUT     = 5               # seconds to wait for a full frame
- 
-CONFIG_PATH        = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"   # Path to your sensor config file
- 
-LOW_VOLTAGE_THRESHOLD  = 11.8        # V — turn sensors OFF at or below this
-HIGH_VOLTAGE_THRESHOLD = 13.1        # V — turn sensors back ON at or above this
- 
-POLL_INTERVAL      = 30              # seconds between voltage checks
-MAX_PARSE_FAILURES = 5               # consecutive failures before alerting
+
+CONFIG_PATH = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
+
+# Constants are set in main() after load_config is defined
+SERIAL_PORT = BAUD_RATE = SERIAL_TIMEOUT = None
+LOW_VOLTAGE_THRESHOLD = HIGH_VOLTAGE_THRESHOLD = None
+POLL_INTERVAL = MAX_PARSE_FAILURES = None
  
 # ─── Logging Setup ────────────────────────────────────────────────────────────
  
@@ -125,12 +120,12 @@ def set_all_sensors(path: str, enabled: bool) -> None:
     with open(path, "r") as f:
         raw = f.read()
     # Parse json just to identify which keys are valid sensor blocks
-    config = load_config(path)
+    config = json.loads(raw)
  
     changed = []
     skipped = []
     new_raw = raw
- 
+
     for sensor_name, sensor_cfg in config.items():
         if not isinstance(sensor_cfg, dict):
             # Top-level key is not a sensor block (e.g. a plain string/int) — skip
@@ -187,10 +182,24 @@ def set_all_sensors(path: str, enabled: bool) -> None:
 # ─── Main Loop ────────────────────────────────────────────────────────────────
  
 def main():
+    global SERIAL_PORT, BAUD_RATE, SERIAL_TIMEOUT
+    global LOW_VOLTAGE_THRESHOLD, HIGH_VOLTAGE_THRESHOLD
+    global POLL_INTERVAL, MAX_PARSE_FAILURES
+
     if not os.path.exists(CONFIG_PATH):
         log.error(f"config.json not found at: {os.path.abspath(CONFIG_PATH)}")
         sys.exit(1)
- 
+    _config = load_config(CONFIG_PATH)
+    _lpm = _config["low_power_mode"]
+
+    SERIAL_PORT            = _lpm["serial_port"]
+    BAUD_RATE              = _lpm["baud_rate"]
+    SERIAL_TIMEOUT         = _lpm["serial_timeout"]
+    LOW_VOLTAGE_THRESHOLD  = _lpm["voltage_off_threshold"]
+    HIGH_VOLTAGE_THRESHOLD = _lpm["voltage_on_threshold"]
+    POLL_INTERVAL          = _lpm["poll_interval"]
+    MAX_PARSE_FAILURES     = _lpm["max_parse_failures"]
+
     log.info("═" * 50)
     log.info("Low Power Mode Manager started")
     log.info(f"  Serial port : {SERIAL_PORT} @ {BAUD_RATE} baud")
@@ -224,7 +233,6 @@ def main():
             continue
  
         consecutive_failures = 0
-        log.info(f"Battery voltage: {voltage:.3f} V")
  
         # ── Hysteresis logic ─────────────────────────────────────────────────
         # Only switch states at the thresholds, not in the middle band.
@@ -263,4 +271,3 @@ if __name__ == "__main__":
     except Exception as e:
         log.exception(f"Unexpected error: {e}")
         sys.exit(1)
- 

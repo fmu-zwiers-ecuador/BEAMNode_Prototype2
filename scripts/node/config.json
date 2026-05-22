@@ -153,13 +153,16 @@
 "motion_capture": {
   "directory": "motion_events",
   "duration_sec": 10,
-  "start_delay_sec": 10
+  "start_delay_sec": 1.0,
+  "audio_preroll_sec": 1.0,
+  "audio_postroll_sec": 0.5,
+  "audio_sync_offset_sec": 0.0
 },
  "camera": {
   "enabled": true,
   "interface": "CSI",
   "library": "picamera2",
-  "expected_model": "imx219",
+  "expected_model": "imx708",
   "device_id": 0,
   "directory": "camera",
   "file_name": "camera_status.json",
@@ -179,18 +182,21 @@
   "flash_gpio": 26,
   "servo_gpio": 18,
   "settle_sec": 6,
-  "video_bitrate": 2000000,
+  "video_bitrate": 8000000,
   "video_exposure_us": 55555,
   "video_gain": 2.0,
   "video_warmup_sec": 1.0,
   "video": {
-    "resolution": [640, 480],
+    "resolution": [1920, 1080],
     "fps": 18
   },
   "pictures": {
-    "resolution": [1920, 1080],
+    "resolution": [4608, 2592],
     "count": 3,
-    "mode": "after_video"
+    "mode": "before_video",
+    "video_frame_first_sec": 1.0,
+    "video_frame_interval_sec": 1.0,
+    "video_frame_jpeg_quality": 1
   },
   "cooldown_sec": 0.5,
   "flash_lux_threshold": 10,
@@ -272,6 +278,23 @@
     "record_schema": {
       "timestamp": "ISO8601",
       "distance_cm": "float"
+    }
+  },
+  "low_power_mode": {
+    "script_name": "low_power_mode.py",
+    "directory": "low_power_mode",
+    "file_name": "low_power_log.json",
+    "serial_port": "/dev/ttyUSB0",
+    "baud_rate": 19200,
+    "serial_timeout": 5,
+    "voltage_off_threshold": 11.8,
+    "voltage_on_threshold": 13.1,
+    "poll_interval": 30,
+    "max_parse_failures": 5,
+    "record_schema": {
+      "timestamp": "ISO8601",
+      "status": "string",
+      "voltage": "float"
     }
   }
 }
