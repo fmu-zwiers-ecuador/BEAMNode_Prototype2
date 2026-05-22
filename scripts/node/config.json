@@ -272,5 +272,22 @@
       "timestamp": "ISO8601",
       "distance_cm": "float"
     }
+  },
+  "low_power_mode": {
+    "script_name": "low_power_mode.py",
+    "directory": "low_power_mode",
+    "file_name": "low_power_log.json",
+    "serial_port": "/dev/ttyUSB0",
+    "baud_rate": 19200,
+    "serial_timeout": 5,
+    "voltage_off_threshold": 11.8,
+    "voltage_on_threshold": 13.1,
+    "poll_interval": 30,
+    "max_parse_failures": 5,
+    "record_schema": {
+      "timestamp": "ISO8601",
+      "status": "string",
+      "voltage": "float"
+    }
   }
 }
