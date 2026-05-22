@@ -153,10 +153,10 @@
 "motion_capture": {
   "directory": "motion_events",
   "duration_sec": 10,
-  "start_delay_sec": 0.5,
-  "audio_preroll_sec": 0.5,
+  "start_delay_sec": 1.0,
+  "audio_preroll_sec": 1.0,
   "audio_postroll_sec": 0.5,
-  "audio_sync_offset_sec": 0.25
+  "audio_sync_offset_sec": 0.0
 },
  "camera": {
   "enabled": true,

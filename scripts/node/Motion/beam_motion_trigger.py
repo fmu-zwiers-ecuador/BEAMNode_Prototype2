@@ -47,6 +47,8 @@ AUDIO_SCRIPT  = MOTION_DIR / "audiomoth_motion_record.py"
 MERGE_WORKER  = MOTION_DIR / "motion_merge_worker.py"
 
 DEFAULT_DATA_DIR = Path("/home/pi/data")
+LOG_DIR = Path("/home/pi/logs")
+VIDEO_PROCESSING_LOG_PATH = LOG_DIR / "motion_video_processing.log"
 
 MOTION_AUDIO_PREFIX = "motionaudio_"
 FINAL_VIDEO_PREFIX  = "motionvid_audio_"
@@ -264,7 +266,7 @@ def queue_video_audio_merge(
     video_fps,
     audio_trim_start_sec,
 ):
-    merge_log_path = final_output.with_suffix(".merge.log")
+    merge_log_path = VIDEO_PROCESSING_LOG_PATH
     merge_job_path = final_output.with_suffix(".merge.json")
     merge_job = {
         "video_file": str(video_file),

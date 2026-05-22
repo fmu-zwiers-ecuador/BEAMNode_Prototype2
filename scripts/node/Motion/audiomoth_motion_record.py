@@ -116,9 +116,9 @@ def main():
     logger.info("Running command: %s", " ".join(cmd))
 
     wait_until_epoch(args.start_at_epoch)
-    record_start_epoch = time.time()
     record_start = time.monotonic()
     proc = subprocess.Popen(cmd)
+    record_start_epoch = time.time()
     logger.info("Audio recording started")
     result = proc.wait()
     elapsed = time.monotonic() - record_start

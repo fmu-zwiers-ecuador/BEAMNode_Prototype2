@@ -21,6 +21,7 @@ from pathlib import Path
 
 LOG_DIR = Path("/home/pi/logs")
 LOCK_PATH = LOG_DIR / "motion_merge.lock"
+VIDEO_PROCESSING_LOG_PATH = LOG_DIR / "motion_video_processing.log"
 DEFAULT_QUEUE_DIR = Path("/home/pi/data/motion_events")
 
 
@@ -128,7 +129,7 @@ def run_merge(job_path, claim=True):
         finish_job(claimed_job_path, False)
         return 1
 
-    merge_log_path = Path(job["merge_log_path"])
+    merge_log_path = Path(job.get("merge_log_path", str(VIDEO_PROCESSING_LOG_PATH)))
     final_output = Path(job["final_output"])
 
     if recovering_interrupted_job:
@@ -198,8 +199,7 @@ def find_pending_jobs(queue_dir):
 
 def watch_queue(queue_dir, poll_sec):
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    service_log = LOG_DIR / "motion_merge_worker.log"
-    append_merge_log(service_log, f"WATCH_STARTED queue={queue_dir} pid={os.getpid()}")
+    append_merge_log(VIDEO_PROCESSING_LOG_PATH, f"WATCH_STARTED queue={queue_dir} pid={os.getpid()}")
 
     while True:
         pending_jobs = find_pending_jobs(queue_dir)
