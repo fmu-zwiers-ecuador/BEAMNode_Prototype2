@@ -19,6 +19,7 @@ MOTION_TRIGGER_PATH = "/BEAMNode_Prototype1/scripts/node/Motion/beam_motion_trig
 DATA_DIR = "/home/pi/data"
 SHIPPING_DIR = "/home/pi/shipping"
 LOG_PATH = "/home/pi/logs/launcher.log"
+SHIPPING_LOG_PATH = "/home/pi/BEAMNode_Prototype2/logs/shipping.log"
 
 def log(msg):
     """Internal launcher logging."""
@@ -31,13 +32,27 @@ def log(msg):
     except:
         pass
 
+def log_shipping(msg):
+    """Shipping-specific logging."""
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{ts}] [shipping] {msg}"
+    print(line)
+    try:
+        os.makedirs(os.path.dirname(SHIPPING_LOG_PATH), exist_ok=True)
+        with open(SHIPPING_LOG_PATH, "a") as f:
+            f.write(line + "\n")
+    except:
+        pass
+
 def run_script_sync(path):
     """Runs a script and waits for it to finish (Synchronous)."""
     if os.path.exists(path):
         log(f"Executing: {path}")
-        subprocess.run(["python3", path])
+        result = subprocess.run(["python3", path])
+        return result.returncode
     else:
         log(f"ERROR: File not found at {path}")
+        return None
 
 def start_scheduler_async():
     """Starts the original scheduler.py in the background (Asynchronous)."""
@@ -119,7 +134,14 @@ if __name__ == "__main__":
             # We use a 30-second window to ensure the trigger catches
             if now.hour == 13 and now.minute == 0 and 0 <= now.second <= 30:
                 log("13:00 Target reached. Running Shipping.py...")
-                run_script_sync(SHIPPING_PATH)
+                log_shipping("Scheduled shipping trigger fired at 13:00")
+                result_code = run_script_sync(SHIPPING_PATH)
+                if result_code == 0:
+                    log_shipping("Shipping completed successfully (exit code 0)")
+                elif result_code is None:
+                    log_shipping("Shipping failed to start (script missing)")
+                else:
+                    log_shipping(f"Shipping failed (exit code {result_code})")
                 log("Shipping complete. Resuming monitor.")
                 time.sleep(31) # Avoid double-triggering within the same minute
 
