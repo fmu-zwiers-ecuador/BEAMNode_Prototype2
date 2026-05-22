@@ -10,6 +10,7 @@ Duration comes from motion_capture.duration_sec so it lines up with the video.
 
 import argparse
 import json
+import math
 import subprocess
 import time
 from pathlib import Path
@@ -60,6 +61,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True)
     parser.add_argument("--start-at-epoch", type=float, default=None)
+    parser.add_argument(
+        "--duration-sec",
+        type=float,
+        default=None,
+        help="Override the motion audio recording duration.",
+    )
     args = parser.parse_args()
 
     config = load_config()
@@ -68,7 +75,7 @@ def main():
     motion_audio_config = config.get("motion_audio", {})
 
     try:
-        duration_sec = get_required_number(
+        config_duration_sec = get_required_number(
             config["motion_capture"],
             "duration_sec",
             "motion_capture.duration_sec",
@@ -77,6 +84,11 @@ def main():
     except (KeyError, ValueError) as e:
         logger.error("%s", e)
         raise SystemExit(1)
+    duration_sec = args.duration_sec if args.duration_sec is not None else config_duration_sec
+    if duration_sec <= 0:
+        logger.error("--duration-sec must be greater than 0")
+        raise SystemExit(1)
+
     sample_rate  = int(motion_audio_config.get(
         "sample_rate", audio_config.get("sample_rate", 48000)
     ))
@@ -95,7 +107,7 @@ def main():
         "-f", audio_format,
         "-r", str(sample_rate),
         "-c", str(channels),
-        "-d", str(duration_sec),
+        "-d", str(int(math.ceil(duration_sec))),
         str(output_path),
     ]
 
