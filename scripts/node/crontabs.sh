@@ -7,7 +7,7 @@ PI_GROUP="pi"
 
 PY="/usr/bin/python3"
 BASE="/home/pi/BEAMNode_Prototype2/scripts/node"
-LOG_DIR="/home/pi/logs"
+LOG_DIR="/home/pi/BEAMNode_Prototype2/logs"
 
 SCHEDULER="$BASE/scheduler.py"
 SHIPPING="$BASE/shipping_queuing/shipping.py"
