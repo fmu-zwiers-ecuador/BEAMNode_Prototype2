@@ -18,8 +18,20 @@ SHIPPING_PATH = os.path.join(NODE_DIR, "shipping_queuing/shipping.py")
 MOTION_TRIGGER_PATH = os.path.join(NODE_DIR, "Motion/beam_motion_trigger.py")
 DATA_DIR = "/home/pi/data"
 SHIPPING_DIR = "/home/pi/shipping"
-LOG_PATH = "/home/pilogs/launcher.log"
-SHIPPING_LOG_PATH = "/home/pi/logs/shipping.log"
+LOG_PATH = "/home/pi/BEAMNode_Prototype2/logs/launcher.log"
+SHIPPING_LOG_PATH = "/home/pi/BEAMNode_Prototype2/logs/shipping.log"
+MOTION_LOG_PATH = "/home/pi/BEAMNode_Prototype2/logs/motion_output.log"
+
+_MOTION_LOG_HANDLE = None
+
+def ensure_log_file(path):
+    """Create log file and parent directories if missing."""
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a"):
+            pass
+    except:
+        pass
 
 def log(msg):
     """Internal launcher logging."""
@@ -27,6 +39,7 @@ def log(msg):
     line = f"[{ts}] [launcher] {msg}"
     print(line)
     try:
+        ensure_log_file(LOG_PATH)
         with open(LOG_PATH, "a") as f:
             f.write(line + "\n")
     except:
@@ -38,7 +51,7 @@ def log_shipping(msg):
     line = f"[{ts}] [shipping] {msg}"
     print(line)
     try:
-        os.makedirs(os.path.dirname(SHIPPING_LOG_PATH), exist_ok=True)
+        ensure_log_file(SHIPPING_LOG_PATH)
         with open(SHIPPING_LOG_PATH, "a") as f:
             f.write(line + "\n")
     except:
@@ -67,7 +80,14 @@ def start_motion_trigger_async():
     """Starts motion trigger on startup (Asynchronous)."""
     if os.path.exists(MOTION_TRIGGER_PATH):
         log(f"Starting Motion Trigger: {MOTION_TRIGGER_PATH}")
-        return subprocess.Popen(["python3", MOTION_TRIGGER_PATH])
+        global _MOTION_LOG_HANDLE
+        ensure_log_file(MOTION_LOG_PATH)
+        _MOTION_LOG_HANDLE = open(MOTION_LOG_PATH, "a")
+        return subprocess.Popen(
+            ["python3", MOTION_TRIGGER_PATH],
+            stdout=_MOTION_LOG_HANDLE,
+            stderr=_MOTION_LOG_HANDLE,
+        )
     else:
         log(f"ERROR: Motion trigger script missing at {MOTION_TRIGGER_PATH}")
         return None
