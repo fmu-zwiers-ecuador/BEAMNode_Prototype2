@@ -18,8 +18,8 @@ SHIPPING_PATH = os.path.join(NODE_DIR, "shipping_queuing/shipping.py")
 MOTION_TRIGGER_PATH = os.path.join(NODE_DIR, "Motion/beam_motion_trigger.py")
 DATA_DIR = "/home/pi/data"
 SHIPPING_DIR = "/home/pi/shipping"
-LOG_PATH = "/home/pi/BEAMNode_Prototype2/logs/launcher.log"
-SHIPPING_LOG_PATH = "/home/pi/BEAMNode_Prototype2/logs/shipping.log"
+LOG_PATH = "/home/pilogs/launcher.log"
+SHIPPING_LOG_PATH = "/home/pi/logs/shipping.log"
 
 def log(msg):
     """Internal launcher logging."""
