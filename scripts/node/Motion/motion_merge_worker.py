@@ -72,10 +72,11 @@ def finish_job(job_path, succeeded):
         pass
 
 
-def build_merge_command(job):
+def build_merge_command(job, output_path=None):
     duration_sec = float(job["duration_sec"])
     audio_trim_start_sec = float(job["audio_trim_start_sec"])
     video_fps = float(job["video_fps"])
+    final_output = output_path if output_path is not None else job["final_output"]
 
     if audio_trim_start_sec >= 0:
         audio_filter = (
@@ -113,7 +114,7 @@ def build_merge_command(job):
         "-r", f"{video_fps:g}",
         "-c:a", "aac",
         "-t", str(duration_sec),
-        str(job["final_output"]),
+        str(final_output),
     ]
 
 
@@ -131,11 +132,17 @@ def run_merge(job_path, claim=True):
 
     merge_log_path = Path(job.get("merge_log_path", str(VIDEO_PROCESSING_LOG_PATH)))
     final_output = Path(job["final_output"])
+    temp_output = final_output.with_suffix(final_output.suffix + ".tmp")
 
     if recovering_interrupted_job:
         append_merge_log(merge_log_path, f"RECOVERING_INTERRUPTED_JOB job={claimed_job_path}")
 
     append_merge_log(merge_log_path, f"WORKER_STARTED job={claimed_job_path} pid={os.getpid()}")
+
+    if final_output.exists() and final_output.stat().st_size > 0:
+        append_merge_log(merge_log_path, f"SKIPPED output_already_exists={final_output}")
+        finish_job(claimed_job_path, True)
+        return 0
 
     missing_inputs = [
         path for path in [Path(job["video_file"]), Path(job["audio_file"])]
@@ -147,6 +154,12 @@ def run_merge(job_path, claim=True):
         return 1
 
     final_output.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        temp_output.unlink()
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -159,12 +172,13 @@ def run_merge(job_path, claim=True):
         fcntl.flock(lock_file, fcntl.LOCK_EX)
         append_merge_log(merge_log_path, "LOCK_ACQUIRED")
 
-        cmd = build_merge_command(job)
+        cmd = build_merge_command(job, temp_output)
         append_merge_log(
             merge_log_path,
             (
                 f"START video={job['video_file']} audio={job['audio_file']} "
-                f"output={job['final_output']} duration={float(job['duration_sec']):.3f}s "
+                f"output={job['final_output']} temp_output={temp_output} "
+                f"duration={float(job['duration_sec']):.3f}s "
                 f"fps={float(job['video_fps']):g} "
                 f"audio_trim_start={float(job['audio_trim_start_sec']):.3f}s"
             ),
@@ -177,7 +191,8 @@ def run_merge(job_path, claim=True):
             finish_job(claimed_job_path, False)
             return 1
 
-        if result.returncode == 0 and final_output.exists():
+        if result.returncode == 0 and temp_output.exists():
+            temp_output.replace(final_output)
             append_merge_log(merge_log_path, f"COMPLETE output={final_output}")
             finish_job(claimed_job_path, True)
             return 0
@@ -185,6 +200,10 @@ def run_merge(job_path, claim=True):
         append_merge_log(merge_log_path, f"FAILED returncode={result.returncode}")
         if result.stderr:
             append_merge_log(merge_log_path, f"FFMPEG_STDERR {result.stderr.strip()}")
+        try:
+            temp_output.unlink()
+        except Exception:
+            pass
         finish_job(claimed_job_path, False)
         return result.returncode or 1
 

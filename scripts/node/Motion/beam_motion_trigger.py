@@ -43,8 +43,6 @@ BASE_DIR     = NODE_DIR.parent.parent
 CONFIG_PATH  = NODE_DIR / "config.json"
 LUX_LOG_PATH = Path("/home/pi/data/tsl2591/lux_data.json")
 
-MERGE_WORKER  = MOTION_DIR / "motion_merge_worker.py"
-
 DEFAULT_DATA_DIR = Path("/home/pi/data")
 LOG_DIR = Path("/home/pi/logs")
 VIDEO_PROCESSING_LOG_PATH = LOG_DIR / "motion_video_processing.log"
@@ -362,21 +360,7 @@ def queue_video_audio_merge(
         logger.warning("Could not queue final video processing; see %s", merge_log_path)
         return
 
-    try:
-        subprocess.Popen(
-            ["python3", str(MERGE_WORKER), "--job", str(merge_job_path)],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            close_fds=True,
-            start_new_session=True,
-        )
-    except Exception as e:
-        append_merge_log(merge_log_path, f"FAILED_TO_START_WORKER {e}")
-        logger.warning("Could not start final video worker; see %s", merge_log_path)
-        return
-
-    logger.info("Final video processing sent to background: %s", final_output)
+    logger.info("Final video job queued for background processing: %s", final_output)
 
 
 def handle_motion(config, camera_capture):
