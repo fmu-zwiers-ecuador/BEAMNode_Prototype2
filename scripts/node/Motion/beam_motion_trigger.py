@@ -19,11 +19,9 @@ Folder layout:
 """
 
 import json
-import os
 import subprocess
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from gpiozero import Device, MotionSensor
@@ -46,6 +44,7 @@ CONFIG_PATH  = NODE_DIR / "config.json"
 LUX_LOG_PATH = Path("/home/pi/data/tsl2591/lux_data.json")
 
 AUDIO_SCRIPT  = MOTION_DIR / "audiomoth_motion_record.py"
+MERGE_WORKER  = MOTION_DIR / "motion_merge_worker.py"
 
 DEFAULT_DATA_DIR = Path("/home/pi/data")
 
@@ -53,8 +52,6 @@ MOTION_AUDIO_PREFIX = "motionaudio_"
 FINAL_VIDEO_PREFIX  = "motionvid_audio_"
 
 logger = setup_motion_logger("beam_motion_trigger")
-
-MERGE_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="motion_merge")
 
 
 def load_config():
@@ -259,85 +256,6 @@ def append_merge_log(log_path, message):
         logger.warning("Could not write merge log %s: %s", log_path, e)
 
 
-def merge_video_audio(
-    video_file,
-    audio_file,
-    final_output,
-    duration_sec,
-    video_fps,
-    audio_trim_start_sec=0.0,
-    merge_log_path=None,
-):
-    if audio_trim_start_sec >= 0:
-        audio_filter = (
-            f"[1:a]asetpts=PTS-STARTPTS,"
-            f"atrim=start={audio_trim_start_sec}:duration={duration_sec},"
-            f"asetpts=PTS-STARTPTS,"
-            f"apad=pad_dur={duration_sec},"
-            f"atrim=duration={duration_sec},asetpts=PTS-STARTPTS[a]"
-        )
-    else:
-        delay_ms = int(round(abs(audio_trim_start_sec) * 1000))
-        audio_filter = (
-            f"[1:a]asetpts=PTS-STARTPTS,"
-            f"adelay={delay_ms}:all=1,"
-            f"apad=pad_dur={duration_sec},"
-            f"atrim=duration={duration_sec},asetpts=PTS-STARTPTS[a]"
-        )
-
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", str(video_file),
-        "-i", str(audio_file),
-        "-filter_complex",
-        (
-            f"[0:v]setpts=PTS-STARTPTS,"
-            f"tpad=stop_mode=clone:stop_duration={duration_sec},"
-            f"trim=duration={duration_sec},setpts=PTS-STARTPTS[v];"
-            f"{audio_filter}"
-        ),
-        "-map", "[v]",
-        "-map", "[a]",
-        "-c:v", "libx264",
-        "-preset", "ultrafast",
-        "-tune", "zerolatency",
-        "-r", str(video_fps),
-        "-c:a", "aac",
-        "-t", str(duration_sec),
-        str(final_output),
-    ]
-    if merge_log_path is not None:
-        append_merge_log(
-            merge_log_path,
-            (
-                f"START video={video_file} audio={audio_file} output={final_output} "
-                f"duration={duration_sec:.3f}s fps={video_fps} "
-                f"audio_trim_start={audio_trim_start_sec:.3f}s"
-            ),
-        )
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            preexec_fn=lambda: os.nice(10),
-        )
-    except Exception as e:
-        if merge_log_path is not None:
-            append_merge_log(merge_log_path, f"FAILED_TO_START {e}")
-        return False
-
-    merge_ok = result.returncode == 0 and final_output.exists()
-    if merge_log_path is not None:
-        if merge_ok:
-            append_merge_log(merge_log_path, f"COMPLETE output={final_output}")
-        else:
-            append_merge_log(merge_log_path, f"FAILED returncode={result.returncode}")
-            if result.stderr:
-                append_merge_log(merge_log_path, f"FFMPEG_STDERR {result.stderr.strip()}")
-    return merge_ok
-
-
 def queue_video_audio_merge(
     video_file,
     audio_file,
@@ -347,26 +265,43 @@ def queue_video_audio_merge(
     audio_trim_start_sec,
 ):
     merge_log_path = final_output.with_suffix(".merge.log")
-
-    def merge_task():
-        if merge_video_audio(
-            video_file,
-            audio_file,
-            final_output,
-            duration_sec,
-            video_fps,
-            audio_trim_start_sec,
-            merge_log_path,
-        ):
-            return
-        else:
-            logger.warning("Background final video processing failed; see %s", merge_log_path)
+    merge_job_path = final_output.with_suffix(".merge.json")
+    merge_job = {
+        "video_file": str(video_file),
+        "audio_file": str(audio_file),
+        "final_output": str(final_output),
+        "duration_sec": float(duration_sec),
+        "video_fps": float(video_fps),
+        "audio_trim_start_sec": float(audio_trim_start_sec),
+        "merge_log_path": str(merge_log_path),
+    }
 
     append_merge_log(
         merge_log_path,
         f"QUEUED video={video_file} audio={audio_file} output={final_output}",
     )
-    MERGE_EXECUTOR.submit(merge_task)
+    try:
+        with open(merge_job_path, "w") as f:
+            json.dump(merge_job, f, indent=2)
+    except Exception as e:
+        append_merge_log(merge_log_path, f"FAILED_TO_QUEUE {e}")
+        logger.warning("Could not queue final video processing; see %s", merge_log_path)
+        return
+
+    try:
+        subprocess.Popen(
+            ["python3", str(MERGE_WORKER), "--job", str(merge_job_path)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            start_new_session=True,
+        )
+    except Exception as e:
+        append_merge_log(merge_log_path, f"FAILED_TO_START_WORKER {e}")
+        logger.warning("Could not start final video worker; see %s", merge_log_path)
+        return
+
     logger.info("Final video processing sent to background: %s", final_output)
 
 
