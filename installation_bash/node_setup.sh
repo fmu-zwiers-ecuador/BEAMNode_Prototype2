@@ -406,7 +406,7 @@ PY
 
 chmod +x /usr/local/sbin/mesh-boot.sh
 
-echo "[5/9] Configure chrony for aggressive syncing..."
+echo "[4/9] Configure chrony for aggressive syncing..."
 CHRONY_CONF="/etc/chrony/chrony.conf"
 cp "$CHRONY_CONF" "$CHRONY_CONF.backup"
 grep -vE "^\s*server\s+$SUP_IP\b" "$CHRONY_CONF" > /tmp/chrony.conf.tmp || true
@@ -434,7 +434,7 @@ systemctl restart chrony
 # FIX: Removed "Before=network-online.target chrony.service" — that line was
 #      causing chrony to start before the mesh interface was ready, so it could
 #      never reach the supervisor NTP server on reboot.
-echo "[6/9] Create systemd service with proper dependencies..."
+echo "[5/9] Create systemd service with proper dependencies..."
 cat >/etc/systemd/system/mesh-boot.service <<'EOF'
 [Unit]
 Description=Batman mesh boot: interface up + route + time sync
@@ -458,7 +458,7 @@ systemctl enable mesh-boot.service
 
 # FIX: mesh-timesync now starts After=chrony.service (not before it) so chrony
 #      is already running and able to receive the makestep/burst commands.
-echo "[7/9] Create delayed time sync service (runs after mesh-boot)..."
+echo "[6/9] Create delayed time sync service (runs after mesh-boot)..."
 cat >/etc/systemd/system/mesh-timesync.service <<EOF
 [Unit]
 Description=Force time sync over mesh (delayed)
@@ -479,6 +479,25 @@ WantedBy=multi-user.target
 EOF
 
 systemctl enable mesh-timesync.service
+
+echo "[7/9] Create node internet setup service..."
+cat >/etc/systemd/system/nodeinternet.service <<'EOF'
+[Unit]
+Description=Node Internet Setup
+After=network.target
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/home/pi/BEAMNode_Protoype2/scripts/node/node_gateway
+ExecStart=/bin/bash /home/pi/BEAMNode_Protoype2/scripts/node/node_gateway/NodeInternet_Setup.sh
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable nodeinternet.service
 
 echo "[8/9] Create a manual recovery script..."
 cat >/usr/local/bin/mesh-reconnect <<'EOF'
@@ -564,6 +583,10 @@ fi
 # Enable I2C and SPI
 sudo raspi-config nonint do_i2c 0
 sudo raspi-config nonint do_spi 0
+
+# Configuring low power mode
+sudo chmod +x /home/pi/BEAMNode_Prototype2/scripts/power/Lpm.sh
+sudo bash /home/pi/BEAMNode_Prototype2/scripts/power/Lpm.sh
 
 read -rp "Would you like to set the default boot to terminal mode? [y/n]: " TERM_MODE
 if [[ "${TERM_MODE,,}" == "y" ]]; then

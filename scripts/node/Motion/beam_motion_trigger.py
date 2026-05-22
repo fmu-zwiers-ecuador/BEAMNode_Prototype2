@@ -6,8 +6,8 @@ Runs 24/7. Watches PIR motion sensor.
 
 When motion is detected:
   1. Creates event folders
-  2. Starts raw video and raw audio immediately
-  3. Takes still photos after the video so photos do not delay the clip
+  2. Captures high-resolution still photos
+  3. Starts raw video and raw audio
   4. Embeds audio into the video
 
 Folder layout:
@@ -24,7 +24,14 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from gpiozero import MotionSensor
+from gpiozero import Device, MotionSensor
+
+try:
+    from gpiozero.pins.rpigpio import RPiGPIOFactory
+
+    Device.pin_factory = RPiGPIOFactory()
+except Exception:
+    pass
 
 from camera_motion_capture import MotionCameraCapture
 from motion_logging import setup_motion_logger
@@ -34,6 +41,7 @@ MOTION_DIR   = Path(__file__).resolve().parent
 NODE_DIR     = MOTION_DIR.parent
 BASE_DIR     = NODE_DIR.parent.parent
 CONFIG_PATH  = NODE_DIR / "config.json"
+LUX_LOG_PATH = Path("/home/pi/data/tsl2591/lux_data.json")
 
 AUDIO_SCRIPT  = MOTION_DIR / "audiomoth_motion_record.py"
 
@@ -77,6 +85,24 @@ def get_nonnegative_number(config_section, key, default, value_type=float):
     return value
 
 
+def get_pir_gpio(camera_config):
+    if "pir_gpio" in camera_config:
+        return get_required_number(camera_config, "pir_gpio", "camera.pir_gpio", int)
+    return get_required_number(camera_config, "gpio_pin", "camera.gpio_pin", int)
+
+
+def validate_camera_gpio(camera_config, pir_pin):
+    if not camera_config.get("flash_enabled", False):
+        return
+
+    flash_pin = int(camera_config.get("flash_gpio", 26))
+    if pir_pin == flash_pin:
+        raise ValueError(
+            "camera.pir_gpio/gpio_pin and camera.flash_gpio cannot both be "
+            f"GPIO{pir_pin}. PIR should use GPIO24 and flash should use GPIO26."
+        )
+
+
 def create_event_dirs(config, timestamp_text):
     base_data_dir  = get_base_data_dir(config)
     generic_folder = config.get("motion_capture", {}).get("directory", "motion_events")
@@ -93,11 +119,34 @@ def create_event_dirs(config, timestamp_text):
     return event_dir, images_dir, video_dir, audio_dir, combined_dir
 
 
-def record_new_motion_audio(audio_output, start_at_epoch):
+def get_latest_lux():
+    try:
+        with open(LUX_LOG_PATH, "r") as f:
+            data = json.load(f)
+
+        records = data.get("records", [])
+        if records:
+            return records[-1].get("lux")
+    except Exception as e:
+        logger.warning("Lux read error: %s", e)
+
+    return None
+
+
+def should_use_flash(camera_config, camera_capture, lux_value):
+    if not camera_capture.flash_available:
+        return False
+
+    flash_threshold = camera_config.get("flash_lux_threshold", 10)
+    return lux_value is not None and lux_value < flash_threshold
+
+
+def record_new_motion_audio(audio_output, start_at_epoch, duration_sec):
     cmd = [
         "python3", str(AUDIO_SCRIPT),
         "--output", str(audio_output),
         "--start-at-epoch", str(start_at_epoch),
+        "--duration-sec", str(duration_sec),
     ]
     logger.info("Recording new motion audio clip: %s", audio_output)
     result = subprocess.run(cmd)
@@ -105,10 +154,21 @@ def record_new_motion_audio(audio_output, start_at_epoch):
     return result.returncode == 0 and audio_output.exists()
 
 
-def run_camera_capture(camera_capture, timestamp_text, images_dir, video_dir, start_at_epoch):
+def run_camera_capture(
+    camera_capture,
+    timestamp_text,
+    images_dir,
+    video_dir,
+    start_at_epoch,
+    flash_active=False,
+):
     video_output = video_dir / f"motionvid_{timestamp_text}.mp4"
     logger.info("Running warm-camera video capture: %s", video_output)
-    captured_video = camera_capture.record_video(video_output, start_at_epoch)
+    captured_video = camera_capture.record_video(
+        video_output,
+        start_at_epoch,
+        flash_active=flash_active,
+    )
     if captured_video is None:
         logger.error("Camera capture failed")
         return None
@@ -119,7 +179,86 @@ def run_camera_capture(camera_capture, timestamp_text, images_dir, video_dir, st
     return captured_video
 
 
-def merge_video_audio(video_file, audio_file, final_output, duration_sec):
+def extract_photos_from_video(
+    video_file,
+    timestamp_text,
+    images_dir,
+    photo_prefix,
+    photo_count,
+    first_photo_sec,
+    photo_interval_sec,
+    jpeg_quality,
+    video_duration_sec,
+):
+    if photo_count <= 0:
+        return []
+
+    images_dir = Path(images_dir)
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    extracted_photos = []
+    for index in range(1, photo_count + 1):
+        requested_offset = first_photo_sec + ((index - 1) * photo_interval_sec)
+        if video_duration_sec and video_duration_sec > 0:
+            photo_offset = min(requested_offset, max(video_duration_sec - 0.1, 0.0))
+        else:
+            photo_offset = requested_offset
+
+        photo_path = images_dir / f"{photo_prefix}{timestamp_text}_{index}.jpg"
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", f"{photo_offset:.3f}",
+            "-i", str(video_file),
+            "-frames:v", "1",
+            "-q:v", str(jpeg_quality),
+            str(photo_path),
+        ]
+        logger.info(
+            "Extracting motion photo %s from video at %.3fs: %s",
+            index,
+            photo_offset,
+            photo_path,
+        )
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+        except FileNotFoundError:
+            logger.error("ffmpeg not found; could not extract video photos")
+            return extracted_photos
+
+        if result.returncode != 0 or not photo_path.exists():
+            logger.error("Video photo extraction failed: %s", result.stderr.strip())
+            continue
+
+        extracted_photos.append(photo_path)
+
+    return extracted_photos
+
+
+def merge_video_audio(
+    video_file,
+    audio_file,
+    final_output,
+    duration_sec,
+    video_fps,
+    audio_trim_start_sec=0.0,
+):
+    if audio_trim_start_sec >= 0:
+        audio_filter = (
+            f"[1:a]asetpts=PTS-STARTPTS,"
+            f"atrim=start={audio_trim_start_sec}:duration={duration_sec},"
+            f"asetpts=PTS-STARTPTS,"
+            f"apad=pad_dur={duration_sec},"
+            f"atrim=duration={duration_sec},asetpts=PTS-STARTPTS[a]"
+        )
+    else:
+        delay_ms = int(round(abs(audio_trim_start_sec) * 1000))
+        audio_filter = (
+            f"[1:a]asetpts=PTS-STARTPTS,"
+            f"adelay={delay_ms}:all=1,"
+            f"apad=pad_dur={duration_sec},"
+            f"atrim=duration={duration_sec},asetpts=PTS-STARTPTS[a]"
+        )
+
     cmd = [
         "ffmpeg", "-y",
         "-i", str(video_file),
@@ -129,25 +268,25 @@ def merge_video_audio(video_file, audio_file, final_output, duration_sec):
             f"[0:v]setpts=PTS-STARTPTS,"
             f"tpad=stop_mode=clone:stop_duration={duration_sec},"
             f"trim=duration={duration_sec},setpts=PTS-STARTPTS[v];"
-            f"[1:a]asetpts=PTS-STARTPTS,"
-            f"apad=pad_dur={duration_sec},"
-            f"atrim=duration={duration_sec},asetpts=PTS-STARTPTS[a]"
+            f"{audio_filter}"
         ),
         "-map", "[v]",
         "-map", "[a]",
         "-c:v", "libx264",
         "-preset", "ultrafast",
         "-tune", "zerolatency",
+        "-r", str(video_fps),
         "-c:a", "aac",
         "-t", str(duration_sec),
         str(final_output),
     ]
     logger.info(
-        "Embedding audio into video for exactly %ss: video=%s audio=%s output=%s",
+        "Embedding audio into video for exactly %ss: video=%s audio=%s output=%s audio_trim_start=%.3fs",
         duration_sec,
         video_file,
         audio_file,
         final_output,
+        audio_trim_start_sec,
     )
     result = subprocess.run(cmd)
     logger.info("ffmpeg merge exited with code %s", result.returncode)
@@ -169,7 +308,20 @@ def handle_motion(config, camera_capture):
         video_start_delay = get_nonnegative_number(
             motion_config,
             "video_start_delay_sec",
-            0.25,
+            motion_config.get("start_delay_sec", 0.25),
+        )
+        audio_preroll_sec = get_nonnegative_number(
+            motion_config,
+            "audio_preroll_sec",
+            1.0,
+        )
+        audio_postroll_sec = get_nonnegative_number(
+            motion_config,
+            "audio_postroll_sec",
+            0.5,
+        )
+        audio_sync_offset_sec = float(
+            motion_config.get("audio_sync_offset_sec", 0.0)
         )
     except (KeyError, ValueError) as e:
         logger.error("%s", e)
@@ -178,20 +330,61 @@ def handle_motion(config, camera_capture):
     event_dir, images_dir, video_dir, audio_dir, combined_dir = \
         create_event_dirs(config, timestamp_text)
 
-    start_at_epoch = time.time() + video_start_delay
-    motion_start   = datetime.fromtimestamp(start_at_epoch)
-
     motion_audio_file = audio_dir / f"{MOTION_AUDIO_PREFIX}{timestamp_text}.wav"
 
     logger.info("Motion detected at %s", timestamp_text)
     logger.info("Saving event to: %s", event_dir)
+
+    camera_config = config.get("camera", {})
+    picture_config = camera_config.get("pictures", {})
+    picture_mode = picture_config.get("mode", "before_video")
+
+    lux = get_latest_lux()
+    flash_active = should_use_flash(camera_config, camera_capture, lux)
+    if flash_active:
+        logger.info("Night detected, lux=%s. Flash sequence armed", lux)
+    else:
+        logger.info("Flash not used for event; lux=%s", lux)
+
+    if picture_mode == "before_video":
+        logger.info("Capturing high-resolution motion photos before video")
+        try:
+            photos = camera_capture.capture_photos(
+                timestamp_text,
+                images_dir,
+                flash_active=flash_active,
+            )
+            logger.info("Captured %s high-resolution motion photos", len(photos))
+        except Exception as e:
+            logger.exception("High-resolution photo capture failed before video: %s", e)
+
+    start_at_epoch       = time.time() + video_start_delay
+    audio_start_at_epoch = max(time.time(), start_at_epoch - audio_preroll_sec)
+    audio_duration       = (
+        motion_duration
+        + max(start_at_epoch - audio_start_at_epoch, 0.0)
+        + audio_postroll_sec
+    )
+    audio_trim_start_sec = (
+        max(start_at_epoch - audio_start_at_epoch, 0.0)
+        + audio_sync_offset_sec
+    )
+    motion_start         = datetime.fromtimestamp(start_at_epoch)
+
     logger.info(
-        "Scheduling immediate synchronized video/audio for %s with duration %ss",
+        "Scheduling synchronized video for %s with duration %ss",
         motion_start.strftime("%Y-%m-%d %H:%M:%S.%f"),
         motion_duration,
     )
+    logger.info(
+        "Audio pre-roll %.3fs, post-roll %.3fs, sync offset %.3fs, total audio %.3fs",
+        max(start_at_epoch - audio_start_at_epoch, 0.0),
+        audio_postroll_sec,
+        audio_sync_offset_sec,
+        audio_duration,
+    )
 
-    results = {"video_file": None, "audio_ready": False}
+    results = {"video_file": None, "video_duration_sec": None, "audio_ready": False}
 
     def camera_thread():
         try:
@@ -201,7 +394,9 @@ def handle_motion(config, camera_capture):
                 images_dir,
                 video_dir,
                 start_at_epoch,
+                flash_active=flash_active,
             )
+            results["video_duration_sec"] = camera_capture.last_video_elapsed_sec
         except Exception as e:
             logger.exception("Camera video capture failed: %s", e)
 
@@ -210,7 +405,8 @@ def handle_motion(config, camera_capture):
             logger.info("Recording synchronized live audio")
             results["audio_ready"] = record_new_motion_audio(
                 motion_audio_file,
-                start_at_epoch,
+                audio_start_at_epoch,
+                audio_duration,
             )
         except Exception as e:
             logger.exception("Audio capture failed: %s", e)
@@ -225,17 +421,37 @@ def handle_motion(config, camera_capture):
     t_audio.join()
 
     video_file  = results["video_file"]
+    video_duration_sec = results["video_duration_sec"] or motion_duration
     audio_ready = results["audio_ready"]
 
     if video_file is None:
         logger.error("Camera capture failed; no video to merge")
         return
 
-    logger.info("Capturing motion photos after video")
-    try:
-        camera_capture.capture_photos(timestamp_text, images_dir)
-    except Exception as e:
-        logger.exception("Photo capture failed after video: %s", e)
+    if picture_mode == "video_frames":
+        picture_count = int(picture_config.get("count", camera_capture.picture_count))
+        picture_interval_sec = float(
+            picture_config.get(
+                "video_frame_interval_sec",
+                camera_capture.picture_interval_sec,
+            )
+        )
+        first_picture_sec = float(picture_config.get("video_frame_first_sec", 1.0))
+        picture_jpeg_quality = int(picture_config.get("video_frame_jpeg_quality", 1))
+
+        logger.info("Extracting motion photos from the recorded video")
+        extracted_photos = extract_photos_from_video(
+            video_file,
+            timestamp_text,
+            images_dir,
+            camera_capture.photo_prefix,
+            picture_count,
+            first_picture_sec,
+            picture_interval_sec,
+            picture_jpeg_quality,
+            video_duration_sec,
+        )
+        logger.info("Extracted %s motion photos from video", len(extracted_photos))
 
     if not audio_ready:
         logger.warning("Audio not available; keeping video-only file")
@@ -243,7 +459,14 @@ def handle_motion(config, camera_capture):
 
     # ── Step 3: Embed audio into video ───────────────────────────────────────
     final_video = combined_dir / f"{FINAL_VIDEO_PREFIX}{timestamp_text}.mp4"
-    if merge_video_audio(video_file, motion_audio_file, final_video, motion_duration):
+    if merge_video_audio(
+        video_file,
+        motion_audio_file,
+        final_video,
+        video_duration_sec,
+        camera_capture.video_fps,
+        audio_trim_start_sec,
+    ):
         logger.info("Final video with embedded audio: %s", final_video)
     else:
         logger.error("Merge failed; keeping separate video and audio files")
@@ -263,7 +486,8 @@ def main():
         return
 
     try:
-        pir_pin = get_required_number(camera_config, "gpio_pin", "camera.gpio_pin", int)
+        pir_pin = get_pir_gpio(camera_config)
+        validate_camera_gpio(camera_config, pir_pin)
         warmup = get_required_number(camera_config, "pir_warmup_sec", "camera.pir_warmup_sec")
         poll_interval = get_required_number(
             camera_config,
@@ -279,13 +503,26 @@ def main():
     logger.info("PIR GPIO pin: %s", pir_pin)
     logger.info("Warmup seconds: %s", warmup)
 
+    pir = None
+    camera_capture = None
     try:
+        pir = MotionSensor(
+            pir_pin,
+            pull_up=None,
+            active_state=True,
+            queue_len=int(camera_config.get("pir_queue_len", 1)),
+            sample_rate=float(camera_config.get("pir_sample_rate", 10)),
+            threshold=float(camera_config.get("pir_threshold", 0.5)),
+        )
         camera_capture = MotionCameraCapture(config)
         camera_capture.start()
-        pir = MotionSensor(pir_pin)
         time.sleep(warmup)
     except Exception as e:
         logger.exception("Startup failed: %s", e)
+        if camera_capture is not None:
+            camera_capture.close()
+        if pir is not None:
+            pir.close()
         return
 
     logger.info("Camera and PIR are armed. Waiting for motion")
@@ -304,7 +541,10 @@ def main():
     except KeyboardInterrupt:
         logger.info("Motion trigger stopped by user")
     finally:
-        camera_capture.close()
+        if camera_capture is not None:
+            camera_capture.close()
+        if pir is not None:
+            pir.close()
 
 
 if __name__ == "__main__":
