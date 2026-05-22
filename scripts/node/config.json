@@ -156,7 +156,7 @@
   "start_delay_sec": 1.0,
   "audio_preroll_sec": 1.0,
   "audio_postroll_sec": 0.5,
-  "audio_sync_offset_sec": 0.0
+  "audio_sync_offset_sec": 1.0
 },
  "camera": {
   "enabled": true,
@@ -182,13 +182,13 @@
   "flash_gpio": 26,
   "servo_gpio": 18,
   "settle_sec": 6,
-  "video_bitrate": 10000000,
+  "video_bitrate": 5000000,
   "video_exposure_us": 55555,
   "video_gain": 2.0,
   "video_warmup_sec": 1.0,
   "video": {
-    "resolution": [1920, 1080],
-    "fps": 15
+    "resolution": [1280, 720],
+    "fps": 18
   },
   "pictures": {
     "resolution": [4608, 2592],
