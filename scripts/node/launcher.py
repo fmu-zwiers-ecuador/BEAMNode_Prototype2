@@ -15,10 +15,10 @@ NODE_DIR = "/home/pi/BEAMNode_Prototype2/scripts/node"
 DETECT_PATH = os.path.join(NODE_DIR, "sensor_detection/detect.py")
 SCHEDULER_PATH = os.path.join(NODE_DIR, "scheduler.py")
 SHIPPING_PATH = os.path.join(NODE_DIR, "shipping_queuing/shipping.py")
-MOTION_TRIGGER_PATH = "/BEAMNode_Prototype1/scripts/node/Motion/beam_motion_trigger.py"
+MOTION_TRIGGER_PATH = os.path.join(NODE_DIR, "Motion/beam_motion_trigger.py")
 DATA_DIR = "/home/pi/data"
 SHIPPING_DIR = "/home/pi/shipping"
-LOG_PATH = "/home/pi/logs/launcher.log"
+LOG_PATH = "/home/pi/BEAMNode_Prototype2/logs/launcher.log"
 SHIPPING_LOG_PATH = "/home/pi/BEAMNode_Prototype2/logs/shipping.log"
 
 def log(msg):
