@@ -159,6 +159,7 @@ class MotionCameraCapture:
         self.picam2 = Picamera2()
         self.started = False
         self.last_video_elapsed_sec = None
+        self.last_video_start_epoch = None
 
         motion_config = config["motion_capture"]
         video_settings = self.camera_config["video"]
@@ -369,6 +370,7 @@ class MotionCameraCapture:
         )
         record_start = time.monotonic()
         self.picam2.start_recording(encoder, output)
+        self.last_video_start_epoch = time.time()
         logger.info("Video recording started")
 
         try:

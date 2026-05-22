@@ -19,9 +19,11 @@ Folder layout:
 """
 
 import json
+import os
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from gpiozero import Device, MotionSensor
@@ -51,6 +53,8 @@ MOTION_AUDIO_PREFIX = "motionaudio_"
 FINAL_VIDEO_PREFIX  = "motionvid_audio_"
 
 logger = setup_motion_logger("beam_motion_trigger")
+
+MERGE_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="motion_merge")
 
 
 def load_config():
@@ -141,17 +145,28 @@ def should_use_flash(camera_config, camera_capture, lux_value):
     return lux_value is not None and lux_value < flash_threshold
 
 
-def record_new_motion_audio(audio_output, start_at_epoch, duration_sec):
+def record_new_motion_audio(audio_output, start_at_epoch, duration_sec, metadata_output=None):
     cmd = [
         "python3", str(AUDIO_SCRIPT),
         "--output", str(audio_output),
         "--start-at-epoch", str(start_at_epoch),
         "--duration-sec", str(duration_sec),
     ]
+    if metadata_output is not None:
+        cmd.extend(["--metadata-output", str(metadata_output)])
     logger.info("Recording new motion audio clip: %s", audio_output)
     result = subprocess.run(cmd)
     logger.info("Audio recording command exited with code %s", result.returncode)
     return result.returncode == 0 and audio_output.exists()
+
+
+def load_audio_metadata(metadata_path):
+    try:
+        with open(metadata_path, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.warning("Could not read audio metadata %s: %s", metadata_path, e)
+        return {}
 
 
 def run_camera_capture(
@@ -234,6 +249,16 @@ def extract_photos_from_video(
     return extracted_photos
 
 
+def append_merge_log(log_path, message):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_path, "a") as f:
+            f.write(f"{timestamp} {message}\n")
+    except Exception as e:
+        logger.warning("Could not write merge log %s: %s", log_path, e)
+
+
 def merge_video_audio(
     video_file,
     audio_file,
@@ -241,6 +266,7 @@ def merge_video_audio(
     duration_sec,
     video_fps,
     audio_trim_start_sec=0.0,
+    merge_log_path=None,
 ):
     if audio_trim_start_sec >= 0:
         audio_filter = (
@@ -280,17 +306,68 @@ def merge_video_audio(
         "-t", str(duration_sec),
         str(final_output),
     ]
-    logger.info(
-        "Embedding audio into video for exactly %ss: video=%s audio=%s output=%s audio_trim_start=%.3fs",
-        duration_sec,
-        video_file,
-        audio_file,
-        final_output,
-        audio_trim_start_sec,
+    if merge_log_path is not None:
+        append_merge_log(
+            merge_log_path,
+            (
+                f"START video={video_file} audio={audio_file} output={final_output} "
+                f"duration={duration_sec:.3f}s fps={video_fps} "
+                f"audio_trim_start={audio_trim_start_sec:.3f}s"
+            ),
+        )
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            preexec_fn=lambda: os.nice(10),
+        )
+    except Exception as e:
+        if merge_log_path is not None:
+            append_merge_log(merge_log_path, f"FAILED_TO_START {e}")
+        return False
+
+    merge_ok = result.returncode == 0 and final_output.exists()
+    if merge_log_path is not None:
+        if merge_ok:
+            append_merge_log(merge_log_path, f"COMPLETE output={final_output}")
+        else:
+            append_merge_log(merge_log_path, f"FAILED returncode={result.returncode}")
+            if result.stderr:
+                append_merge_log(merge_log_path, f"FFMPEG_STDERR {result.stderr.strip()}")
+    return merge_ok
+
+
+def queue_video_audio_merge(
+    video_file,
+    audio_file,
+    final_output,
+    duration_sec,
+    video_fps,
+    audio_trim_start_sec,
+):
+    merge_log_path = final_output.with_suffix(".merge.log")
+
+    def merge_task():
+        if merge_video_audio(
+            video_file,
+            audio_file,
+            final_output,
+            duration_sec,
+            video_fps,
+            audio_trim_start_sec,
+            merge_log_path,
+        ):
+            return
+        else:
+            logger.warning("Background final video processing failed; see %s", merge_log_path)
+
+    append_merge_log(
+        merge_log_path,
+        f"QUEUED video={video_file} audio={audio_file} output={final_output}",
     )
-    result = subprocess.run(cmd)
-    logger.info("ffmpeg merge exited with code %s", result.returncode)
-    return result.returncode == 0 and final_output.exists()
+    MERGE_EXECUTOR.submit(merge_task)
+    logger.info("Final video processing sent to background: %s", final_output)
 
 
 def handle_motion(config, camera_capture):
@@ -331,6 +408,7 @@ def handle_motion(config, camera_capture):
         create_event_dirs(config, timestamp_text)
 
     motion_audio_file = audio_dir / f"{MOTION_AUDIO_PREFIX}{timestamp_text}.wav"
+    motion_audio_metadata_file = audio_dir / f"{MOTION_AUDIO_PREFIX}{timestamp_text}.json"
 
     logger.info("Motion detected at %s", timestamp_text)
     logger.info("Saving event to: %s", event_dir)
@@ -384,7 +462,12 @@ def handle_motion(config, camera_capture):
         audio_duration,
     )
 
-    results = {"video_file": None, "video_duration_sec": None, "audio_ready": False}
+    results = {
+        "video_file": None,
+        "video_duration_sec": None,
+        "video_start_epoch": None,
+        "audio_ready": False,
+    }
 
     def camera_thread():
         try:
@@ -397,6 +480,7 @@ def handle_motion(config, camera_capture):
                 flash_active=flash_active,
             )
             results["video_duration_sec"] = camera_capture.last_video_elapsed_sec
+            results["video_start_epoch"] = camera_capture.last_video_start_epoch
         except Exception as e:
             logger.exception("Camera video capture failed: %s", e)
 
@@ -407,6 +491,7 @@ def handle_motion(config, camera_capture):
                 motion_audio_file,
                 audio_start_at_epoch,
                 audio_duration,
+                motion_audio_metadata_file,
             )
         except Exception as e:
             logger.exception("Audio capture failed: %s", e)
@@ -422,6 +507,7 @@ def handle_motion(config, camera_capture):
 
     video_file  = results["video_file"]
     video_duration_sec = results["video_duration_sec"] or motion_duration
+    video_start_epoch = results["video_start_epoch"]
     audio_ready = results["audio_ready"]
 
     if video_file is None:
@@ -457,19 +543,30 @@ def handle_motion(config, camera_capture):
         logger.warning("Audio not available; keeping video-only file")
         return
 
-    # ── Step 3: Embed audio into video ───────────────────────────────────────
+    audio_metadata = load_audio_metadata(motion_audio_metadata_file)
+    audio_record_start_epoch = audio_metadata.get("record_start_epoch")
+    if video_start_epoch is not None and audio_record_start_epoch is not None:
+        actual_audio_preroll_sec = max(video_start_epoch - audio_record_start_epoch, 0.0)
+        audio_trim_start_sec = actual_audio_preroll_sec + audio_sync_offset_sec
+        logger.info(
+            "Actual sync timing: audio_pre_video=%.3fs offset=%.3fs trim=%.3fs",
+            actual_audio_preroll_sec,
+            audio_sync_offset_sec,
+            audio_trim_start_sec,
+        )
+    else:
+        logger.warning("Actual sync timing unavailable; using scheduled trim %.3fs", audio_trim_start_sec)
+
+    # ── Step 3: Queue audio/video merge in the background ────────────────────
     final_video = combined_dir / f"{FINAL_VIDEO_PREFIX}{timestamp_text}.mp4"
-    if merge_video_audio(
+    queue_video_audio_merge(
         video_file,
         motion_audio_file,
         final_video,
         video_duration_sec,
         camera_capture.video_fps,
         audio_trim_start_sec,
-    ):
-        logger.info("Final video with embedded audio: %s", final_video)
-    else:
-        logger.error("Merge failed; keeping separate video and audio files")
+    )
 
 
 def main():

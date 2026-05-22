@@ -67,6 +67,7 @@ def main():
         default=None,
         help="Override the motion audio recording duration.",
     )
+    parser.add_argument("--metadata-output", default=None)
     args = parser.parse_args()
 
     config = load_config()
@@ -115,11 +116,30 @@ def main():
     logger.info("Running command: %s", " ".join(cmd))
 
     wait_until_epoch(args.start_at_epoch)
+    record_start_epoch = time.time()
     record_start = time.monotonic()
     proc = subprocess.Popen(cmd)
     logger.info("Audio recording started")
     result = proc.wait()
     elapsed = time.monotonic() - record_start
+    record_end_epoch = time.time()
+
+    if args.metadata_output:
+        metadata_path = Path(args.metadata_output)
+        metadata_path.parent.mkdir(parents=True, exist_ok=True)
+        metadata = {
+            "requested_start_epoch": args.start_at_epoch,
+            "record_start_epoch": record_start_epoch,
+            "record_end_epoch": record_end_epoch,
+            "elapsed_sec": elapsed,
+            "returncode": result,
+            "output": str(output_path),
+        }
+        try:
+            with open(metadata_path, "w") as f:
+                json.dump(metadata, f, indent=2)
+        except Exception as e:
+            logger.warning("Could not write audio metadata %s: %s", metadata_path, e)
 
     if result != 0:
         logger.error("Audio recording failed with code %s", result)
