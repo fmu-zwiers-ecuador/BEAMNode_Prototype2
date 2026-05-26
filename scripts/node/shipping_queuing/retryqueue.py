@@ -134,11 +134,20 @@ def delete_shipping_data(full_hostname):
     """Removes data from node shipping folder after successful pull."""
     cmd = ["ssh"] + SSH_OPTS + [f"pi@{full_hostname}", f"sudo rm -rf {REMOTE_SHIP_DIR}/*"]
     try:
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         log(f"{full_hostname}: Remote folder cleared.")
         return True
-    except:
-        log(f"{full_hostname}: WARNING: Failed to clear remote data.")
+    except subprocess.CalledProcessError as e:
+        log(f"{full_hostname}: Deleting shiiping folder: WARNING - SSH command failed (exit code {e.returncode}): {e.cmd}")
+        return False
+    except FileNotFoundError as e:
+        log(f"{full_hostname}: Deleting shiiping folder: WARNING - 'ssh' binary not found: {e}")
+        return False
+    except PermissionError as e:
+        log(f"{full_hostname}: Deleting shiiping folder: WARNING - Permission denied running SSH: {e}")
+        return False
+    except Exception as e:
+        log(f"{full_hostname}: Deleting shiiping folder: WARNING - Unexpected error ({type(e).__name__}): {e}")
         return False
     
 def move_to_nas():
