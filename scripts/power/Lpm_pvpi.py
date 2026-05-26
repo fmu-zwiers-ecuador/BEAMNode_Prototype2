@@ -35,10 +35,10 @@ from pathlib import Path
 # ── Configuration ────────────────────────────────────────────────────────────
  
 # Path to your sensor config JSON file
-SENSOR_CONFIG_PATH = Path("/etc/pvpi/sensors.json")
+SENSOR_CONFIG_PATH = Path("/BEAMNode_Prototype2/scripts/node/config.json")
  
 # Log file path (CSV)
-LOG_FILE_PATH = Path("/var/log/pvpi/low_power.csv")
+LOG_FILE_PATH = Path("/logs/pvpi/low_power.log")
  
 # Serial port used for human-readable output
 # On RPi Zero: /dev/serial0 (GPIO UART) or /dev/ttyUSB0 (USB-serial dongle)
