@@ -29,21 +29,22 @@ import logging
 import os
 import sys
 import time
+import smbus2
 from datetime import datetime
 from pathlib import Path
  
 # ── Configuration ────────────────────────────────────────────────────────────
  
 # Path to your sensor config JSON file
-SENSOR_CONFIG_PATH = Path("/BEAMNode_Prototype2/scripts/node/config.json")
+SENSOR_CONFIG_PATH = Path("/home/pi/BEAMNode_Prototype2/scripts/node/config.json")
  
 # Log file path (CSV)
-LOG_FILE_PATH = Path("/logs/pvpi/low_power.log")
+LOG_FILE_PATH = Path("/home/pi/logs/pvpi/low_power.log")
  
 # Serial port used for human-readable output
 # On RPi Zero: /dev/serial0 (GPIO UART) or /dev/ttyUSB0 (USB-serial dongle)
 # Set to None to use stdout only
-SERIAL_PORT = "/dev/serial0"
+SERIAL_PORT = None
 SERIAL_BAUD = 115200
  
 # Voltage source backend: "ads1115" | "mcp3008" | "mock"
@@ -78,21 +79,25 @@ logger = logging.getLogger("low_power_mode")
 # ── Battery voltage reading ───────────────────────────────────────────────────
  
 def read_voltage_ads1115() -> float:
-    """Read battery voltage through an ADS1115 I²C ADC."""
     try:
-        import board
-        import busio
-        import adafruit_ads1x15.ads1115 as ADS
-        from adafruit_ads1x15.analog_in import AnalogIn
- 
-        i2c = busio.I2C(board.SCL, board.SDA)
-        ads = ADS.ADS1115(i2c, gain=ADS1115_GAIN)
-        channel_map = {
-            0: ADS.P0, 1: ADS.P1, 2: ADS.P2, 3: ADS.P3,
-        }
-        chan = AnalogIn(ads, channel_map[ADS1115_CHANNEL])
-        voltage = chan.voltage * VOLTAGE_DIVIDER_RATIO
-        return round(voltage, 3)
+        bus = smbus2.SMBus(1)
+
+        # Write config register: single-shot, AIN0, ±4.096V gain, 128SPS
+        config = [0xC3, 0x83]
+        bus.write_i2c_block_data(0x48, 0x01, config)
+
+        time.sleep(0.01)  # wait for conversion
+
+        # Read conversion register
+        data = bus.read_i2c_block_data(0x48, 0x00, 2)
+        bus.close()
+
+        raw = (data[0] << 8) | data[1]
+        if raw > 0x7FFF:
+            raw -= 0x10000
+
+        volts = (raw / 32767.0) * 4.096
+        return round(volts * VOLTAGE_DIVIDER_RATIO, 3)
     except Exception as exc:
         logger.error("ADS1115 read failed: %s", exc)
         return -1.0
