@@ -43,7 +43,8 @@ if [[ "${DO_INSTALL,,}" == "y" ]]; then
     adafruit-circuitpython-bme280==2.6.30 \
     adafruit-circuitpython-bme680==3.5.0 \
     adafruit-circuitpython-tsl2591==1.4.6 \
-    adafruit-circuitpython-ahtx0==1.0.28
+    adafruit-circuitpython-ahtx0==1.0.28 \
+    adafruit-circuitpython-rfm9x==1.0.3 \
 
   echo "=== PART 1 complete. Continuing to PART 2... ==="
 else

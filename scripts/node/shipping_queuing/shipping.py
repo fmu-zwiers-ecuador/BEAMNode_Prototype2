@@ -47,11 +47,14 @@ try:
     if not os.path.exists(data_src):
         raise FileNotFoundError(f"Source data directory not found: {data_src}")
 
-    # Move the entire data folder into shipping under the new name
-    shutil.move(data_src, dest_dir_path)
+    # Create the destination folder in shipping
+    os.makedirs(dest_dir_path, exist_ok=True)
 
-    # Recreate an empty data folder so the node can keep writing new data
-    os.makedirs(data_src, exist_ok=True)
+    # Move everything inside the data folder into shipping under the new name
+    for entry in os.listdir(data_src):
+        src_path = os.path.join(data_src, entry)
+        dst_path = os.path.join(dest_dir_path, entry)
+        shutil.move(src_path, dst_path)
 
     total_time = time.time() - start_time
     print(f"Data folder moved to Shipping as {dest_dir_path}")
