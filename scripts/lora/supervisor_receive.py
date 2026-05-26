@@ -14,6 +14,9 @@ sys.stdout = _log_file
 sys.stderr = _log_file
 atexit.register(_log_file.close)
 
+# make datetime utc forever
+datetime.now = lambda: datetime.now().astimezone(datetime.timezone.utc)
+
 # --- LoRa setup ---
 spi = busio.SPI(board.SCK, board.MOSI, board.MISO)
 cs = digitalio.DigitalInOut(board.CE1)
@@ -62,6 +65,22 @@ def node_num(node_id: str) -> str:
     # fallback: keep only safe characters
     safe = re.sub(r"[^A-Za-z0-9_-]+", "_", str(node_id)).strip("_")
     return safe or "unknown"
+
+# send time string to nodes for system clock
+def send_time():
+    now = datetime.now()
+    time_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    pkt = {
+        "type": "TIME_RESPONSE",
+        "timestamp": time_str
+    }
+    packet = json.dumps(pkt)
+    try:
+        rfm9x.send(packet.encode(), keep_listening=True)
+    except TypeError:
+        # Older library versions may not support keep_listening kwarg
+        rfm9x.send(packet.encode())
+    print(f"Sent TIME packet: {time_str}")
 
 
 def get_node_output_dir(node_id: str) -> str:
@@ -206,6 +225,11 @@ while True:
 
     if msg["type"] == "DATA":
         handle_data(msg)
+    
+    if msg["type"] == "TIME_REQUEST":
+        node_id = msg.get("node_id", "unknown-node")
+        print(f"Received TIME_REQUEST from {node_id}")
+        send_time()
 
     elif msg["type"] == "END":
         handle_end(msg)
