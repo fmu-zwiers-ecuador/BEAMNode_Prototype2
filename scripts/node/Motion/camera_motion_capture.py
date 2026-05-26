@@ -231,15 +231,13 @@ class MotionCameraCapture:
             "FrameRate": self.video_fps,
             "FrameDurationLimits": (frame_us, frame_us),
             "AeEnable": False,
-            "AwbEnable": False,
+            "AwbEnable": True,
             "ExposureTime": exposure_us,
             "AnalogueGain": analogue_gain,
-            "ColourGains": (1.4, 2.2),
         }
         self.photo_controls = {
             "AeEnable": True,
-            "AwbEnable": False,
-            "ColourGains": (1.4, 2.2),
+            "AwbEnable": True,
         }
 
         self.video_config = self.picam2.create_video_configuration(
