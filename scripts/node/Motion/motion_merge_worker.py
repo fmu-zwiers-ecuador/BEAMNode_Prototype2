@@ -114,6 +114,7 @@ def build_merge_command(job, output_path=None):
         "-r", f"{video_fps:g}",
         "-c:a", "aac",
         "-t", str(duration_sec),
+        "-f", "mp4",
         str(final_output),
     ]
 
