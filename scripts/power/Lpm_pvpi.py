@@ -1,5 +1,4 @@
 
-
 """
 low_power_mode.py
 -----------------
@@ -7,7 +6,7 @@ low_power_mode.py
 Low-power mode manager for a solar-powered Raspberry Pi Zero (PV Pi).
 
 Features:
-  - Reads battery voltage via ADS1115, MCP3008, or mock mode
+  - Reads battery voltage using MCP3008 SPI ADC
   - Prints battery voltage + status to console and optional serial
   - Logs events to a plain-text .log file
   - Disables all sensors in a JSON config
@@ -51,18 +50,15 @@ LOG_FILE_PATH = Path(
 SERIAL_PORT = None
 SERIAL_BAUD = 115200
 
-# Voltage source:
-# "ads1115" | "mcp3008" | "mock"
-VOLTAGE_SOURCE = "ads1115"
-
-# ADS1115 settings
-ADS1115_ADDRESS = 0x48
-VOLTAGE_DIVIDER_RATIO = 2.0
-
 # MCP3008 settings
 MCP3008_CHANNEL = 0
 MCP3008_VREF = 3.3
 MCP3008_BITS = 10
+
+# Voltage divider ratio
+# Example:
+# 10k / 10k divider = 2.0
+VOLTAGE_DIVIDER_RATIO = 2.0
 
 # Battery thresholds
 VOLTAGE_CRITICAL = 11.0
@@ -88,61 +84,7 @@ logger = logging.getLogger("low_power_mode")
 # Voltage Reading
 # ─────────────────────────────────────────────────────────────────────────────
 
-def read_voltage_ads1115() -> float:
-    """
-    Read battery voltage using ADS1115 over I2C.
-    """
-
-    try:
-        import smbus2
-
-        bus = smbus2.SMBus(1)
-
-        # ADS1115 config:
-        # Single-shot
-        # AIN0
-        # ±4.096V
-        # 128 SPS
-        config = [0xC2, 0x83]
-
-        bus.write_i2c_block_data(
-            ADS1115_ADDRESS,
-            0x01,
-            config
-        )
-
-        time.sleep(0.01)
-
-        data = bus.read_i2c_block_data(
-            ADS1115_ADDRESS,
-            0x00,
-            2
-        )
-
-        bus.close()
-
-        raw = (data[0] << 8) | data[1]
-
-        if raw > 0x7FFF:
-            raw -= 0x10000
-
-        volts = raw * 4.096 / 32768.0
-
-        return round(
-            volts * VOLTAGE_DIVIDER_RATIO,
-            3
-        )
-
-    except Exception as exc:
-        logger.error(
-            "ADS1115 read failed: %s",
-            exc
-        )
-
-        return -1.0
-
-
-def read_voltage_mcp3008() -> float:
+def read_battery_voltage() -> float:
     """
     Read battery voltage using MCP3008 SPI ADC.
     """
@@ -173,6 +115,7 @@ def read_voltage_mcp3008() -> float:
         return round(voltage, 3)
 
     except Exception as exc:
+
         logger.error(
             "MCP3008 read failed: %s",
             exc
@@ -181,31 +124,8 @@ def read_voltage_mcp3008() -> float:
         return -1.0
 
 
-def read_voltage_mock() -> float:
-    """
-    Fake voltage for testing.
-    """
-
-    return 12.1
-
-
-VOLTAGE_READERS = {
-    "ads1115": read_voltage_ads1115,
-    "mcp3008": read_voltage_mcp3008,
-    "mock": read_voltage_mock,
-}
-
-
-def read_battery_voltage() -> float:
-    reader = VOLTAGE_READERS.get(
-        VOLTAGE_SOURCE,
-        read_voltage_mock
-    )
-
-    return reader()
-
-
 def voltage_label(v: float) -> str:
+
     if v < 0:
         return "READ ERROR"
 
@@ -248,6 +168,7 @@ def get_serial():
         return ser
 
     except Exception as exc:
+
         logger.warning(
             "Serial unavailable (%s) — stdout only.",
             exc
@@ -266,11 +187,13 @@ def serial_print(ser, message: str):
     print(message, flush=True)
 
     if ser:
+
         try:
             ser.write(line.encode("utf-8"))
             ser.flush()
 
         except Exception as exc:
+
             logger.warning(
                 "Serial write error: %s",
                 exc
@@ -310,16 +233,20 @@ def print_banner(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def load_sensor_config(path: Path) -> dict:
+
     if not path.exists():
+
         raise FileNotFoundError(
             f"Sensor config not found: {path}"
         )
 
     try:
+
         with path.open("r") as f:
             return json.load(f)
 
     except json.JSONDecodeError as exc:
+
         logger.error(
             "Invalid JSON config: %s",
             exc
@@ -329,11 +256,13 @@ def load_sensor_config(path: Path) -> dict:
 
 
 def save_sensor_config(path: Path, config: dict):
+
     with path.open("w") as f:
         json.dump(config, f, indent=2)
 
 
 def disable_all_sensors(config: dict) -> List[str]:
+
     changed = []
 
     for sensor in config.get("sensors", []):
@@ -350,6 +279,7 @@ def disable_all_sensors(config: dict) -> List[str]:
 
 
 def enable_all_sensors(config: dict) -> List[str]:
+
     changed = []
 
     for sensor in config.get("sensors", []):
@@ -376,6 +306,7 @@ def log_event(
     affected: List[str]
 ):
     try:
+
         LOG_FILE_PATH.parent.mkdir(
             parents=True,
             exist_ok=True
@@ -398,6 +329,7 @@ def log_event(
         )
 
     except Exception as exc:
+
         logger.error(
             "Failed to write log file: %s",
             exc
@@ -448,12 +380,14 @@ def run_low_power_mode(
         )
 
         for name in disabled:
+
             serial_print(
                 ser,
                 f"  - {name}"
             )
 
     else:
+
         serial_print(
             ser,
             "[SENSORS] All sensors already disabled."
@@ -477,12 +411,25 @@ def run_restore(
     timestamp: str,
     voltage: float
 ):
+    if voltage < 0:
+
+        serial_print(
+            ser,
+            "[ERROR] Battery read failed."
+        )
+
+        serial_print(
+            ser,
+            "[ABORT] Restore cancelled."
+        )
+
+        return
+
     if voltage < VOLTAGE_CRITICAL:
 
         serial_print(
             ser,
-            "[ABORT] Battery critically low. "
-            "Restore cancelled."
+            "[ABORT] Battery critically low."
         )
 
         return
@@ -512,12 +459,14 @@ def run_restore(
         )
 
         for name in restored:
+
             serial_print(
                 ser,
                 f"  - {name}"
             )
 
     else:
+
         serial_print(
             ser,
             "[SENSORS] All sensors already enabled."
@@ -582,6 +531,7 @@ def run_status(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def parse_args():
+
     parser = argparse.ArgumentParser(
         description="PV Pi low-power mode manager"
     )
@@ -616,6 +566,16 @@ def main():
     )
 
     voltage = read_battery_voltage()
+
+    if voltage < 0:
+
+        print("")
+        print("====================================================")
+        print("ERROR: Failed to read battery voltage from MCP3008")
+        print("====================================================")
+        print("")
+
+        return
 
     if args.restore:
         mode = "RESTORE"
