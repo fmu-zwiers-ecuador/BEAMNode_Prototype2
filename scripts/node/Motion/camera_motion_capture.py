@@ -224,20 +224,22 @@ class MotionCameraCapture:
 
         frame_us = int(1_000_000 / self.video_fps)
         exposure_us = int(self.camera_config.get("video_exposure_us", frame_us))
-        analogue_gain = float(self.camera_config.get("video_gain", 2.0))
+        analogue_gain = float(self.camera_config.get("video_gain", 1.0))
         self.video_warmup_sec = float(self.camera_config.get("video_warmup_sec", 1.0))
         self.video_bitrate = int(self.camera_config.get("video_bitrate", 2_000_000))
         self.fixed_fps_controls = {
             "FrameRate": self.video_fps,
             "FrameDurationLimits": (frame_us, frame_us),
             "AeEnable": False,
-            "AwbEnable": True,
+            "AwbEnable": False,
             "ExposureTime": exposure_us,
             "AnalogueGain": analogue_gain,
+            "ColourGains": (1.4, 2.2),
         }
         self.photo_controls = {
             "AeEnable": True,
-            "AwbEnable": True,
+            "AwbEnable": False,
+            "ColourGains": (1.4, 2.2),
         }
 
         self.video_config = self.picam2.create_video_configuration(
