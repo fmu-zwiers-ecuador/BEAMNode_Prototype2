@@ -8,13 +8,14 @@ import os
 import time
 import sys
 import shutil
+import json
 from datetime import datetime
 
 # --- CONFIGURATION ---
 NODE_DIR = "/home/pi/BEAMNode_Prototype2/scripts/node"
 DETECT_PATH = os.path.join(NODE_DIR, "sensor_detection/detect.py")
+CONFIG_PATH = os.path.join(NODE_DIR, "config.json")
 SCHEDULER_PATH = os.path.join(NODE_DIR, "scheduler.py")
-SHIPPING_PATH = os.path.join(NODE_DIR, "shipping_queuing/shipping.py")
 MOTION_TRIGGER_PATH = os.path.join(NODE_DIR, "Motion/beam_motion_trigger.py")
 DATA_DIR = "/home/pi/data"
 SHIPPING_DIR = "/home/pi/shipping"
@@ -23,6 +24,9 @@ SHIPPING_LOG_PATH = "/home/pi/logs/shipping.log"
 MOTION_LOG_PATH = "/home/pi/logs/motion_output.log"
 
 _MOTION_LOG_HANDLE = None
+
+with open(CONFIG_PATH, "r") as f:
+    config = json.load(f)
 
 def ensure_log_file(path):
     """Create log file and parent directories if missing."""
@@ -78,7 +82,10 @@ def start_scheduler_async():
 
 def start_motion_trigger_async():
     """Starts motion trigger on startup (Asynchronous)."""
-    if os.path.exists(MOTION_TRIGGER_PATH):
+    cam_config = config["camera"]
+    enabled = cam_config.get("enabled", False)
+
+    if os.path.exists(MOTION_TRIGGER_PATH) and enabled:
         log(f"Starting Motion Trigger: {MOTION_TRIGGER_PATH}")
         global _MOTION_LOG_HANDLE
         ensure_log_file(MOTION_LOG_PATH)
@@ -122,6 +129,26 @@ def move_data_to_shipping():
 
 if __name__ == "__main__":
     log("=== BEAMNode System Startup ===")
+    # wait for network - 10.42.0.30 connection to supervisor
+    start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log(f"Startup time: {start}")
+    log("Waiting for network connection to supervisor... (5 minutes max)")
+    while True and (datetime.now() - datetime.strptime(start, "%Y-%m-%d %H:%M:%S")).seconds < 360:  # Only wait for the first 30 seconds of startup
+        try:
+            result = subprocess.run(
+                ["ping", "-c", "1", "-W", "1", "10.42.0.30"],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0:
+                log("Network connection to supervisor established.")
+                break
+            else:
+                log("Still waiting for network connection to supervisor...")
+        except Exception as e:
+            log(f"Error occurred while checking network connection: {e}")
+
+
     log("Daily data move scheduled for 18:00 UTC")
 
     # 1. REQUIREMENT: Run detect.py once on startup
