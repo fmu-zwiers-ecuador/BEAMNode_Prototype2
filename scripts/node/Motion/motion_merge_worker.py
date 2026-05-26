@@ -133,7 +133,7 @@ def run_merge(job_path, claim=True):
 
     merge_log_path = Path(job.get("merge_log_path", str(VIDEO_PROCESSING_LOG_PATH)))
     final_output = Path(job["final_output"])
-    temp_output = final_output.with_suffix(final_output.suffix + ".tmp")
+    temp_output = final_output.with_name(f"{final_output.stem}.tmp{final_output.suffix}")
 
     if recovering_interrupted_job:
         append_merge_log(merge_log_path, f"RECOVERING_INTERRUPTED_JOB job={claimed_job_path}")
