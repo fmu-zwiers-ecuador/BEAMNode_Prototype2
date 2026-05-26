@@ -1,7 +1,23 @@
+
+
 """
 low_power_mode.py
 -----------------
+
 Low-power mode manager for a solar-powered Raspberry Pi Zero (PV Pi).
+
+Features:
+  - Reads battery voltage via ADS1115, MCP3008, or mock mode
+  - Prints battery voltage + status to console and optional serial
+  - Logs events to a plain-text .log file
+  - Disables all sensors in a JSON config
+  - Restores sensors with --restore
+  - Status-only mode with --status
+
+Usage:
+  python3 low_power_mode.py
+  python3 low_power_mode.py --restore
+  python3 low_power_mode.py --status
 """
 
 import argparse
@@ -14,26 +30,36 @@ from pathlib import Path
 from typing import List
 
 
-# ── Configuration ────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Configuration
+# ─────────────────────────────────────────────────────────────────────────────
 
+# Sensor config JSON
 SENSOR_CONFIG_PATH = Path(
     "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
 )
 
 # Plain text log file
-LOG_FILE_PATH = Path("/home/pi/logs/low_power.log")
+LOG_FILE_PATH = Path(
+    "/home/pi/logs/low_power.log"
+)
 
+# Serial settings
+# Example:
+# SERIAL_PORT = "/dev/serial0"
+# SERIAL_PORT = "/dev/ttyUSB0"
 SERIAL_PORT = None
 SERIAL_BAUD = 115200
 
+# Voltage source:
 # "ads1115" | "mcp3008" | "mock"
 VOLTAGE_SOURCE = "ads1115"
 
-# ADS1115
+# ADS1115 settings
 ADS1115_ADDRESS = 0x48
 VOLTAGE_DIVIDER_RATIO = 2.0
 
-# MCP3008
+# MCP3008 settings
 MCP3008_CHANNEL = 0
 MCP3008_VREF = 3.3
 MCP3008_BITS = 10
@@ -45,7 +71,9 @@ VOLTAGE_OK = 12.4
 VOLTAGE_GOOD = 12.8
 
 
-# ── Logging setup ────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Logging
+# ─────────────────────────────────────────────────────────────────────────────
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,9 +84,15 @@ logging.basicConfig(
 logger = logging.getLogger("low_power_mode")
 
 
-# ── Battery voltage reading ─────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Voltage Reading
+# ─────────────────────────────────────────────────────────────────────────────
 
 def read_voltage_ads1115() -> float:
+    """
+    Read battery voltage using ADS1115 over I2C.
+    """
+
     try:
         import smbus2
 
@@ -100,16 +134,26 @@ def read_voltage_ads1115() -> float:
         )
 
     except Exception as exc:
-        logger.error("ADS1115 read failed: %s", exc)
+        logger.error(
+            "ADS1115 read failed: %s",
+            exc
+        )
+
         return -1.0
 
 
 def read_voltage_mcp3008() -> float:
+    """
+    Read battery voltage using MCP3008 SPI ADC.
+    """
+
     try:
         import spidev
 
         spi = spidev.SpiDev()
+
         spi.open(0, 0)
+
         spi.max_speed_hz = 1_350_000
 
         adc = spi.xfer2([
@@ -129,11 +173,19 @@ def read_voltage_mcp3008() -> float:
         return round(voltage, 3)
 
     except Exception as exc:
-        logger.error("MCP3008 read failed: %s", exc)
+        logger.error(
+            "MCP3008 read failed: %s",
+            exc
+        )
+
         return -1.0
 
 
 def read_voltage_mock() -> float:
+    """
+    Fake voltage for testing.
+    """
+
     return 12.1
 
 
@@ -149,26 +201,38 @@ def read_battery_voltage() -> float:
         VOLTAGE_SOURCE,
         read_voltage_mock
     )
+
     return reader()
 
 
 def voltage_label(v: float) -> str:
     if v < 0:
         return "READ ERROR"
+
     if v < VOLTAGE_CRITICAL:
         return "CRITICAL"
+
     if v < VOLTAGE_LOW:
         return "LOW"
+
     if v < VOLTAGE_OK:
         return "ACCEPTABLE"
+
     if v < VOLTAGE_GOOD:
         return "OK"
+
     return "GOOD"
 
 
-# ── Serial output ────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Serial Output
+# ─────────────────────────────────────────────────────────────────────────────
 
 def get_serial():
+    """
+    Return serial.Serial object or None.
+    """
+
     if SERIAL_PORT is None:
         return None
 
@@ -193,9 +257,13 @@ def get_serial():
 
 
 def serial_print(ser, message: str):
+    """
+    Print to stdout and serial.
+    """
+
     line = message + "\r\n"
 
-    print(message)
+    print(message, flush=True)
 
     if ser:
         try:
@@ -209,7 +277,37 @@ def serial_print(ser, message: str):
             )
 
 
-# ── Sensor config management ────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Banner
+# ─────────────────────────────────────────────────────────────────────────────
+
+def print_banner(
+    ser,
+    voltage: float,
+    mode: str,
+    timestamp: str
+):
+    label = voltage_label(voltage)
+
+    width = 52
+    border = "=" * width
+
+    serial_print(ser, "")
+    serial_print(ser, border)
+    serial_print(ser, "  PV Pi — Low Power Mode Manager")
+    serial_print(ser, f"  Mode      : {mode}")
+    serial_print(ser, f"  Timestamp : {timestamp}")
+    serial_print(
+        ser,
+        f"  Battery   : {voltage:.3f} V [{label}]"
+    )
+    serial_print(ser, border)
+    serial_print(ser, "")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sensor Config
+# ─────────────────────────────────────────────────────────────────────────────
 
 def load_sensor_config(path: Path) -> dict:
     if not path.exists():
@@ -222,7 +320,11 @@ def load_sensor_config(path: Path) -> dict:
             return json.load(f)
 
     except json.JSONDecodeError as exc:
-        logger.error("Invalid JSON config: %s", exc)
+        logger.error(
+            "Invalid JSON config: %s",
+            exc
+        )
+
         return {"sensors": []}
 
 
@@ -237,6 +339,7 @@ def disable_all_sensors(config: dict) -> List[str]:
     for sensor in config.get("sensors", []):
 
         if sensor.get("enabled", False):
+
             sensor["enabled"] = False
 
             changed.append(
@@ -252,6 +355,7 @@ def enable_all_sensors(config: dict) -> List[str]:
     for sensor in config.get("sensors", []):
 
         if not sensor.get("enabled", True):
+
             sensor["enabled"] = True
 
             changed.append(
@@ -261,7 +365,9 @@ def enable_all_sensors(config: dict) -> List[str]:
     return changed
 
 
-# ── Plain text logging ──────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Logging
+# ─────────────────────────────────────────────────────────────────────────────
 
 def log_event(
     timestamp: str,
@@ -298,7 +404,9 @@ def log_event(
         )
 
 
-# ── Main operations ─────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Actions
+# ─────────────────────────────────────────────────────────────────────────────
 
 def run_low_power_mode(
     ser,
@@ -331,6 +439,26 @@ def run_low_power_mode(
         config
     )
 
+    if disabled:
+
+        serial_print(
+            ser,
+            f"[SENSORS] Disabled "
+            f"{len(disabled)} sensor(s):"
+        )
+
+        for name in disabled:
+            serial_print(
+                ser,
+                f"  - {name}"
+            )
+
+    else:
+        serial_print(
+            ser,
+            "[SENSORS] All sensors already disabled."
+        )
+
     log_event(
         timestamp,
         "LOW_POWER",
@@ -340,7 +468,7 @@ def run_low_power_mode(
 
     serial_print(
         ser,
-        f"[DONE] Disabled {len(disabled)} sensor(s)."
+        "[DONE] Low-power mode active."
     )
 
 
@@ -375,6 +503,26 @@ def run_restore(
         config
     )
 
+    if restored:
+
+        serial_print(
+            ser,
+            f"[SENSORS] Restored "
+            f"{len(restored)} sensor(s):"
+        )
+
+        for name in restored:
+            serial_print(
+                ser,
+                f"  - {name}"
+            )
+
+    else:
+        serial_print(
+            ser,
+            "[SENSORS] All sensors already enabled."
+        )
+
     log_event(
         timestamp,
         "RESTORE",
@@ -384,5 +532,151 @@ def run_restore(
 
     serial_print(
         ser,
-        f"[DONE] Restored {len(restored)} sensor(s)."
+        "[DONE] Sensors restored."
     )
+
+
+def run_status(
+    ser,
+    timestamp: str,
+    voltage: float
+):
+    config = load_sensor_config(
+        SENSOR_CONFIG_PATH
+    )
+
+    sensors = config.get("sensors", [])
+
+    enabled = [
+        s["name"]
+        for s in sensors
+        if s.get("enabled")
+    ]
+
+    disabled = [
+        s["name"]
+        for s in sensors
+        if not s.get("enabled")
+    ]
+
+    serial_print(
+        ser,
+        "[STATUS] No changes made."
+    )
+
+    serial_print(
+        ser,
+        f"[SENSORS] Enabled ({len(enabled)}): "
+        f"{', '.join(enabled) if enabled else 'none'}"
+    )
+
+    serial_print(
+        ser,
+        f"[SENSORS] Disabled ({len(disabled)}): "
+        f"{', '.join(disabled) if disabled else 'none'}"
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CLI
+# ─────────────────────────────────────────────────────────────────────────────
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="PV Pi low-power mode manager"
+    )
+
+    group = parser.add_mutually_exclusive_group()
+
+    group.add_argument(
+        "--restore",
+        action="store_true",
+        help="Restore all sensors"
+    )
+
+    group.add_argument(
+        "--status",
+        action="store_true",
+        help="Print status only"
+    )
+
+    return parser.parse_args()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main
+# ─────────────────────────────────────────────────────────────────────────────
+
+def main():
+
+    args = parse_args()
+
+    timestamp = datetime.now().strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+    voltage = read_battery_voltage()
+
+    if args.restore:
+        mode = "RESTORE"
+
+    elif args.status:
+        mode = "STATUS"
+
+    else:
+        mode = "LOW POWER"
+
+    ser = get_serial()
+
+    try:
+
+        print_banner(
+            ser,
+            voltage,
+            mode,
+            timestamp
+        )
+
+        if (
+            voltage > 0 and
+            voltage < VOLTAGE_CRITICAL
+        ):
+
+            serial_print(
+                ser,
+                f"[WARN] Battery critically low "
+                f"({voltage:.3f}V)"
+            )
+
+        if args.restore:
+
+            run_restore(
+                ser,
+                timestamp,
+                voltage
+            )
+
+        elif args.status:
+
+            run_status(
+                ser,
+                timestamp,
+                voltage
+            )
+
+        else:
+
+            run_low_power_mode(
+                ser,
+                timestamp,
+                voltage
+            )
+
+    finally:
+
+        if ser:
+            ser.close()
+
+
+if __name__ == "__main__":
+    main()
