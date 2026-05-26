@@ -21,6 +21,7 @@ DATA_DIR = "/home/pi/data"
 SHIPPING_DIR = "/home/pi/shipping"
 LOG_PATH = "/home/pi/logs/launcher.log"
 SHIPPING_LOG_PATH = "/home/pi/logs/shipping.log"
+SHIPPING_PATH = os.path.join(NODE_DIR, "shipping_queuing/shipping.py")
 MOTION_LOG_PATH = "/home/pi/logs/motion_output.log"
 
 _MOTION_LOG_HANDLE = None
