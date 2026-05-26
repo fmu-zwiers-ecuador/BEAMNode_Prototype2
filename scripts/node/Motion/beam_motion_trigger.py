@@ -430,7 +430,12 @@ def handle_motion(config, camera_capture):
             logger.exception("High-resolution photo capture failed before video: %s", e)
 
     target_audio_preroll_sec = max(video_start_delay, audio_preroll_sec)
-    audio_duration = motion_duration + target_audio_preroll_sec + audio_postroll_sec
+    audio_duration = (
+        motion_duration
+        + target_audio_preroll_sec
+        + audio_postroll_sec
+        + max(audio_sync_offset_sec, 0.0)
+    )
 
     try:
         audio_proc, audio_start_epoch, audio_start_monotonic = start_motion_audio_recording(
