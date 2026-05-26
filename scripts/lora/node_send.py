@@ -1,11 +1,21 @@
 import time, json, base64, zlib, hashlib, random
+import sys
 import argparse
 import os
 import re
 from pathlib import Path
 import socket
+import atexit
 import board, busio, digitalio
 import adafruit_rfm9x
+
+# --- Logging (redirect all output) ---
+LOG_PATH = "/home/pi/logs/lora_send.log"
+os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+_log_file = open(LOG_PATH, "a", buffering=1)
+sys.stdout = _log_file
+sys.stderr = _log_file
+atexit.register(_log_file.close)
 
 # --- LoRa setup ---
 spi = busio.SPI(board.SCK, board.MOSI, board.MISO)
