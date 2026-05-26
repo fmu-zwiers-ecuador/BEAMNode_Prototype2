@@ -81,19 +81,6 @@ def get_required_number(config_section, key, label, value_type=float):
     return value
 
 
-def get_optional_colour_gains(config_section, key):
-    gains = config_section.get(key)
-    if gains is None:
-        return None
-    if not isinstance(gains, list) or len(gains) != 2:
-        raise ValueError(f"camera.{key} must be [red_gain, blue_gain]")
-    red_gain = float(gains[0])
-    blue_gain = float(gains[1])
-    if red_gain <= 0 or blue_gain <= 0:
-        raise ValueError(f"camera.{key} values must be greater than 0")
-    return red_gain, blue_gain
-
-
 def count_h264_frames(raw_video_path):
     cmd = [
         "ffprobe",
@@ -157,12 +144,12 @@ def remux_h264_to_mp4(raw_video_path, mp4_output_path, video_fps, wall_duration_
         result = subprocess.run(cmd, capture_output=True, text=True)
     except FileNotFoundError:
         logger.error("ffmpeg not found; raw video kept at %s", raw_video_path)
-        return False
+        return False, remux_fps
 
     if result.returncode != 0:
         logger.error("ffmpeg remux failed: %s", result.stderr.strip())
-        return False
-    return mp4_output_path.exists()
+        return False, remux_fps
+    return mp4_output_path.exists(), remux_fps
 
 
 class MotionCameraCapture:
@@ -173,6 +160,7 @@ class MotionCameraCapture:
         self.started = False
         self.last_video_elapsed_sec = None
         self.last_video_start_epoch = None
+        self.last_video_fps = None
 
         motion_config = config["motion_capture"]
         video_settings = self.camera_config["video"]
@@ -196,7 +184,6 @@ class MotionCameraCapture:
             video_settings,
             "fps",
             "camera.video.fps",
-            int,
         )
         self.picture_count = get_required_number(
             picture_settings,
@@ -238,32 +225,20 @@ class MotionCameraCapture:
         frame_us = int(1_000_000 / self.video_fps)
         exposure_us = int(self.camera_config.get("video_exposure_us", frame_us))
         analogue_gain = float(self.camera_config.get("video_gain", 2.0))
-        video_colour_gains = get_optional_colour_gains(
-            self.camera_config,
-            "video_colour_gains",
-        )
-        photo_colour_gains = get_optional_colour_gains(
-            self.camera_config,
-            "photo_colour_gains",
-        )
         self.video_warmup_sec = float(self.camera_config.get("video_warmup_sec", 1.0))
         self.video_bitrate = int(self.camera_config.get("video_bitrate", 2_000_000))
         self.fixed_fps_controls = {
             "FrameRate": self.video_fps,
             "FrameDurationLimits": (frame_us, frame_us),
             "AeEnable": False,
-            "AwbEnable": False,
+            "AwbEnable": True,
             "ExposureTime": exposure_us,
             "AnalogueGain": analogue_gain,
         }
-        if video_colour_gains is not None:
-            self.fixed_fps_controls["ColourGains"] = video_colour_gains
         self.photo_controls = {
             "AeEnable": True,
-            "AwbEnable": photo_colour_gains is None,
+            "AwbEnable": True,
         }
-        if photo_colour_gains is not None:
-            self.photo_controls["ColourGains"] = photo_colour_gains
 
         self.video_config = self.picam2.create_video_configuration(
             main={"size": (self.video_width, self.video_height), "format": "YUV420"},
@@ -286,10 +261,10 @@ class MotionCameraCapture:
             self.picture_count,
         )
         logger.info(
-            "Fixed video controls: exposure_us=%s gain=%s colour_gains=%s warmup_sec=%s bitrate=%s",
+            "Fixed video controls: exposure_us=%s gain=%s awb_enabled=%s warmup_sec=%s bitrate=%s",
             self.fixed_fps_controls["ExposureTime"],
             self.fixed_fps_controls["AnalogueGain"],
-            self.fixed_fps_controls.get("ColourGains"),
+            self.fixed_fps_controls["AwbEnable"],
             self.video_warmup_sec,
             self.video_bitrate,
         )
@@ -299,9 +274,8 @@ class MotionCameraCapture:
             self.flash_pin,
         )
         logger.info(
-            "Photo controls: awb_enabled=%s colour_gains=%s settle_sec=%s flash_warmup_sec=%s",
+            "Photo controls: awb_enabled=%s settle_sec=%s flash_warmup_sec=%s",
             self.photo_controls["AwbEnable"],
-            self.photo_controls.get("ColourGains"),
             self.photo_awb_settle_sec,
             self.photo_flash_warmup_sec,
         )
@@ -474,7 +448,14 @@ class MotionCameraCapture:
         if not raw_video_output.exists():
             return None
 
-        if remux_h264_to_mp4(raw_video_output, video_output, self.video_fps, elapsed):
+        remuxed, measured_fps = remux_h264_to_mp4(
+            raw_video_output,
+            video_output,
+            self.video_fps,
+            elapsed,
+        )
+        self.last_video_fps = measured_fps
+        if remuxed:
             return video_output
 
         return raw_video_output

@@ -549,7 +549,7 @@ def handle_motion(config, camera_capture):
         motion_audio_file,
         final_video,
         video_duration_sec,
-        camera_capture.video_fps,
+        camera_capture.last_video_fps or camera_capture.video_fps,
         audio_trim_start_sec,
     )
 
