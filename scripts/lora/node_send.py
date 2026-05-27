@@ -73,32 +73,43 @@ def make_file_id(path):
 def chunk_data(data):
     return [data[i:i+CHUNK_SIZE] for i in range(0, len(data), CHUNK_SIZE)]
 
-def max_chunk_size_for_packet(file_id, node_id, run_id, limit_bytes=MAX_PACKET_BYTES):
-    """Compute the largest chunk size that keeps a DATA packet <= limit_bytes."""
-    def packet_size_for(chunk_len: int) -> int:
+def build_chunks_for_limit(data, file_id, node_id, run_id, limit_bytes=MAX_PACKET_BYTES):
+    """Split data into chunks so every DATA packet stays <= limit_bytes."""
+    data_len = len(data)
+    if data_len == 0:
+        return [b""]
+
+    def packet_size_for(chunk_len: int, idx: int, total: int) -> int:
         dummy = b"x" * chunk_len
         pkt = {
             "type": "DATA",
             "f": file_id,
             "n": node_id,
             "r": run_id,
-            "i": 0,
-            "t": 1,
+            "i": idx,
+            "t": total,
             "d": base64.b64encode(dummy).decode(),
         }
         return len(json.dumps(pkt).encode())
+
+    def is_ok(chunk_len: int) -> bool:
+        total = (data_len + chunk_len - 1) // chunk_len
+        return packet_size_for(chunk_len, total - 1, total) <= limit_bytes
 
     low, high = 1, 512
     best = 0
     while low <= high:
         mid = (low + high) // 2
-        if packet_size_for(mid) <= limit_bytes:
+        if is_ok(mid):
             best = mid
             low = mid + 1
         else:
             high = mid - 1
 
-    return best
+    if best <= 0:
+        raise ValueError("MAX_PACKET_BYTES too small for DATA packet headers")
+
+    return [data[i:i+best] for i in range(0, data_len, best)]
 
 def send_packet(obj):
     msg = json.dumps(obj).encode()
@@ -169,12 +180,9 @@ def wait_for_ack(file_id, chunk_index, timeout):
 # --- MAIN SEND ---
 def send_file(path):
     file_id = make_file_id(path)
-    max_chunk_size = max_chunk_size_for_packet(file_id, NODE_ID, RUN_ID, MAX_PACKET_BYTES)
-    if max_chunk_size <= 0:
-        raise ValueError("MAX_PACKET_BYTES too small for DATA packet headers")
 
     data, checksum = prepare_file(path)
-    chunks = [data[i:i+max_chunk_size] for i in range(0, len(data), max_chunk_size)]
+    chunks = build_chunks_for_limit(data, file_id, NODE_ID, RUN_ID, MAX_PACKET_BYTES)
     total = len(chunks)
 
     log(f"Sending {path} as {file_id}, {total} chunks")
