@@ -13,7 +13,6 @@ import adafruit_rfm9x
 # --- Logging (redirect all output) ---
 LOG_PATH = "/home/pi/logs/lora_send.log"
 
-
 # --- LoRa setup ---
 spi = busio.SPI(board.SCK, board.MOSI, board.MISO)
 cs = digitalio.DigitalInOut(board.CE1)
@@ -29,6 +28,7 @@ ACK_TIMEOUT = 20
 MAX_RETRIES = 5
 TX_RX_TURNAROUND = 0.1
 DEFAULT_DATA_DIR = "/home/pi/data"
+RUN_ID = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
 
 # --- Multi-node airtime coordination (best-effort) ---
 # LoRa is a shared medium; with multiple nodes, packets/ACKs will occasionally collide.
@@ -44,9 +44,9 @@ INTER_CHUNK_JITTER_MAX = 0.35
 
 def log(msg):
     """Internal logging."""
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] [lora_send] {msg}"
-    log(line)
+    print(line)
     try:
         os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
         with open(LOG_PATH, "a") as f:
@@ -164,6 +164,7 @@ def send_file(path):
                 "type": "DATA",
                 "f": file_id,
                 "n": NODE_ID,
+                "r": RUN_ID,
                 "i": i,
                 "t": total,
                 "d": base64.b64encode(chunks[i]).decode()
@@ -197,6 +198,7 @@ def send_file(path):
         "type": "END",
         "f": file_id,
         "n": NODE_ID,
+        "r": RUN_ID,
         "checksum": checksum
     }
 

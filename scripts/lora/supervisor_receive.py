@@ -38,7 +38,7 @@ def log(msg):
     """Internal logging."""
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] [supervisor_receive] {msg}"
-    log(line)
+    print(line)
     try:
         os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
         with open(LOG_PATH, "a") as f:
@@ -85,15 +85,16 @@ def send_time():
     log(f"Sent TIME packet: {time_str}")
 
 
-def get_node_output_dir(node_id: str) -> str:
+def get_node_output_dir(node_id: str, run_id: str | None) -> str:
     node_key = node_num(node_id)
-    if node_key not in NODE_OUTPUT_DIRS:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        dir_name = f"node{node_key}_loradata_{timestamp}"
+    run_key = run_id or datetime.now().strftime("%Y%m%dT%H%M%SZ")
+    dir_key = (node_key, run_key)
+    if dir_key not in NODE_OUTPUT_DIRS:
+        dir_name = f"node{node_key}_loradata_{run_key}"
         out_dir = os.path.join(OUTPUT_DIR, dir_name)
         os.makedirs(out_dir, exist_ok=True)
-        NODE_OUTPUT_DIRS[node_key] = out_dir
-    return NODE_OUTPUT_DIRS[node_key]
+        NODE_OUTPUT_DIRS[dir_key] = out_dir
+    return NODE_OUTPUT_DIRS[dir_key]
 
 def send_ack(file_id, node_id, chunk_index, received):
     pkt = {
@@ -130,6 +131,7 @@ def handle_data(pkt):
     log(f"DEBUG: Received DATA packet - file_id: {pkt.get('f')}, chunk: {pkt.get('i')}")
     file_id = pkt["f"]
     node_id = pkt["n"]
+    run_id = pkt.get("r")
 
     key = (node_id, file_id)
 
@@ -137,7 +139,8 @@ def handle_data(pkt):
         files[key] = {
             "total": pkt["t"],
             "chunks": {},
-            "node": node_id
+            "node": node_id,
+            "run_id": run_id
         }
 
     files[key]["chunks"][pkt["i"]] = base64.b64decode(pkt["d"])
@@ -150,6 +153,7 @@ def handle_end(pkt):
     file_id = pkt["f"]
     checksum = pkt["checksum"]
     node_id = pkt.get("n")
+    run_id = pkt.get("r")
 
     key = (node_id, file_id)
 
@@ -172,7 +176,7 @@ def handle_end(pkt):
 
     decompressed = zlib.decompress(data)
 
-    out_dir = get_node_output_dir(node_id)
+    out_dir = get_node_output_dir(node_id, file.get("run_id") or run_id)
     filename = f"{node_num(node_id)}_{file_id}.json"
     out_path = os.path.join(out_dir, filename)
 
