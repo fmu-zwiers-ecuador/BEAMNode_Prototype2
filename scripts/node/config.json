@@ -150,12 +150,14 @@
   "alsa_format": "S16_LE"
 },
 "motion_capture": {
+  "enabled": true,
   "directory": "motion_events",
   "duration_sec": 10,
   "start_delay_sec": 1.0,
   "audio_preroll_sec": 1.0,
   "audio_postroll_sec": 0.5,
-  "audio_sync_offset_sec": 1.0
+  "audio_sync_offset_sec": -0.5,
+  "merge_worker_enabled": true
 },
  "camera": {
   "enabled": true,

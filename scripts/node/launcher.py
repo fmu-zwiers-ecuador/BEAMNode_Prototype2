@@ -17,14 +17,17 @@ DETECT_PATH = os.path.join(NODE_DIR, "sensor_detection/detect.py")
 CONFIG_PATH = os.path.join(NODE_DIR, "config.json")
 SCHEDULER_PATH = os.path.join(NODE_DIR, "scheduler.py")
 MOTION_TRIGGER_PATH = os.path.join(NODE_DIR, "Motion/beam_motion_trigger.py")
+MOTION_MERGE_WORKER_PATH = os.path.join(NODE_DIR, "Motion/motion_merge_worker.py")
 DATA_DIR = "/home/pi/data"
 SHIPPING_DIR = "/home/pi/shipping"
 LOG_PATH = "/home/pi/logs/launcher.log"
 SHIPPING_LOG_PATH = "/home/pi/logs/shipping.log"
 SHIPPING_PATH = os.path.join(NODE_DIR, "shipping_queuing/shipping.py")
 MOTION_LOG_PATH = "/home/pi/logs/motion_output.log"
+MOTION_MERGE_LOG_PATH = "/home/pi/logs/motion_video_processing.log"
 
 _MOTION_LOG_HANDLE = None
+_MOTION_MERGE_LOG_HANDLE = None
 
 with open(CONFIG_PATH, "r") as f:
     config = json.load(f)
@@ -81,10 +84,22 @@ def start_scheduler_async():
         log(f"CRITICAL ERROR: Scheduler script missing.")
         return None
 
+def motion_capture_enabled():
+    """Return whether launcher should own motion capture processes."""
+    return config.get("motion_capture", {}).get("enabled", True)
+
 def start_motion_trigger_async():
     """Starts motion trigger on startup (Asynchronous)."""
+    if not motion_capture_enabled():
+        log("Motion trigger disabled because motion_capture.enabled is false in config.json")
+        return None
+
     cam_config = config["camera"]
     enabled = cam_config.get("enabled", False)
+
+    if not enabled:
+        log("Motion trigger disabled because camera.enabled is false in config.json")
+        return None
 
     if os.path.exists(MOTION_TRIGGER_PATH) and enabled:
         log(f"Starting Motion Trigger: {MOTION_TRIGGER_PATH}")
@@ -99,6 +114,79 @@ def start_motion_trigger_async():
     else:
         log(f"ERROR: Motion trigger script missing at {MOTION_TRIGGER_PATH}")
         return None
+
+def warn_if_motion_services_active():
+    """Warn when legacy/standalone motion services are active outside launcher."""
+    for service in ["beam-motion-merge.service", "motio_camera.service"]:
+        try:
+            result = subprocess.run(
+                ["systemctl", "is-active", "--quiet", service],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as e:
+            log(f"Could not check {service}: {e}")
+            continue
+
+        if result.returncode == 0:
+            log(
+                f"WARNING: {service} is active outside launcher. "
+                f"Disable it if launcher should be the only motion owner."
+            )
+
+def start_motion_merge_worker_async():
+    """Starts final-video processing worker in the background."""
+    motion_config = config.get("motion_capture", {})
+
+    if not motion_capture_enabled():
+        log("Motion merge worker disabled because motion_capture.enabled is false in config.json")
+        return None
+
+    enabled = motion_config.get("merge_worker_enabled", True)
+    queue_dir = os.path.join(
+        config.get("global", {}).get("base_dir", DATA_DIR),
+        motion_config.get("directory", "motion_events"),
+    )
+
+    if not enabled:
+        log("Motion merge worker disabled in config.json")
+        return None
+
+    if os.path.exists(MOTION_MERGE_WORKER_PATH):
+        log(f"Starting Motion Merge Worker: {MOTION_MERGE_WORKER_PATH}")
+        global _MOTION_MERGE_LOG_HANDLE
+        ensure_log_file(MOTION_MERGE_LOG_PATH)
+        _MOTION_MERGE_LOG_HANDLE = open(MOTION_MERGE_LOG_PATH, "a")
+        return subprocess.Popen(
+            [
+                "python3",
+                MOTION_MERGE_WORKER_PATH,
+                "--watch",
+                "--queue-dir",
+                queue_dir,
+                "--poll-sec",
+                "5",
+            ],
+            stdout=_MOTION_MERGE_LOG_HANDLE,
+            stderr=_MOTION_MERGE_LOG_HANDLE,
+        )
+
+    log(f"ERROR: Motion merge worker missing at {MOTION_MERGE_WORKER_PATH}")
+    return None
+
+def terminate_process(proc, name):
+    """Terminate a child process started by launcher."""
+    if proc is None or proc.poll() is not None:
+        return
+    log(f"Stopping {name}...")
+    try:
+        proc.terminate()
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        log(f"{name} did not stop cleanly; killing it")
+        proc.kill()
+    except Exception as e:
+        log(f"ERROR stopping {name}: {e}")
 
 def move_data_to_shipping():
     """Move everything in /home/pi/data to /home/pi/shipping and clear data folder."""
@@ -155,7 +243,9 @@ if __name__ == "__main__":
     # 1. REQUIREMENT: Run detect.py once on startup
     run_script_sync(DETECT_PATH)
 
-    # 1b. REQUIREMENT: Start motion trigger on startup
+    # 1b. REQUIREMENT: Start motion services on startup
+    warn_if_motion_services_active()
+    merge_proc = start_motion_merge_worker_async()
     motion_proc = start_motion_trigger_async()
 
     # 2. REQUIREMENT: Start original scheduler and keep it going
@@ -178,6 +268,16 @@ if __name__ == "__main__":
                 log("ALERT: Scheduler process stopped. Restarting...")
                 time.sleep(5)
                 sched_proc = start_scheduler_async()
+
+            if motion_proc is not None and motion_proc.poll() is not None:
+                log("ALERT: Motion trigger process stopped. Restarting...")
+                time.sleep(5)
+                motion_proc = start_motion_trigger_async()
+
+            if merge_proc is not None and merge_proc.poll() is not None:
+                log("ALERT: Motion merge worker stopped. Restarting...")
+                time.sleep(5)
+                merge_proc = start_motion_merge_worker_async()
 
             # B. REQUIREMENT: Run Shipping.py at 13:00
             # We use a 30-second window to ensure the trigger catches
@@ -211,8 +311,10 @@ if __name__ == "__main__":
             time.sleep(10)
 
         except KeyboardInterrupt:
-            log("Manual shutdown detected. Terminating scheduler...")
-            sched_proc.terminate()
+            log("Manual shutdown detected. Terminating launcher-managed processes...")
+            terminate_process(motion_proc, "motion trigger")
+            terminate_process(merge_proc, "motion merge worker")
+            terminate_process(sched_proc, "scheduler")
             break
         except Exception as e:
             log(f"Unexpected monitor error: {e}")
