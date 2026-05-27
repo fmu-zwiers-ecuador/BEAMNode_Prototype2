@@ -22,7 +22,7 @@ JSON_FILEPATH = "/home/pi/BEAMNode_Prototype2/scripts/node/shipping_queuing/node
 SUPERVISOR_DATA_ROOT = "/home/pi/data"
 REMOTE_SHIP_DIR = "/home/pi/shipping"
 LOG_FILE = "/home/pi/logs/queue.log"
-NAS_PATH = "PiSync@100.115.5.12:/volume1/BEAM_test_data/FEC/"
+NAS_PATH = "PiSync@100.115.5.12:/BEAM_test_data/FEC/"
 MOVE_TO_DRIVE_SCRIPT = "move_supervisor_data_to_beamdrive.sh"
 
 MAX_RETRIES = 5
@@ -132,7 +132,7 @@ def rsync_pull(full_hostname):
 
 def delete_shipping_data(full_hostname):
     """Removes data from node shipping folder after successful pull."""
-    cmd = ["ssh"] + SSH_OPTS + [f"pi@{full_hostname}", f"sudo rm -rf {REMOTE_SHIP_DIR}/*"]
+    cmd = ["ssh"] + SSH_OPTS + [f"pi@{full_hostname}", f"rm -rf {REMOTE_SHIP_DIR}/*"]
     try:
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
         log(f"{full_hostname}: Remote folder cleared.")
