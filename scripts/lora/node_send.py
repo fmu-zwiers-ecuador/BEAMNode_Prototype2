@@ -1,3 +1,4 @@
+import datetime
 import time, json, base64, zlib, hashlib, random
 import sys
 import argparse
@@ -40,6 +41,19 @@ RETRY_BACKOFF_MAX = 4.0
 INTER_CHUNK_JITTER_MAX = 0.35
 
 # --- Helpers ---
+
+def log(msg):
+    """Internal logging."""
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{ts}] [lora_send] {msg}"
+    log(line)
+    try:
+        os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+        with open(LOG_PATH, "a") as f:
+            f.write(line + "\n")
+    except:
+        pass
+
 def prepare_file(path):
     with open(path, "rb") as f:
         data = f.read()
@@ -60,7 +74,7 @@ def chunk_data(data):
 
 def send_packet(obj):
     msg = json.dumps(obj).encode()
-    print(f"DEBUG: Sending packet of {len(msg)} bytes")
+    log(f"DEBUG: Sending packet of {len(msg)} bytes")
     try:
         rfm9x.send(msg, keep_listening=True)
     except TypeError:
@@ -98,17 +112,17 @@ def wait_for_ack(file_id, chunk_index, timeout):
         if pkt:
             try:
                 msg = json.loads(pkt.decode())
-                print(f"DEBUG: Received message: {msg}")
+                log(f"DEBUG: Received message: {msg}")
                 if (
                     msg.get("type") == "ACK"
                     and msg.get("f") == file_id
                     and msg.get("n") == NODE_ID
                     and msg.get("i") == chunk_index
                 ):
-                    print(f"DEBUG: ACK matched for file_id {file_id}, chunk {chunk_index}")
+                    log(f"DEBUG: ACK matched for file_id {file_id}, chunk {chunk_index}")
                     return msg
                 else:
-                    print(
+                    log(
                         "DEBUG: Message doesn't match - "
                         f"type: {msg.get('type')}, "
                         f"f: {msg.get('f')}, "
@@ -116,10 +130,10 @@ def wait_for_ack(file_id, chunk_index, timeout):
                         f"i: {msg.get('i')} (expected {chunk_index})"
                     )
             except Exception as e:
-                print(f"DEBUG: Failed to decode packet: {e}")
-                print(f"DEBUG: Raw packet: {pkt}")
+                log(f"DEBUG: Failed to decode packet: {e}")
+                log(f"DEBUG: Raw packet: {pkt}")
                 pass
-    print(f"DEBUG: ACK timeout for file_id {file_id}, chunk {chunk_index}")
+    log(f"DEBUG: ACK timeout for file_id {file_id}, chunk {chunk_index}")
     return None
 
 # --- MAIN SEND ---
@@ -130,7 +144,7 @@ def send_file(path):
     file_id = make_file_id(path)
     total = len(chunks)
 
-    print(f"Sending {path} as {file_id}, {total} chunks")
+    log(f"Sending {path} as {file_id}, {total} chunks")
 
     # Random start delay (collision avoidance across multiple nodes).
     time.sleep(random.uniform(0, 10))
@@ -154,7 +168,7 @@ def send_file(path):
                 "t": total,
                 "d": base64.b64encode(chunks[i]).decode()
             }
-            print(f"Sending chunk {i}/{total}")
+            log(f"Sending chunk {i}/{total}")
             send_packet(pkt)
 
             # Allow radio to finish TX and switch to RX mode
@@ -164,18 +178,18 @@ def send_file(path):
             ack = wait_for_ack(file_id, i, ACK_TIMEOUT)
 
             if ack:
-                print(f"ACK received for chunk {i}")
+                log(f"ACK received for chunk {i}")
                 acked = True
                 # Small jitter so multiple nodes don't stay phase-locked.
                 time.sleep(random.uniform(0.0, INTER_CHUNK_JITTER_MAX))
             else:
                 retries[i] += 1
-                print(f"Timeout for chunk {i}, retry {retries[i]}/{MAX_RETRIES}")
+                log(f"Timeout for chunk {i}, retry {retries[i]}/{MAX_RETRIES}")
                 backoff = min(RETRY_BACKOFF_MAX, RETRY_BACKOFF_BASE * (2 ** (retries[i] - 1)))
                 time.sleep(random.uniform(0.5 * backoff, 1.5 * backoff))
 
         if not acked:
-            print(f"Failed to deliver chunk {i}")
+            log(f"Failed to deliver chunk {i}")
             return
 
     # send END
@@ -188,7 +202,7 @@ def send_file(path):
 
     wait_for_channel_clear()
     send_packet(end_pkt)
-    print("File sent!")
+    log("File sent!")
 
 def iter_json_files(root_dir, recursive=True):
     root = Path(root_dir)
@@ -236,25 +250,25 @@ def main():
         paths = paths[: args.limit]
 
     if not paths:
-        print(f"No JSON files found in {args.dir}")
+        log(f"No JSON files found in {args.dir}")
         return 0
 
-    print(f"Found {len(paths)} JSON file(s) under {args.dir}")
+    log(f"Found {len(paths)} JSON file(s) under {args.dir}")
 
     failures = 0
     for idx, path in enumerate(paths, start=1):
-        print(f"\n[{idx}/{len(paths)}] Sending {path}")
+        log(f"\n[{idx}/{len(paths)}] Sending {path}")
         try:
             send_file(path)
         except Exception as e:
             failures += 1
-            print(f"ERROR: Failed sending {path}: {e}")
+            log(f"ERROR: Failed sending {path}: {e}")
 
     if failures:
-        print(f"\nDone with {failures} failure(s) out of {len(paths)} file(s)")
+        log(f"\nDone with {failures} failure(s) out of {len(paths)} file(s)")
         return 2
 
-    print(f"\nDone: sent {len(paths)} file(s) successfully")
+    log(f"\nDone: sent {len(paths)} file(s) successfully")
     return 0
 
 # --- RUN ---

@@ -10,8 +10,8 @@ WorkingDirectory=/home/pi/BEAMNode_Prototype2/scripts/lora
 ExecStart=/usr/bin/python3 /home/pi/BEAMNode_Prototype2/scripts/lora/supervisor_receive.py
 Restart=always
 RestartSec=5
-StandardOutput=append:/home/pi/BEAMNode_Prototype2/logs/lora_supervisor_receive.log
-StandardError=append:/home/pi/BEAMNode_Prototype2/logs/lora_supervisor_receive.log
+StandardOutput=append:/home/pi/logs/lora_supervisor_daemon.log
+StandardError=append:/home/pi/logs/lora_supervisor_daemon.log
 
 [Install]
 WantedBy=multi-user.target

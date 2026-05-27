@@ -9,10 +9,6 @@ import adafruit_rfm9x
 # --- Logging (redirect all output) ---
 LOG_PATH = "/home/pi/logs/lora_send.log"
 
-
-# make datetime utc forever
-datetime.now = lambda: datetime.now().astimezone(datetime.timezone.utc)
-
 # --- LoRa setup ---
 spi = busio.SPI(board.SCK, board.MOSI, board.MISO)
 cs = digitalio.DigitalInOut(board.CE1)
@@ -39,6 +35,18 @@ PATIENCE_LOG_EVERY_SEC = 10
 
 # Per-node session output directories
 NODE_OUTPUT_DIRS = {}
+
+def log(msg):
+    """Internal logging."""
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{ts}] [supervisor_receive] {msg}"
+    log(line)
+    try:
+        os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+        with open(LOG_PATH, "a") as f:
+            f.write(line + "\n")
+    except:
+        pass
 
 
 def node_num(node_id: str) -> str:
@@ -76,7 +84,7 @@ def send_time():
     except TypeError:
         # Older library versions may not support keep_listening kwarg
         rfm9x.send(packet.encode())
-    print(f"Sent TIME packet: {time_str}")
+    log(f"Sent TIME packet: {time_str}")
 
 
 def get_node_output_dir(node_id: str) -> str:
@@ -118,10 +126,10 @@ def send_ack(file_id, node_id, chunk_index, received):
     except AttributeError:
         pass
 
-    print(f"ACK sent for {file_id}, chunk {chunk_index}, received chunks: {received}")
+    log(f"ACK sent for {file_id}, chunk {chunk_index}, received chunks: {received}")
 
 def handle_data(pkt):
-    print(f"DEBUG: Received DATA packet - file_id: {pkt.get('f')}, chunk: {pkt.get('i')}")
+    log(f"DEBUG: Received DATA packet - file_id: {pkt.get('f')}, chunk: {pkt.get('i')}")
     file_id = pkt["f"]
     node_id = pkt["n"]
 
@@ -148,20 +156,20 @@ def handle_end(pkt):
     key = (node_id, file_id)
 
     if key not in files:
-        print(f"END for unknown transfer: node={node_id}, file_id={file_id}")
+        log(f"END for unknown transfer: node={node_id}, file_id={file_id}")
         return
 
     file = files[key]
     total = file["total"]
 
     if len(file["chunks"]) != total:
-        print("Incomplete file")
+        log("Incomplete file")
         return
 
     data = b''.join(file["chunks"][i] for i in range(total))
 
     if hashlib.md5(data).hexdigest() != checksum:
-        print("Checksum failed")
+        log("Checksum failed")
         return
 
     decompressed = zlib.decompress(data)
@@ -173,12 +181,12 @@ def handle_end(pkt):
     with open(out_path, "wb") as f:
         f.write(decompressed)
 
-    print(f"Saved {out_path}")
+    log(f"Saved {out_path}")
 
     del files[key]
 
 # --- MAIN LOOP ---
-print("Supervisor listening...")
+log("Supervisor listening...")
 
 last_packet_at = time.monotonic()
 last_patience_log_at = 0.0
@@ -188,7 +196,7 @@ while True:
     silence_sec = now - last_packet_at
 
     if silence_sec >= SILENCE_SHUTDOWN_SEC:
-        print(
+        log(
             f"No LoRa traffic for {SILENCE_SHUTDOWN_SEC // 60} minutes. "
             "Patience exhausted; shutting down receiver."
         )
@@ -197,7 +205,7 @@ while True:
     if now - last_patience_log_at >= PATIENCE_LOG_EVERY_SEC:
         remaining_sec = max(0.0, SILENCE_SHUTDOWN_SEC - silence_sec)
         patience_pct = (remaining_sec / SILENCE_SHUTDOWN_SEC) * 100.0
-        print(
+        log(
             f"Listening patience: {patience_pct:.1f}% "
             f"({int(remaining_sec)}s remaining before shutdown)"
         )
@@ -214,9 +222,9 @@ while True:
 
     try:
         msg = json.loads(pkt.decode())
-        print(f"DEBUG: Parsed message type: {msg.get('type')}")
+        log(f"DEBUG: Parsed message type: {msg.get('type')}")
     except Exception as e:
-        print(f"DEBUG: Failed to decode packet: {e}")
+        log(f"DEBUG: Failed to decode packet: {e}")
         continue
 
     if msg["type"] == "DATA":
@@ -224,7 +232,7 @@ while True:
     
     if msg["type"] == "TIME_REQUEST":
         node_id = msg.get("node_id", "unknown-node")
-        print(f"Received TIME_REQUEST from {node_id}")
+        log(f"Received TIME_REQUEST from {node_id}")
         send_time()
 
     elif msg["type"] == "END":

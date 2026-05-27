@@ -8,5 +8,5 @@ Type=oneshot
 User=pi
 WorkingDirectory=/home/pi/BEAMNode_Prototype2/scripts/lora
 ExecStart=/usr/bin/python3 /home/pi/BEAMNode_Prototype2/scripts/lora/node_send.py
-StandardOutput=append:/home/pi/BEAMNode_Prototype2/logs/lora_node_send.log
-StandardError=append:/home/pi/BEAMNode_Prototype2/logs/lora_node_send.log
+StandardOutput=append:/home/pi/logs/lora_node_daemon.log
+StandardError=append:/home/pi/logs/lora_node_daemon.log
