@@ -1,8 +1,7 @@
 {
   "global": {
     "lora_enabled": false,
-    "lora_send_time": "15:00",
-    "lora_receive_time": "14:00", 
+    "lora_send_time": "14:00",
     "node_id": "beam-node-01",
     "base_dir": "/home/pi/data",
     "ship_dir": "/home/pi/shipping",
@@ -156,7 +155,7 @@
   "start_delay_sec": 1.0,
   "audio_preroll_sec": 1.0,
   "audio_postroll_sec": 0.5,
-  "audio_sync_offset_sec": -0.5
+  "audio_sync_offset_sec": 1.0
 },
  "camera": {
   "enabled": true,
@@ -176,23 +175,22 @@
   "pir_warmup_sec": 5,
   "pir_poll_interval_sec": 0.05,
   "pir_sample_rate": 20,
-  "pir_queue_len": 5,
-  "pir_threshold": 0.8,
-  "pir_clear_timeout_sec": 20,
+  "pir_queue_len": 1,
+  "pir_threshold": 0.4,
   "flash_enabled": true,
   "flash_gpio": 26,
   "servo_gpio": 18,
   "settle_sec": 6,
   "photo_awb_settle_sec": 1.0,
   "video_bitrate": 5000000,
-  "video_exposure_us": 20000,
-  "video_gain": 1.0,
+  "video_exposure_us": 55555,
+  "video_gain": 2.0,
   "video_warmup_sec": 1.0,
   "motion_photo_flash_warmup_sec": 0.75,
   "motion_photo_flash_cooldown_sec": 0.15,
   "video": {
     "resolution": [1280, 720],
-    "fps": 14
+    "fps": 16
   },
   "pictures": {
     "resolution": [4608, 2592],
