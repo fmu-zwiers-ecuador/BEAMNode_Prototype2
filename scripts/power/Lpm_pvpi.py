@@ -4,6 +4,12 @@ Low-power mode manager for a solar-powered Raspberry Pi Zero (PV Pi).
 The PV Pi HAT communicates over UART using simple ASCII commands.
 Battery voltage is read by sending GET_BAT_V and parsing the response —
 there is no SPI/I2C ADC to read directly.
+
+In raspi-config, go to Interface Options
+Select Serial Port
+When asked "Would you like a login shell to be accessible over the serial port?" → No
+When asked "Would you like the serial port hardware to be enabled?" → Yes
+Finish and reboot
 """
 
 import argparse
