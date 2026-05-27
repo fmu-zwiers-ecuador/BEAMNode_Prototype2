@@ -3,7 +3,10 @@
 This folder contains the motion-triggered camera/audio workflow for the BEAM node.
 The system watches the PIR sensor, captures high-resolution photos, records a
 short video with synchronized audio, and sends final MP4 processing to a
-background merge service.
+background merge worker.
+
+On a normal node install, `launcher.py` is the only process owner for motion
+capture. It starts and monitors both the PIR trigger and the merge worker.
 
 ## Main Scripts
 
@@ -12,8 +15,13 @@ background merge service.
   flash control, and raw H.264 remuxing.
 - `motion_merge_worker.py` processes queued audio/video merge jobs into final
   MP4 files.
-- `beam-motion-merge.service` is the systemd service for the merge worker.
-- `install_motion_merge_service.sh` installs and starts the merge worker service.
+- `launcher.py` starts `motion_merge_worker.py --watch` by default.
+- `beam-motion-merge.service` is optional standalone mode only. Do not enable it
+  on normal nodes, or it can duplicate launcher-managed merge processing.
+- `install_motion_merge_service.sh` installs standalone mode only when run with
+  `--standalone`.
+- `disable_standalone_motion_services.sh` stops old standalone motion services so
+  launcher remains the only motion owner.
 - `motion_logging.py` sets up shared logging to `/home/pi/logs/motion.log`.
 
 ## Event Flow
@@ -42,8 +50,8 @@ When motion is detected:
 
 9. It returns to the PIR loop so the node can wait for the next motion event.
 
-10. `beam-motion-merge.service` picks up the merge job and creates the final MP4
-    in the background.
+10. The launcher-managed `motion_merge_worker.py --watch` process picks up the
+    merge job and creates the final MP4 in the background.
 
 ## Event Folder Layout
 
@@ -194,18 +202,30 @@ a merge job file:
 combined/motionvid_audio_TIMESTAMP.merge.json
 ```
 
-The service `beam-motion-merge.service` watches for these jobs and processes
-them independently. This keeps the camera/PIR script free to return to watching
-for motion.
+The launcher-managed `motion_merge_worker.py --watch` process watches for these
+jobs and processes them independently. This keeps the camera/PIR script free to
+return to watching for motion.
 
-Install the service on the Pi:
+For a normal node, do not install `beam-motion-merge.service`. The fresh-clone
+setup installs `beamnode.service`, which runs `launcher.py`; launcher starts the
+merge worker itself.
+
+To make sure old standalone services are not running:
 
 ```bash
 cd /home/pi/BEAMNode_Prototype2/scripts/node/Motion
-./install_motion_merge_service.sh
+./disable_standalone_motion_services.sh
+sudo systemctl restart beamnode.service
 ```
 
-Check service status:
+Optional standalone mode only:
+
+```bash
+cd /home/pi/BEAMNode_Prototype2/scripts/node/Motion
+./install_motion_merge_service.sh --standalone
+```
+
+Check standalone service status:
 
 ```bash
 sudo systemctl status beam-motion-merge.service

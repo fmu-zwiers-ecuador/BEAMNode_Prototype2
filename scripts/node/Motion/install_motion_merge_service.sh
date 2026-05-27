@@ -6,6 +6,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVICE_SRC="$SCRIPT_DIR/$SERVICE_NAME"
 SERVICE_DEST="/etc/systemd/system/$SERVICE_NAME"
 
+if [[ "${1:-}" != "--standalone" ]]; then
+  echo "This standalone service is optional and is NOT used by the default node setup."
+  echo "By default, launcher.py starts and monitors motion_merge_worker.py."
+  echo
+  echo "To keep launcher.py as the only motion owner, do not install this service."
+  echo "If you intentionally want standalone merge processing, run:"
+  echo "  $0 --standalone"
+  exit 1
+fi
+
 echo "[1/4] Installing $SERVICE_NAME"
 sudo cp "$SERVICE_SRC" "$SERVICE_DEST"
 
