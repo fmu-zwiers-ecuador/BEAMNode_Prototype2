@@ -8,11 +8,7 @@ import adafruit_rfm9x
 
 # --- Logging (redirect all output) ---
 LOG_PATH = "/home/pi/logs/lora_send.log"
-os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
-_log_file = open(LOG_PATH, "a", buffering=1)
-sys.stdout = _log_file
-sys.stderr = _log_file
-atexit.register(_log_file.close)
+
 
 # make datetime utc forever
 datetime.now = lambda: datetime.now().astimezone(datetime.timezone.utc)
