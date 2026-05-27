@@ -1,4 +1,3 @@
-
 """
 low_power_mode.py
 -----------------
@@ -93,18 +92,19 @@ def read_battery_voltage() -> float:
         import spidev
 
         spi = spidev.SpiDev()
-
         spi.open(0, 0)
-
         spi.max_speed_hz = 1_350_000
 
-        adc = spi.xfer2([
-            1,
-            (8 + MCP3008_CHANNEL) << 4,
-            0
-        ])
-
-        spi.close()
+        try:
+            # FIX: spi.close() moved into a finally block so it always runs,
+            # even if xfer2 raises an exception.
+            adc = spi.xfer2([
+                1,
+                (8 + MCP3008_CHANNEL) << 4,
+                0
+            ])
+        finally:
+            spi.close()
 
         raw = ((adc[1] & 3) << 8) + adc[2]
 
@@ -284,7 +284,10 @@ def enable_all_sensors(config: dict) -> List[str]:
 
     for sensor in config.get("sensors", []):
 
-        if not sensor.get("enabled", True):
+        # FIX: default was True, meaning sensors without an "enabled" key
+        # were skipped and never restored. Default must be False to match
+        # the same assumption used in disable_all_sensors.
+        if not sensor.get("enabled", False):
 
             sensor["enabled"] = True
 
@@ -350,8 +353,12 @@ def run_low_power_mode(
         serial_print(
             ser,
             f"[SKIP] Battery at {voltage:.3f}V "
-            f"(above {VOLTAGE_LOW}V)"
+            f"(above {VOLTAGE_LOW}V) — no action taken."
         )
+
+        # FIX: log the skip so cron runs are traceable even when no
+        # action is needed.
+        log_event(timestamp, "SKIP", voltage, [])
 
         return
 
@@ -490,6 +497,14 @@ def run_status(
     timestamp: str,
     voltage: float
 ):
+    # FIX: warn if voltage read failed so the user knows the reading is
+    # unavailable, rather than silently showing "READ ERROR" only in the banner.
+    if voltage < 0:
+        serial_print(
+            ser,
+            "[WARN] Battery voltage unavailable — ADC read failed."
+        )
+
     config = load_sensor_config(
         SENSOR_CONFIG_PATH
     )
@@ -575,7 +590,11 @@ def main():
         print("====================================================")
         print("")
 
-        return
+        # FIX: only hard-exit for default and restore modes, where voltage
+        # is needed to make decisions. Status mode can still report sensor
+        # state even without a valid voltage reading.
+        if not args.status:
+            return
 
     if args.restore:
         mode = "RESTORE"
@@ -589,15 +608,17 @@ def main():
     ser = get_serial()
 
     try:
-
         print_banner(
             ser,
             voltage,
             mode,
             timestamp
         )
-
+        # FIX: critical voltage warning now only fires in default (low-power)
+        # mode. restore and status have their own handling for this case.
         if (
+            not args.restore and
+            not args.status and
             voltage > 0 and
             voltage < VOLTAGE_CRITICAL
         ):
@@ -617,7 +638,6 @@ def main():
             )
 
         elif args.status:
-
             run_status(
                 ser,
                 timestamp,
@@ -625,7 +645,6 @@ def main():
             )
 
         else:
-
             run_low_power_mode(
                 ser,
                 timestamp,
@@ -633,10 +652,8 @@ def main():
             )
 
     finally:
-
         if ser:
             ser.close()
-
 
 if __name__ == "__main__":
     main()
