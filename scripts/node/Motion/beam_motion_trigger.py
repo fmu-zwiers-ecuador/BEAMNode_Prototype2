@@ -582,6 +582,9 @@ def main():
             "camera.pir_poll_interval_sec",
         )
         cooldown = get_required_number(camera_config, "cooldown_sec", "camera.cooldown_sec")
+        clear_timeout = float(camera_config.get("pir_clear_timeout_sec", 20.0))
+        if clear_timeout <= 0:
+            clear_timeout = None
     except ValueError as e:
         logger.error("%s", e)
         return
@@ -589,6 +592,7 @@ def main():
     logger.info("Starting 24/7 PIR motion trigger")
     logger.info("PIR GPIO pin: %s", pir_pin)
     logger.info("Warmup seconds: %s", warmup)
+    logger.info("PIR clear timeout: %s", clear_timeout if clear_timeout is not None else "disabled")
 
     pir = None
     camera_capture = None
@@ -621,7 +625,17 @@ def main():
                 logger.info("Cooling down for %s seconds", cooldown)
                 time.sleep(cooldown)
                 logger.info("Waiting for motion to clear")
+                clear_wait_start = time.monotonic()
                 while pir.motion_detected:
+                    if (
+                        clear_timeout is not None
+                        and time.monotonic() - clear_wait_start >= clear_timeout
+                    ):
+                        logger.warning(
+                            "PIR still active after %.1fs; re-arming anyway",
+                            clear_timeout,
+                        )
+                        break
                     time.sleep(0.2)
                 logger.info("Ready again")
             time.sleep(poll_interval)

@@ -176,8 +176,9 @@
   "pir_warmup_sec": 5,
   "pir_poll_interval_sec": 0.05,
   "pir_sample_rate": 20,
-  "pir_queue_len": 1,
-  "pir_threshold": 0.4,
+  "pir_queue_len": 5,
+  "pir_threshold": 0.8,
+  "pir_clear_timeout_sec": 20,
   "flash_enabled": true,
   "flash_gpio": 26,
   "servo_gpio": 18,
@@ -190,7 +191,7 @@
   "motion_photo_flash_warmup_sec": 0.75,
   "motion_photo_flash_cooldown_sec": 0.15,
   "video": {
-    "resolution": [1920, 1080],
+    "resolution": [1280, 720],
     "fps": 14
   },
   "pictures": {
