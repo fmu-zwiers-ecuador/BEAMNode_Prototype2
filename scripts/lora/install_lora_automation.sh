@@ -8,6 +8,7 @@ fi
 
 ROLE="${1:-}"
 
+
 if [[ -z "$ROLE" ]]; then
   if [[ ! -t 0 ]]; then
     echo "Usage: sudo $0 <node|supervisor>"
@@ -170,46 +171,32 @@ fi
 
 if [[ "$ROLE" == "supervisor" ]]; then
   echo "Config check: lora.enabled=$LORA_ENABLED, receive_time=$LORA_RECEIVE_TIME, receive_window_minutes=$LORA_RECEIVE_WINDOW_MINUTES"
-  echo "[1/6] Installing supervisor receiver service + timer..."
+  echo "[1/6] Installing supervisor receiver service (24/7 on boot)..."
   cp "$LORA_DIR/lora-supervisor-receive.service" "$SYSTEMD_DIR/"
 
   mkdir -p "$SYSTEMD_DIR/lora-supervisor-receive.service.d"
   cat >"$SYSTEMD_DIR/lora-supervisor-receive.service.d/schedule.conf" <<EOF
 [Service]
-Restart=no
-RuntimeMaxSec=${LORA_RECEIVE_WINDOW_MINUTES}m
-EOF
-
-  cat >"$SYSTEMD_DIR/lora-supervisor-receive.timer" <<EOF
-[Unit]
-Description=Run LoRa Supervisor Receiver daily at $LORA_RECEIVE_TIME
-
-[Timer]
-OnCalendar=$SUPERVISOR_ONCALENDAR
-Persistent=true
-Unit=lora-supervisor-receive.service
-
-[Install]
-WantedBy=timers.target
+Restart=always
+RestartSec=5
 EOF
 
   echo "[2/6] Reloading systemd..."
   systemctl daemon-reload
 
-  echo "[3/6] Disabling direct boot service (schedule-driven mode)..."
-  systemctl disable --now lora-supervisor-receive.service 2>/dev/null || true
+  echo "[3/6] Disabling receiver timer (switching to 24/7 mode)..."
+  systemctl disable --now lora-supervisor-receive.timer 2>/dev/null || true
 
   if [[ "$LORA_ENABLED" == "true" ]]; then
-    echo "[4/6] Enabling receiver timer (runs daily at $LORA_RECEIVE_TIME)..."
-    systemctl enable --now lora-supervisor-receive.timer
-    systemctl restart lora-supervisor-receive.timer
-    echo "[5/6] Supervisor receiver timer active."
-    systemctl list-timers lora-supervisor-receive.timer --no-pager || true
+    echo "[4/6] Enabling receiver service (runs on boot, 24/7)..."
+    systemctl enable --now lora-supervisor-receive.service
+    systemctl restart lora-supervisor-receive.service
+    echo "[5/6] Supervisor receiver service active."
+    systemctl status lora-supervisor-receive.service --no-pager || true
   else
-    echo "[4/6] lora.enabled is false; disabling LoRa receiver timer..."
-    systemctl disable --now lora-supervisor-receive.timer 2>/dev/null || true
-    systemctl stop lora-supervisor-receive.service 2>/dev/null || true
-    echo "[5/6] LoRa receiver is installed but not scheduled."
+    echo "[4/6] lora.enabled is false; disabling LoRa receiver service..."
+    systemctl disable --now lora-supervisor-receive.service 2>/dev/null || true
+    echo "[5/6] LoRa receiver is installed but not running."
   fi
 
   echo "[6/6] Supervisor LoRa scheduling setup complete."
