@@ -95,7 +95,6 @@ PY
     # Disable all network interfaces except LoRa (assuming LoRa uses a specific interface, e.g., lora0)
     # This is a placeholder; actual interface name may vary based on LoRa hardware
     sudo ip link set wlan0 down
-    sudo ip link set eth0 down
     echo "WiFi and Bluetooth disabled. LoRa should now be the primary communication method."
 
   echo "Jumping to Low Power Mode setup..."

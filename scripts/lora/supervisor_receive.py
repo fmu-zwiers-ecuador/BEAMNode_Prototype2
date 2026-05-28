@@ -77,6 +77,7 @@ def send_time():
         "timestamp": time_str
     }
     packet = json.dumps(pkt)
+    time.sleep(4)  # wait a bit before sending time to allow node to switch to RX
     try:
         rfm9x.send(packet.encode(), keep_listening=True)
     except TypeError:

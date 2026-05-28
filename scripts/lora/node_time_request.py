@@ -12,7 +12,7 @@ RESET = digitalio.DigitalInOut(board.D25)
 
 rfm9x = adafruit_rfm9x.RFM9x(SPI, CS, RESET, 915.0)
 # send a time request to the supervisor and wait for a response
-def request_time(rfm9x, node_id, timeout=10):
+def request_time(rfm9x, node_id, timeout=300):
     # Create a time request message
     request_msg = {
         "type": "TIME_REQUEST",
@@ -22,6 +22,7 @@ def request_time(rfm9x, node_id, timeout=10):
     print(f"Sent time request to supervisor: {request_msg}")
 
     start_time = time.time()
+    time.sleep(1)  # wait a bit before listening for response
     while time.time() - start_time < timeout:
         pkt = rfm9x.receive(timeout=1.0)
         if pkt:
