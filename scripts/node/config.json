@@ -300,5 +300,17 @@
       "status": "string",
       "voltage": "float"
     }
-  }
+  },
+  "lpm_pvpi": {
+  "script_name": "Lpm_pvpi.py",
+  "directory": "lpm_pvpi",
+  "file_name": "lpm.json",
+  "serial_port": "/dev/serial0",
+  "baud_rate": 115200,
+  "serial_timeout": 2,
+  "voltage_critical": 11.0,
+  "voltage_low": 11.8,
+  "voltage_ok": 12.4,
+  "voltage_good": 12.8
+}
 }

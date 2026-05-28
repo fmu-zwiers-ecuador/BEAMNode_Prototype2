@@ -1,5 +1,5 @@
 #!/bin/bash
-# Script to create the low power mode service file
+# Script to create the low power mode pv pi service file
 set -e
 echo "=== Low Power Mode Setup Script ==="
 echo
