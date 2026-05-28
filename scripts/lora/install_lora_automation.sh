@@ -160,7 +160,7 @@ EOF
   echo "[2/5] Reloading systemd..."
   systemctl daemon-reload
 
-  if [[ "$LORA_ENABLED" == "true"]]; then
+  if [[ "$LORA_ENABLED" == "true"]] then
     echo "[3/5] Enabling sender timer (runs daily at $LORA_SEND_TIME)..."
     systemctl enable --now lora-node-send.timer
     systemctl restart lora-node-send.timer
