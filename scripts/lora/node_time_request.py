@@ -42,7 +42,7 @@ if __name__ == "__main__":
     rfm9x = adafruit_rfm9x.RFM9x(SPI, CS, RESET, 915.0)
 
     # Load node ID from config
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    project_root = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
     config_path = os.path.join(project_root, "config.json")
     with open(config_path, "r") as f:
         config = json.load(f)
