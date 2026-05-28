@@ -372,7 +372,7 @@ echo "LORA Configuration: Enable LoRa? [y/n]: "
 read -r LORA_CHOICE
 if [[ "${LORA_CHOICE,,}" == "y" ]]; then
     echo "Enabling LoRa..."
-    sudo bash ../BEAMNode_Prototype2/scripts/lora/install_lora_automation.sh 
+    sudo bash /home/pi/BEAMNode_Prototype2/scripts/lora/install_lora_automation.sh 
 fi
 
 echo "------------------------------------------------"
