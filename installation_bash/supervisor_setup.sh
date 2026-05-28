@@ -368,6 +368,13 @@ else
     echo "Default boot is still the graphical desktop environment."
 fi
 
+echo "LORA Configuration: Enable LoRa? [y/n]: "
+read -r LORA_CHOICE
+if [[ "${LORA_CHOICE,,}" == "y" ]]; then
+    echo "Enabling LoRa..."
+    sudo bash ../BEAMNode_Prototype2/scripts/lora/install_lora_automation.sh 
+fi
+
 echo "------------------------------------------------"
 echo "Supervisor installation is complete!"
 echo "------------------------------------------------"
