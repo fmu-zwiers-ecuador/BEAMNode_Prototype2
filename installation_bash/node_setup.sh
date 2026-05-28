@@ -59,6 +59,16 @@ echo "Would you like to enable LoRa? (This will disable BATMAN mesh)"
 read -rp "Enable LoRa? [y/n]: " LORA_CHOICE
 if [[ "${LORA_CHOICE,,}" == "y" ]]; then
   echo "Enabling LoRa..."
+  echo "Disabling any existing BATMAN mesh configuration..."
+  systemctl stop batman.service 2>/dev/null || true
+  systemctl disable batman.service 2>/dev/null || true
+  systemctl mask batman.service 2>/dev/null || true
+  rm -f /etc/systemd/system/batman.service
+  rm -f /usr/local/bin/start-batman.sh
+  systemctl daemon-reload || true
+  ip link set bat0 down 2>/dev/null || true
+  ip link set wlan0 down 2>/dev/null || true
+  modprobe -r batman-adv 2>/dev/null || true
   # Update the config.json to enable LoRa
   CONFIG_PATH="/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
 python3 - <<PY
