@@ -119,11 +119,7 @@ def rsync_pull(full_hostname):
     os.makedirs(SUPERVISOR_DATA_ROOT, exist_ok=True)
     # The trailing slash on remote_source is critical to pull CONTENTS, not the folder
     remote_source = f"pi@{full_hostname}:{REMOTE_SHIP_DIR}/"
-    cmd = [
-        "rsync", "-avz", "--partial", "--ignore-existing",
-        "-e", f"ssh {' '.join(SSH_OPTS)}",
-        remote_source, SUPERVISOR_DATA_ROOT
-    ]
+    cmd = ["scp", "-r"] + SSH_OPTS + [SUPERVISOR_DATA_ROOT, NAS_PATH]
     try:
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
         return True
