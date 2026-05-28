@@ -371,6 +371,17 @@ fi
 echo "LORA Configuration: Enable LoRa? [y/n]: "
 read -r LORA_CHOICE
 if [[ "${LORA_CHOICE,,}" == "y" ]]; then
+    echo "Enabling in config.json..."
+    CONFIG_PATH="/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
+    python3 - <<PY
+import json
+config_path = "$CONFIG_PATH"
+with open(config_path, "r") as f:
+    config = json.load(f)
+config.setdefault("global", {})["lora_enabled"] = True
+with open(config_path, "w") as f:
+    json.dump(config, f, indent=4)
+PY
     echo "Enabling LoRa..."
     sudo bash /home/pi/BEAMNode_Prototype2/scripts/lora/install_lora_automation.sh 
 fi
