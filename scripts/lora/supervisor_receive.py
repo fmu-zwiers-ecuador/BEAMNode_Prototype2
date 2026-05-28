@@ -7,7 +7,7 @@ import board, busio, digitalio
 import adafruit_rfm9x
 
 # --- Logging (redirect all output) ---
-LOG_PATH = "/home/pi/logs/lora_send.log"
+LOG_PATH = "/home/pi/logs/lora_listen.log"
 
 # --- LoRa setup ---
 spi = busio.SPI(board.SCK, board.MOSI, board.MISO)
