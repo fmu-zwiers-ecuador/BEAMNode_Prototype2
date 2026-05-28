@@ -135,6 +135,13 @@ chmod +x "$LORA_DIR/node_send.py" "$LORA_DIR/supervisor_receive.py"
 
 if [[ "$ROLE" == "node" ]]; then
   echo "Config check: lora.enabled=$LORA_ENABLED, send_time=$LORA_SEND_TIME"
+  echo "[0/5] Disabling any supervisor receiver services/timers..."
+  systemctl disable --now lora-supervisor-receive.service 2>/dev/null || true
+  systemctl disable --now lora-supervisor-receive.timer 2>/dev/null || true
+  rm -f "$SYSTEMD_DIR/lora-supervisor-receive.service"
+  rm -f "$SYSTEMD_DIR/lora-supervisor-receive.timer"
+  rm -rf "$SYSTEMD_DIR/lora-supervisor-receive.service.d"
+  systemctl daemon-reload
   echo "[1/5] Installing node sender service + timer..."
   cp "$LORA_DIR/lora-node-send.service" "$SYSTEMD_DIR/"
   cat >"$SYSTEMD_DIR/lora-node-send.timer" <<EOF
@@ -171,6 +178,12 @@ fi
 
 if [[ "$ROLE" == "supervisor" ]]; then
   echo "Config check: lora.enabled=$LORA_ENABLED, receive_time=$LORA_RECEIVE_TIME, receive_window_minutes=$LORA_RECEIVE_WINDOW_MINUTES"
+  echo "[0/6] Disabling any node sender services/timers..."
+  systemctl disable --now lora-node-send.timer 2>/dev/null || true
+  systemctl stop lora-node-send.service 2>/dev/null || true
+  rm -f "$SYSTEMD_DIR/lora-node-send.service"
+  rm -f "$SYSTEMD_DIR/lora-node-send.timer"
+  systemctl daemon-reload
   echo "[1/6] Installing supervisor receiver service (24/7 on boot)..."
   cp "$LORA_DIR/lora-supervisor-receive.service" "$SYSTEMD_DIR/"
 
