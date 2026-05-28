@@ -11,7 +11,7 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 set -euo pipefail
-
+PROJECT_ROOT="/home/pi/BEAMNode_Prototype2"
 # =====================================================================
 # === PART 1: Install all necessary libraries needed for for set up ===
 # === NOTE: Internet is required for this section ONLY.             ===
@@ -61,14 +61,14 @@ if [[ "${LORA_CHOICE,,}" == "y" ]]; then
   echo "Enabling LoRa..."
   # Update the config.json to enable LoRa
   CONFIG_PATH="/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
-  python3 - <<PY
-    import json
-    config_path = "$CONFIG_PATH"
-    with open(config_path, 'r') as f:
-        config = json.load(f)
-    config['global']['lora_enabled'] = True
-    with open(config_path, 'w') as f:
-        json.dump(config, f, indent=2)
+python3 - <<PY
+import json
+config_path = "$CONFIG_PATH"
+with open(config_path, 'r') as f:
+    config = json.load(f)
+config['global']['lora_enabled'] = True
+with open(config_path, 'w') as f:
+    json.dump(config, f, indent=2)
 PY
 
   echo "LoRa enabled in config.json."
@@ -82,9 +82,13 @@ PY
     # Disable WiFi and Bluetooth to avoid interference with LoRa
     sudo rfkill block wifi
     sudo rfkill block bluetooth
+    # Disable all network interfaces except LoRa (assuming LoRa uses a specific interface, e.g., lora0)
+    # This is a placeholder; actual interface name may vary based on LoRa hardware
+    sudo ip link set wlan0 down
+    sudo ip link set eth0 down
+    echo "WiFi and Bluetooth disabled. LoRa should now be the primary communication method."
 
   echo "Jumping to Low Power Mode setup..."
-  goto low_power_mode
 fi
 
 # ===================================
@@ -579,7 +583,6 @@ fi
 # === PART 4: Autostart installation ===
 # ======================================
 
-PROJECT_ROOT="/home/pi/BEAMNode_Prototype2"
 NODE_DIR="$PROJECT_ROOT/scripts/node"
 SERVICE_SRC="$PROJECT_ROOT/beamnode.service"
 SERVICE_NAME="beamnode.service"
