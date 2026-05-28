@@ -229,7 +229,7 @@ def save_sensor_config(path: Path, config: dict):
 def disable_all_sensors(config: dict) -> List[str]:
     changed = []
     for sensor in config.get("sensors", []):
-        if sensor.get("enabled", False):
+        if sensor.get("enabled", True):
             sensor["enabled"] = False
             changed.append(sensor.get("name", "unnamed"))
     return changed
@@ -240,8 +240,8 @@ def enable_all_sensors(config: dict) -> List[str]:
     for sensor in config.get("sensors", []):
         # Default False: sensors missing "enabled" are treated as disabled
         # and will be restored, consistent with disable_all_sensors.
-        if not sensor.get("enabled", False):
-            sensor["enabled"] = True
+        if not sensor.get("enabled", True):
+            sensor["enabled"] = False
             changed.append(sensor.get("name", "unnamed"))
     return changed
 
