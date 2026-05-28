@@ -51,11 +51,48 @@ else
   echo "=== Skipping PART 1 (no internet install). Continuing to PART 2... ==="
 fi
 
+# ==========================================
+# === PART 0.5: LoRA Configuration Check ===
+# ==========================================
+
+echo "Would you like to enable LoRa? (This will disable BATMAN mesh)"
+read -rp "Enable LoRa? [y/n]: " LORA_CHOICE
+if [[ "${LORA_CHOICE,,}" == "y" ]]; then
+  echo "Enabling LoRa..."
+  # Update the config.json to enable LoRa
+  CONFIG_PATH="/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
+  python3 - <<PY
+    import json
+    config_path = "$CONFIG_PATH"
+    with open(config_path, 'r') as f:
+        config = json.load(f)
+    config['global']['lora_enabled'] = True
+    with open(config_path, 'w') as f:
+        json.dump(config, f, indent=2)
+PY
+
+  echo "LoRa enabled in config.json."
+
+  # LoRa configuration: run ../scripts/lora/install_lora_automation.sh to set up the config file
+    LORA_DIR="$PROJECT_ROOT/scripts/lora"
+    sudo chown -R pi:pi "$LORA_DIR"
+    sudo bash $LORA_DIR/install_lora_automation.sh
+
+    echo "Turning off WiFi and Bluetooth functionality to avoid interference with LoRa..."
+    # Disable WiFi and Bluetooth to avoid interference with LoRa
+    sudo rfkill block wifi
+    sudo rfkill block bluetooth
+
+  echo "Jumping to Low Power Mode setup..."
+  goto low_power_mode
+fi
 
 # ===================================
 # === PART 2: BATMAN Installation ===
 # ===================================
 
+# Skip all BATMAN setup if LoRa is enabled
+if [[ "${LORA_CHOICE,,}" == "n" ]]; then
 echo "=== BATMAN-adv Setup Script ==="
 echo
 
@@ -535,6 +572,8 @@ echo "After reboot, everything happens automatically."
 echo
 
 
+fi
+
 
 # ======================================
 # === PART 4: Autostart installation ===
@@ -597,10 +636,7 @@ else
     echo "Default boot is still the graphical desktop environment."
 fi
 
-# LoRa configuration: run ../scripts/lora/install_lora_automation.sh to set up the config file
-LORA_DIR="$PROJECT_ROOT/scripts/lora"
-sudo chown -R pi:pi "$LORA_DIR"
-sudo bash $LORA_DIR/install_lora_automation.sh
+
 
 
 echo "------------------------------------------------"
