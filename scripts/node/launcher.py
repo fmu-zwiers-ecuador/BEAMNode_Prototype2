@@ -188,6 +188,20 @@ def terminate_process(proc, name):
     except Exception as e:
         log(f"ERROR stopping {name}: {e}")
 
+def run_lora_time_request():
+    """Run the lora time request script to sync time with supervisor."""
+    TIME_REQUEST_PATH = os.path.join(NODE_DIR, "lora/node_time_request.py")
+    if os.path.exists(TIME_REQUEST_PATH):
+        log(f"Running LoRa Time Request: {TIME_REQUEST_PATH}")
+        result = subprocess.run(["python3", TIME_REQUEST_PATH])
+        if result.returncode == 0:
+            log("LoRa Time Request completed successfully.")
+        else:
+            log(f"LoRa Time Request failed with exit code {result.returncode}.")
+    else:
+        log(f"ERROR: LoRa Time Request script missing at {TIME_REQUEST_PATH}")
+
+
 def move_data_to_shipping():
     """Move everything in /home/pi/data to /home/pi/shipping and clear data folder."""
     if not os.path.exists(DATA_DIR):
@@ -219,23 +233,32 @@ def move_data_to_shipping():
 if __name__ == "__main__":
     log("=== BEAMNode System Startup ===")
     # wait for network - 10.42.0.30 connection to supervisor
-    start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log(f"Startup time: {start}")
-    log("Waiting for network connection to supervisor... (5 minutes max)")
-    while True and (datetime.now() - datetime.strptime(start, "%Y-%m-%d %H:%M:%S")).seconds < 360:  # Only wait for the first 30 seconds of startup
-        try:
-            result = subprocess.run(
-                ["ping", "-c", "1", "-W", "1", "10.42.0.30"],
-                capture_output=True,
-                text=True
-            )
-            if result.returncode == 0:
-                log("Network connection to supervisor established.")
-                break
-            else:
-                log("Still waiting for network connection to supervisor...")
-        except Exception as e:
-            log(f"Error occurred while checking network connection: {e}")
+    # only if LoRA not enabled, otherwise LoRA will be used for time sync and data transfer
+    global_config = config["global"]
+
+    lora_enabled = global_config.get("lora_enabled")
+
+    if not lora_enabled:
+        start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log(f"Startup time: {start}")
+        log("Waiting for network connection to supervisor... (5 minutes max)")
+        while True and (datetime.now() - datetime.strptime(start, "%Y-%m-%d %H:%M:%S")).seconds < 360:  # Only wait for the first 30 seconds of startup
+            try:
+                result = subprocess.run(
+                    ["ping", "-c", "1", "-W", "1", "10.42.0.30"],
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode == 0:
+                    log("Network connection to supervisor established.")
+                    break
+                else:
+                    log("Still waiting for network connection to supervisor...")
+            except Exception as e:
+                log(f"Error occurred while checking network connection: {e}")
+    elif lora_enabled:
+        log("LoRa is enabled. Skipping network connection check and proceeding to time sync.")
+        run_lora_time_request()
 
 
     log("Daily data move scheduled for 18:00 UTC")
