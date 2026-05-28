@@ -18,6 +18,7 @@ import logging
 import serial
 import time
 
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
@@ -27,7 +28,7 @@ from typing import List, Optional
 # Configuration
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Sensor config JSON
+# Sensor config JSON (also contains the lpm_pvpi section)
 SENSOR_CONFIG_PATH = Path(
     "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
 )
@@ -37,19 +38,53 @@ LOG_FILE_PATH = Path(
     "/home/pi/logs/low_power.log"
 )
 
-# PV Pi UART settings
-# Pi Zero uses ttyS0, full-size Pi uses ttyAMA0.
-# /dev/serial0 is a safe alias that always points to the
-# correct primary hardware UART on any Pi model.
-SERIAL_PORT = "/dev/serial0"
-SERIAL_BAUD = 115200
-SERIAL_TIMEOUT = 2  # seconds to wait for a response
 
-# Battery thresholds (volts)
-VOLTAGE_CRITICAL = 11.0
-VOLTAGE_LOW      = 11.8
-VOLTAGE_OK       = 12.4
-VOLTAGE_GOOD     = 12.8
+@dataclass
+class LpmConfig:
+    """Runtime settings loaded from the lpm_pvpi config section."""
+    serial_port:      str   = "/dev/serial0"
+    serial_baud:      int   = 115200
+    serial_timeout:   int   = 2
+    voltage_critical: float = 11.0
+    voltage_low:      float = 11.8
+    voltage_ok:       float = 12.4
+    voltage_good:     float = 12.8
+
+
+def load_lpm_config(path: Path) -> LpmConfig:
+    """
+    Read the lpm_pvpi section from config.json and return an LpmConfig.
+    Falls back to dataclass defaults for any missing keys, so the script
+    stays runnable even if the config file is absent or incomplete.
+    """
+    defaults = LpmConfig()
+
+    if not path.exists():
+        logging.getLogger("low_power_mode").warning(
+            "Config not found at %s — using built-in defaults.", path
+        )
+        return defaults
+
+    try:
+        with path.open("r") as f:
+            raw = json.load(f)
+    except json.JSONDecodeError as exc:
+        logging.getLogger("low_power_mode").error(
+            "Could not parse config JSON: %s — using built-in defaults.", exc
+        )
+        return defaults
+
+    section = raw.get("lpm_pvpi", {})
+
+    return LpmConfig(
+        serial_port      = section.get("serial_port",      defaults.serial_port),
+        serial_baud      = section.get("baud_rate",        defaults.serial_baud),
+        serial_timeout   = section.get("serial_timeout",   defaults.serial_timeout),
+        voltage_critical = section.get("voltage_critical", defaults.voltage_critical),
+        voltage_low      = section.get("voltage_low",      defaults.voltage_low),
+        voltage_ok       = section.get("voltage_ok",       defaults.voltage_ok),
+        voltage_good     = section.get("voltage_good",     defaults.voltage_good),
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -69,17 +104,17 @@ logger = logging.getLogger("low_power_mode")
 # UART helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def open_serial() -> Optional[serial.Serial]:
+def open_serial(cfg: LpmConfig) -> Optional[serial.Serial]:
     """Open the PV Pi UART port. Returns None on failure."""
     try:
         ser = serial.Serial(
-            SERIAL_PORT,
-            SERIAL_BAUD,
-            timeout=SERIAL_TIMEOUT
+            cfg.serial_port,
+            cfg.serial_baud,
+            timeout=cfg.serial_timeout
         )
         return ser
     except Exception as exc:
-        logger.error("Failed to open serial port %s: %s", SERIAL_PORT, exc)
+        logger.error("Failed to open serial port %s: %s", cfg.serial_port, exc)
         return None
 
 
@@ -138,16 +173,16 @@ def read_battery_voltage(ser: serial.Serial) -> float:
         return -1.0
 
 
-def voltage_label(v: float) -> str:
+def voltage_label(v: float, cfg: LpmConfig) -> str:
     if v < 0:
         return "READ ERROR"
-    if v < VOLTAGE_CRITICAL:
+    if v < cfg.voltage_critical:
         return "CRITICAL"
-    if v < VOLTAGE_LOW:
+    if v < cfg.voltage_low:
         return "LOW"
-    if v < VOLTAGE_OK:
+    if v < cfg.voltage_ok:
         return "ACCEPTABLE"
-    if v < VOLTAGE_GOOD:
+    if v < cfg.voltage_good:
         return "OK"
     return "GOOD"
 
@@ -156,8 +191,8 @@ def voltage_label(v: float) -> str:
 # Banner
 # ─────────────────────────────────────────────────────────────────────────────
 
-def print_banner(voltage: float, mode: str, timestamp: str):
-    label = voltage_label(voltage)
+def print_banner(voltage: float, mode: str, timestamp: str, cfg: LpmConfig):
+    label = voltage_label(voltage, cfg)
     width = 52
     border = "=" * width
 
@@ -219,7 +254,8 @@ def log_event(
     timestamp: str,
     mode: str,
     voltage: float,
-    affected: List[str]
+    affected: List[str],
+    cfg: LpmConfig,
 ):
     try:
         LOG_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -228,7 +264,7 @@ def log_event(
                 f"[{timestamp}] "
                 f"MODE={mode} "
                 f"VOLTAGE={voltage:.3f}V "
-                f"STATUS={voltage_label(voltage)} "
+                f"STATUS={voltage_label(voltage, cfg)} "
                 f"AFFECTED={len(affected)} "
                 f"LIST={','.join(affected) if affected else 'none'}\n"
             )
@@ -241,13 +277,13 @@ def log_event(
 # Actions
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run_low_power_mode(timestamp: str, voltage: float):
-    if voltage > VOLTAGE_LOW:
+def run_low_power_mode(timestamp: str, voltage: float, cfg: LpmConfig):
+    if voltage > cfg.voltage_low:
         print(
             f"[SKIP] Battery at {voltage:.3f}V "
-            f"(above {VOLTAGE_LOW}V) — no action taken."
+            f"(above {cfg.voltage_low}V) — no action taken."
         )
-        log_event(timestamp, "SKIP", voltage, [])
+        log_event(timestamp, "SKIP", voltage, [], cfg)
         return
 
     print("[ACTION] Entering low-power mode...")
@@ -263,17 +299,17 @@ def run_low_power_mode(timestamp: str, voltage: float):
     else:
         print("[SENSORS] All sensors already disabled.")
 
-    log_event(timestamp, "LOW_POWER", voltage, disabled)
+    log_event(timestamp, "LOW_POWER", voltage, disabled, cfg)
     print("[DONE] Low-power mode active.")
 
 
-def run_restore(timestamp: str, voltage: float):
+def run_restore(timestamp: str, voltage: float, cfg: LpmConfig):
     if voltage < 0:
         print("[ERROR] Battery read failed.")
         print("[ABORT] Restore cancelled.")
         return
 
-    if voltage < VOLTAGE_CRITICAL:
+    if voltage < cfg.voltage_critical:
         print(f"[ABORT] Battery critically low ({voltage:.3f}V) — restore cancelled.")
         return
 
@@ -290,7 +326,7 @@ def run_restore(timestamp: str, voltage: float):
     else:
         print("[SENSORS] All sensors already enabled.")
 
-    log_event(timestamp, "RESTORE", voltage, restored)
+    log_event(timestamp, "RESTORE", voltage, restored, cfg)
     print("[DONE] Sensors restored.")
 
 
@@ -346,12 +382,15 @@ def main():
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    # Load runtime settings (serial + voltage thresholds) from config
+    cfg = load_lpm_config(SENSOR_CONFIG_PATH)
+
     # Open the single UART connection used for everything
-    ser = open_serial()
+    ser = open_serial(cfg)
     if ser is None:
         print("")
         print("=" * 52)
-        print("ERROR: Could not open UART port", SERIAL_PORT)
+        print("ERROR: Could not open UART port", cfg.serial_port)
         print("Make sure serial is enabled (raspi-config)")
         print("=" * 52)
         print("")
@@ -376,23 +415,23 @@ def main():
         else:
             mode = "LOW POWER"
 
-        print_banner(voltage, mode, timestamp)
+        print_banner(voltage, mode, timestamp, cfg)
 
         # Warn on critically low battery in low-power mode only;
         # restore and status have their own handling for this.
         if (
             not args.restore and
             not args.status and
-            0 < voltage < VOLTAGE_CRITICAL
+            0 < voltage < cfg.voltage_critical
         ):
             print(f"[WARN] Battery critically low ({voltage:.3f}V)")
 
         if args.restore:
-            run_restore(timestamp, voltage)
+            run_restore(timestamp, voltage, cfg)
         elif args.status:
             run_status(voltage)
         else:
-            run_low_power_mode(timestamp, voltage)
+            run_low_power_mode(timestamp, voltage, cfg)
 
     finally:
         ser.close()
