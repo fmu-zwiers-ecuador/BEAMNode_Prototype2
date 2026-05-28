@@ -152,7 +152,13 @@ def delete_shipping_data(full_hostname):
     
 def move_to_nas():
     """Moves data in the supervisor data folder to the remove NAS unit"""
-    cmd = ["scp", "-r"] + SSH_OPTS + [SUPERVISOR_DATA_ROOT, NAS_PATH]
+    cmd = [
+        "rsync", "-avz", "--timeout=30",
+        "--partial", "--ignore-existing",
+        "-e", "ssh",
+        SUPERVISOR_DATA_ROOT + "/",
+        NAS_PATH
+    ]
     try:
         subprocess.run(cmd, capture_output=True, check=True, text=True)
         return True
