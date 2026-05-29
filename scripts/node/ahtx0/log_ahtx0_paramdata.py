@@ -1,9 +1,12 @@
 # Author: Jackson Roberts
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import os
 import time
+
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 # --- Hardware Library Imports ---
 try:
@@ -62,15 +65,14 @@ except Exception:
 # -----------------------------
 # MATCHED TIME CALCULATIONS (From BME280 Script)
 # -----------------------------
-now_utc = datetime.now(timezone.utc)
-now_local = now_utc.astimezone() 
+now_local = datetime.now(EASTERN_TZ)
 
 # -----------------------------
 # MATCHED RECORD STRUCTURE
 # -----------------------------
 env_json_data = {
-    "timestamp_utc": now_utc.isoformat(),                  # UTC Timestamp
-    "local_time": now_local.strftime("%Y-%m-%d %H:%M:%S"), # Local clock time
+    "timestamp_eastern": now_local.isoformat(),
+    "local_time": now_local.strftime("%Y-%m-%d %H:%M:%S"),
     "timezone": now_local.tzname(),                        # The specific zone name
     "temperature_C": temperature,
     "humidity_percent": humidity,

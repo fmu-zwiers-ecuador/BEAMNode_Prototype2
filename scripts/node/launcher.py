@@ -10,6 +10,9 @@ import sys
 import shutil
 import json
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 # --- CONFIGURATION ---
 NODE_DIR = "/home/pi/BEAMNode_Prototype2/scripts/node"
@@ -57,7 +60,7 @@ def ensure_log_file(path):
 
 def log(msg):
     """Internal launcher logging."""
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ts = datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
     line = f"[{ts}] [launcher] {msg}"
     print(line)
     try:
@@ -69,7 +72,7 @@ def log(msg):
 
 def log_shipping(msg):
     """Shipping-specific logging."""
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ts = datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
     line = f"[{ts}] [shipping] {msg}"
     print(line)
     try:
@@ -348,7 +351,7 @@ if __name__ == "__main__":
         run_lora_time_request()
 
 
-    log("Daily data move scheduled for 18:00 UTC")
+    log("Daily data move scheduled for 18:00 Eastern")
 
     # 1. REQUIREMENT: Run detect.py once on startup
     run_script_sync(DETECT_PATH)
@@ -372,8 +375,7 @@ if __name__ == "__main__":
     last_data_move_date = None
     while True:
         try:
-            now = datetime.now()
-            now_utc = datetime.utcnow()
+            now = datetime.now(EASTERN_TZ)
 
             # A. Check Scheduler Health (Restart if Pi went down or process crashed)
             if sched_proc is None or sched_proc.poll() is not None:
@@ -411,16 +413,16 @@ if __name__ == "__main__":
                 log("Shipping complete. Resuming monitor.")
                 time.sleep(31) # Avoid double-triggering within the same minute
 
-            # C. REQUIREMENT: Move /home/pi/data -> /home/pi/shipping at 18:00 UTC
+            # C. REQUIREMENT: Move /home/pi/data -> /home/pi/shipping at 18:00 Eastern
             if (
-                now_utc.hour == 18
-                and now_utc.minute == 0
-                and 0 <= now_utc.second <= 30
-                and last_data_move_date != now_utc.date()
+                now.hour == 18
+                and now.minute == 0
+                and 0 <= now.second <= 30
+                and last_data_move_date != now.date()
             ):
-                log("18:00 UTC reached. Moving /home/pi/data to /home/pi/shipping...")
+                log("18:00 Eastern reached. Moving /home/pi/data to /home/pi/shipping...")
                 move_data_to_shipping()
-                last_data_move_date = now_utc.date()
+                last_data_move_date = now.date()
                 log("Data move complete. Resuming monitor.")
                 time.sleep(31) # Avoid double-triggering within the same minute
 

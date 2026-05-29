@@ -11,7 +11,10 @@ import shutil
 import os
 import time
 import json
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 # Determine project root dynamically (one level up from this script)
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -34,8 +37,8 @@ try:
 except Exception:
     hostname = global_cfg.get("node_id", "unknown-node")
 
-# UTC timestamp like 20251113T194522Z
-timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+# Eastern timestamp like 20251113T144522EST or 20251113T154522EDT
+timestamp = datetime.now(EASTERN_TZ).strftime("%Y%m%dT%H%M%S%Z")
 
 # New folder name in shipping: data-{hostname}-{timestamp}
 dest_dir_name = f"data-{hostname}-{timestamp}"

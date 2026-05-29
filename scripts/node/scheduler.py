@@ -9,6 +9,9 @@ import os
 import subprocess
 import time
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 CONFIG_PATH = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
 NODE_DIR = "/home/pi/BEAMNode_Prototype2/scripts/node/"
@@ -31,7 +34,7 @@ SUDO_SENSORS = {"atlas_ec", "atlas_orp", "atlas_rtd", "atlas_do", "atlas_ph", "a
 
 # log funciton
 def log(msg):
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ts = datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
     line = f"[{ts}] {msg}"
     with open(LOG_FILE, "a") as f:
         f.write(line + "\n")
@@ -49,7 +52,7 @@ os.makedirs(shipping_dir, exist_ok=True)
 last_run_times = {}
 
 # current time
-current_time = datetime.now()
+current_time = datetime.now(EASTERN_TZ)
 
 #beginning of next hour
 start_time = (current_time + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
@@ -92,7 +95,7 @@ def run_sensor_once(sensor):
     if not script_path:
         return
 
-    log(f"[INFO] Running {sensor} at {datetime.now().strftime('%H:%M:%S')}")
+    log(f"[INFO] Running {sensor} at {datetime.now(EASTERN_TZ).strftime('%H:%M:%S %Z')}")
     cmd = ["python3", script_path]
     if sensor in SUDO_SENSORS:
         cmd = ["sudo", "python3", script_path]
@@ -113,12 +116,12 @@ def scheduler_loop():
     config = load_config()
 
     # Initialize last run times to "now" so they don't all start instantly
-    now = datetime.now()
+    now = datetime.now(EASTERN_TZ)
     for sensor in config.keys():
         last_run_times[sensor] = now
 
     while True:
-        now = datetime.now()
+        now = datetime.now(EASTERN_TZ)
         config = load_config()  # reload in case user updates config.json
 
         for sensor, params in config.items():
@@ -131,7 +134,7 @@ def scheduler_loop():
 
             if now >= next_run:
                 run_sensor_once(sensor)
-                last_run_times[sensor] = datetime.now()
+                last_run_times[sensor] = datetime.now(EASTERN_TZ)
             time.sleep(1)  # brief sleep to avoid tight loop
     
                         
@@ -141,7 +144,7 @@ if __name__ == "__main__":
     try:
         # wait until start time
         log(f"[INFO] Scheduler will start at {start_time.strftime('%H:%M:%S')}")
-        while datetime.now() < start_time:
+        while datetime.now(EASTERN_TZ) < start_time:
             time.sleep(1)
         scheduler_loop()
     except KeyboardInterrupt:

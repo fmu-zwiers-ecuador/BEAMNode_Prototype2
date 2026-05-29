@@ -5,7 +5,10 @@ import time
 import statistics
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 # --- Config variables ---
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..")) # Find the project root path
@@ -114,8 +117,7 @@ if readings:
     
     # -------- LOGGING --------
     # Time calculation variables
-    now_utc = datetime.now(timezone.utc)
-    now_local = now_utc.astimezone()
+    now_local = datetime.now(EASTERN_TZ)
     
     new_ultrasonic_data = {
         "distance": distance,

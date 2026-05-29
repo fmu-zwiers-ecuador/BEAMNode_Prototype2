@@ -6,7 +6,10 @@ import json
 import os
 import time
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 from gpiozero import Device, MotionSensor, OutputDevice
 from gpiozero.exc import BadPinFactory
@@ -375,10 +378,8 @@ while True and cam_config.get("enabled", True):
     current_motion_state = pir.motion_detected
 
     if current_motion_state and not last_motion_state:
-        now_utc = datetime.now(timezone.utc)
-        now_local = now_utc.astimezone()
-        timestamp_iso = now_utc.isoformat()
-        event_ts = now_utc.strftime("%Y%m%d_%H%M%SZ")
+        now_local = datetime.now(EASTERN_TZ)
+        event_ts = now_local.strftime("%Y%m%d_%H%M%S%Z")
 
         if global_config.get("print_debug", True):
             log("[BEAM] Motion detected")
@@ -437,7 +438,7 @@ while True and cam_config.get("enabled", True):
         set_flash_state(False)
 
         record = {
-            "timestamp_utc": timestamp_iso,
+            "timestamp_eastern": now_local.isoformat(),
             "local_time": now_local.strftime("%Y-%m-%d %H:%M:%S"),
             "timezone": now_local.tzname(),
             "files": photo_files,

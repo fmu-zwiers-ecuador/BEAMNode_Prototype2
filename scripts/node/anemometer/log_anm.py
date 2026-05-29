@@ -1,9 +1,12 @@
 import serial
 import json
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import time
 import os
 import re
+
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 # Match arduino baud rate
 ser = serial.Serial('/dev/ttyUSB0', 9600, timeout=1)
@@ -73,11 +76,9 @@ try:
 
         try:
             # parts = dict(p.split("=") for p in line.split())
-            now_utc = datetime.now(timezone.utc)
-            now_local = datetime.now().astimezone()
+            now_local = datetime.now(EASTERN_TZ)
             entry = {
-                "timestamp_utc": now_utc.strftime("%Y-%m-%d %H:%M:%S UTC"),
-                "timestamp_local": now_local.strftime("%Y-%m-%d %H:%M:%S %Z"),
+                "timestamp_eastern": now_local.strftime("%Y-%m-%d %H:%M:%S %Z"),
                 "raw": int(parts["raw"]),
                 "voltage": float(parts["V"]),
                 "wind_mph": float(parts["wind_mph"]),

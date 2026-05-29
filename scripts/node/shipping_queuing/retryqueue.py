@@ -14,6 +14,9 @@ import json
 from datetime import datetime
 from pathlib import Path
 import shutil
+from zoneinfo import ZoneInfo
+
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 # ---------------------------------------------------
 # CONFIGURATION
@@ -42,7 +45,7 @@ SSH_OPTS = [
 # LOGGING
 # ---------------------------------------------------
 def log(msg):
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ts = datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
     line = f"[{ts}] {msg}"
     log_dir = os.path.dirname(LOG_FILE)
     try:
@@ -213,7 +216,9 @@ def delete_shipping_data(full_hostname):
 def move_to_nas():
     """Moves data in the supervisor data folder to the remove NAS unit"""
     cmd = [
-        "rsync", "-avz",
+        "rsync", "-rzv",
+        "--no-perms", "--no-owner", "--no-group",
+        "--no-times", "--omit-dir-times",
         "-e", NAS_SSH_CMD,
         SUPERVISOR_DATA_ROOT + "/",
         NAS_PATH

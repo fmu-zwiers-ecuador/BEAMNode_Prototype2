@@ -10,8 +10,11 @@ Last Updated: 2-17-26
 import board
 import adafruit_tsl2591
 import json
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import os
+
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 # Determine project root dynamically
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -40,12 +43,11 @@ sensor = adafruit_tsl2591.TSL2591(i2c)
 lux = sensor.lux
 
 # --- TIME CALCULATIONS ---
-now_utc = datetime.now(timezone.utc)
-now_local = now_utc.astimezone() 
+now_local = datetime.now(EASTERN_TZ)
 
 # New record with synchronized time fields
 new_lux_data = {
-    "timestamp_utc": now_utc.isoformat(),
+    "timestamp_eastern": now_local.isoformat(),
     "local_time": now_local.strftime("%Y-%m-%d %H:%M:%S"),
     "timezone": now_local.tzname(),
     "lux": lux

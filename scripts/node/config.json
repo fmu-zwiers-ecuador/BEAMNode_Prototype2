@@ -5,7 +5,7 @@
     "node_id": "beam-node-01",
     "base_dir": "/home/pi/data",
     "ship_dir": "/home/pi/shipping",
-    "timezone": "UTC",
+    "timezone": "America/New_York",
     "print_debug": true
   },
   "tsl2591": {
