@@ -224,6 +224,14 @@ class MotionCameraCapture:
 
         frame_us = int(1_000_000 / self.video_fps)
         exposure_us = int(self.camera_config.get("video_exposure_us", frame_us))
+        if exposure_us > frame_us:
+            logger.warning(
+                "Configured video_exposure_us=%s is longer than the %.3f fps frame time; clamping to %s us",
+                exposure_us,
+                self.video_fps,
+                frame_us,
+            )
+            exposure_us = frame_us
         analogue_gain = float(self.camera_config.get("video_gain", 1.0))
         self.video_warmup_sec = float(self.camera_config.get("video_warmup_sec", 1.0))
         self.video_bitrate = int(self.camera_config.get("video_bitrate", 2_000_000))
