@@ -43,11 +43,14 @@ class LpmConfig:
     serial_port:      str   = "/dev/serial0"
     serial_baud:      int   = 115200
     serial_timeout:   int   = 2
+    poll_interval:    int   = 10
     voltage_critical: float = 11.0
     voltage_low:      float = 11.8
     voltage_ok:       float = 12.4
     voltage_good:     float = 12.8
+    log_dir:          str   = "lpm_pvpi"
     log_file:         str   = "lpm.json"     # read from config "file_name"
+    voltage_log_file: str   = "voltage_log.jsonl"
 
 
 def load_lpm_config(path: Path) -> LpmConfig:
@@ -79,11 +82,14 @@ def load_lpm_config(path: Path) -> LpmConfig:
         serial_port      = section.get("serial_port",      defaults.serial_port),
         serial_baud      = section.get("baud_rate",        defaults.serial_baud),
         serial_timeout   = section.get("serial_timeout",   defaults.serial_timeout),
+        poll_interval    = section.get("poll_interval",    defaults.poll_interval),
         voltage_critical = section.get("voltage_critical", defaults.voltage_critical),
         voltage_low      = section.get("voltage_low",      defaults.voltage_low),
         voltage_ok       = section.get("voltage_ok",       defaults.voltage_ok),
         voltage_good     = section.get("voltage_good",     defaults.voltage_good),
+        log_dir          = section.get("directory",        defaults.log_dir),
         log_file         = section.get("file_name",        defaults.log_file),
+        voltage_log_file = section.get("voltage_log_file", defaults.voltage_log_file),
     )
 
 
@@ -230,33 +236,50 @@ def save_sensor_config(path: Path, config: dict):
 NON_SENSOR_KEYS = {
     "global", "low_power_mode", "lpm_pvpi"
 }
+STATE_DISABLED_KEY = "low_power_disabled_sensors"
+STATE_ACTIVE_KEY = "low_power_active"
 
-def disable_all_sensors(config: dict) -> List[str]:
-    changed = []
+def iter_sensor_sections(config: dict):
     for key, section in config.items():
         if key in NON_SENSOR_KEYS:
             continue
         if not isinstance(section, dict):
             continue
-        if section.get("enabled", False):
-            section["enabled"] = False
-            changed.append(key)
-    return changed
+        if isinstance(section.get("enabled"), bool):
+            yield key, section
 
 
-def enable_all_sensors(config: dict) -> List[str]:
+def disable_managed_sensors(config: dict) -> List[str]:
+    section = config.setdefault("lpm_pvpi", {})
+    previously_managed = set(section.get(STATE_DISABLED_KEY, []))
     changed = []
-    for key, section in config.items():
-        if key in NON_SENSOR_KEYS:
-            continue
-        if not isinstance(section, dict):
-            continue
-        if not section.get("enabled", True):
-            section["enabled"] = True
+
+    for key, sensor_section in iter_sensor_sections(config):
+        if sensor_section["enabled"]:
+            sensor_section["enabled"] = False
             changed.append(key)
+
+    section[STATE_DISABLED_KEY] = sorted(previously_managed.union(changed))
+    section[STATE_ACTIVE_KEY] = True
     return changed
 
 
+def restore_managed_sensors(config: dict) -> List[str]:
+    section = config.setdefault("lpm_pvpi", {})
+    managed = section.get(STATE_DISABLED_KEY, [])
+    if not isinstance(managed, list):
+        managed = []
+
+    restored = []
+    for key in managed:
+        sensor_section = config.get(key)
+        if isinstance(sensor_section, dict) and sensor_section.get("enabled") is False:
+            sensor_section["enabled"] = True
+            restored.append(key)
+
+    section[STATE_DISABLED_KEY] = []
+    section[STATE_ACTIVE_KEY] = False
+    return restored
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Log
@@ -278,7 +301,7 @@ def log_event(
          "voltage_v": 11.65, "status": "LOW",
          "affected_count": 3, "affected": ["co2", "temp", "humidity"]}
     """
-    log_path = LOG_DIR / cfg.log_file
+    log_path = LOG_DIR / cfg.log_dir / cfg.log_file
 
     entry = {
         "timestamp":      timestamp,
@@ -298,6 +321,24 @@ def log_event(
         logger.error("Failed to write log file: %s", exc)
 
 
+def log_voltage_sample(timestamp: str, mode: str, voltage: float, cfg: LpmConfig):
+    """Append one voltage sample as JSON-lines for easy tailing."""
+    log_path = LOG_DIR / cfg.log_dir / cfg.voltage_log_file
+    entry = {
+        "timestamp": timestamp,
+        "mode": mode,
+        "voltage_v": round(voltage, 3) if voltage >= 0 else None,
+        "status": voltage_label(voltage, cfg),
+    }
+
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a") as logfile:
+            logfile.write(json.dumps(entry) + "\n")
+    except Exception as exc:
+        logger.error("Failed to write voltage log file: %s", exc)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Actions
 # ─────────────────────────────────────────────────────────────────────────────
@@ -314,7 +355,7 @@ def run_low_power_mode(timestamp: str, voltage: float, cfg: LpmConfig):
     print("[ACTION] Entering low-power mode...")
 
     config = load_sensor_config(SENSOR_CONFIG_PATH)
-    disabled = disable_all_sensors(config)
+    disabled = disable_managed_sensors(config)
     save_sensor_config(SENSOR_CONFIG_PATH, config)
 
     if disabled:
@@ -334,14 +375,14 @@ def run_restore(timestamp: str, voltage: float, cfg: LpmConfig):
         print("[ABORT] Restore cancelled.")
         return
 
-    if voltage < cfg.voltage_critical:
-        print(f"[ABORT] Battery critically low ({voltage:.3f}V) — restore cancelled.")
+    if voltage < cfg.voltage_ok:
+        print(f"[ABORT] Battery below restore threshold ({voltage:.3f}V < {cfg.voltage_ok:.3f}V).")
         return
 
     print("[ACTION] Restoring sensors...")
 
     config = load_sensor_config(SENSOR_CONFIG_PATH)
-    restored = enable_all_sensors(config)
+    restored = restore_managed_sensors(config)
     save_sensor_config(SENSOR_CONFIG_PATH, config)
 
     if restored:
@@ -392,6 +433,11 @@ def parse_args():
         action="store_true",
         help="Print status only"
     )
+    group.add_argument(
+        "--once",
+        action="store_true",
+        help="Run one low-power check instead of monitoring continuously"
+    )
     return parser.parse_args()
 
 
@@ -399,15 +445,68 @@ def parse_args():
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
 
+def run_once(args, cfg: LpmConfig, ser: serial.Serial):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    voltage = read_battery_voltage(ser)
+
+    if args.restore:
+        mode = "RESTORE"
+    elif args.status:
+        mode = "STATUS"
+    else:
+        mode = "LOW POWER CHECK"
+
+    log_voltage_sample(timestamp, mode, voltage, cfg)
+
+    if voltage < 0 and not args.status:
+        print("")
+        print("=" * 52)
+        print("ERROR: Failed to read battery voltage from PV Pi")
+        print("=" * 52)
+        print("")
+        return
+
+    print_banner(voltage, mode, timestamp, cfg)
+
+    if (
+        not args.restore and
+        not args.status and
+        0 < voltage < cfg.voltage_critical
+    ):
+        print(f"[WARN] Battery critically low ({voltage:.3f}V)")
+
+    if args.restore:
+        run_restore(timestamp, voltage, cfg)
+    elif args.status:
+        run_status(voltage)
+    elif voltage <= cfg.voltage_low:
+        run_low_power_mode(timestamp, voltage, cfg)
+    elif voltage >= cfg.voltage_ok:
+        run_restore(timestamp, voltage, cfg)
+    else:
+        print(
+            f"[HOLD] Battery at {voltage:.3f}V between "
+            f"{cfg.voltage_low:.3f}V and {cfg.voltage_ok:.3f}V."
+        )
+        log_event(timestamp, "HOLD", voltage, [], cfg)
+
+
+def monitor(args, cfg: LpmConfig, ser: serial.Serial):
+    logger.info(
+        "PV Pi low-power monitor started: off <= %.3f V, restore >= %.3f V, poll every %ss",
+        cfg.voltage_low,
+        cfg.voltage_ok,
+        cfg.poll_interval,
+    )
+    while True:
+        run_once(args, cfg, ser)
+        time.sleep(cfg.poll_interval)
+
+
 def main():
     args = parse_args()
 
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    # Load runtime settings (serial + voltage thresholds) from config
     cfg = load_lpm_config(SENSOR_CONFIG_PATH)
-
-    # Open the single UART connection used for everything
     ser = open_serial(cfg)
     if ser is None:
         print("")
@@ -419,42 +518,10 @@ def main():
         return
 
     try:
-        voltage = read_battery_voltage(ser)
-
-        # Hard-exit for modes that need a valid voltage reading
-        if voltage < 0 and not args.status:
-            print("")
-            print("=" * 52)
-            print("ERROR: Failed to read battery voltage from PV Pi")
-            print("=" * 52)
-            print("")
-            return
-
-        if args.restore:
-            mode = "RESTORE"
-        elif args.status:
-            mode = "STATUS"
+        if args.restore or args.status or args.once:
+            run_once(args, cfg, ser)
         else:
-            mode = "LOW POWER"
-
-        print_banner(voltage, mode, timestamp, cfg)
-
-        # Warn on critically low battery in low-power mode only;
-        # restore and status have their own handling for this.
-        if (
-            not args.restore and
-            not args.status and
-            0 < voltage < cfg.voltage_critical
-        ):
-            print(f"[WARN] Battery critically low ({voltage:.3f}V)")
-
-        if args.restore:
-            run_restore(timestamp, voltage, cfg)
-        elif args.status:
-            run_status(voltage)
-        else:
-            run_low_power_mode(timestamp, voltage, cfg)
-
+            monitor(args, cfg, ser)
     finally:
         ser.close()
 

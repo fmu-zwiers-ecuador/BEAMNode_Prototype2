@@ -16,7 +16,7 @@ After=network.target
 [Service]
 Type=simple
 User=pi
-ExecStart=/bin/bash /home/pi/BEAMNode_Prototype2/scripts/power/Lpm_pvpi.py
+ExecStart=/usr/bin/python3 /home/pi/BEAMNode_Prototype2/scripts/power/Lpm_pvpi.py
 Restart=on-failure
 RestartSec=10
 
