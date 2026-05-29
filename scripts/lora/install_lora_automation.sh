@@ -131,6 +131,17 @@ SUPERVISOR_ONCALENDAR="*-*-* $(to_calendar_time "$LORA_RECEIVE_TIME")"
 
 mkdir -p "$LOG_DIR"
 
+# Allow time sync script to set system clock without sudo prompt
+SUDOERS_DATE_FILE="/etc/sudoers.d/beamnode-date"
+cat > "$SUDOERS_DATE_FILE" <<'EOF'
+pi ALL=(ALL) NOPASSWD: /bin/date
+pi ALL=(ALL) NOPASSWD: /usr/bin/python3 /home/pi/BEAMNode_Prototype2/scripts/lora/node_time_request.py
+EOF
+chmod 440 "$SUDOERS_DATE_FILE"
+visudo -cf "$SUDOERS_DATE_FILE" >/dev/null 2>&1 || true
+
+
+
 chmod +x "$LORA_DIR/node_send.py" "$LORA_DIR/supervisor_receive.py"
 
 if [[ "$ROLE" == "node" ]]; then
@@ -160,7 +171,7 @@ EOF
   echo "[2/5] Reloading systemd..."
   systemctl daemon-reload
 
-  if [[ "$LORA_ENABLED" == "true" ]] then
+  if [["$LORA_ENABLED" == "true"]] then
     echo "[3/5] Enabling sender timer (runs daily at $LORA_SEND_TIME)..."
     systemctl enable --now lora-node-send.timer
     systemctl restart lora-node-send.timer

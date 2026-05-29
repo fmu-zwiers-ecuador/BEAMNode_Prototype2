@@ -277,7 +277,10 @@ def run_lora_time_request():
     TIME_REQUEST_PATH = "/home/pi/BEAMNode_Prototype2/scripts/lora/node_time_request.py"
     if os.path.exists(TIME_REQUEST_PATH):
         log(f"Running LoRa Time Request: {TIME_REQUEST_PATH}")
-        result = subprocess.run(["python3", TIME_REQUEST_PATH])
+        if os.geteuid() == 0:
+            result = subprocess.run(["/usr/bin/python3", TIME_REQUEST_PATH])
+        else:
+            result = subprocess.run(["/usr/bin/sudo", "-n", "/usr/bin/python3", TIME_REQUEST_PATH])
         if result.returncode == 0:
             log("LoRa Time Request completed successfully.")
         else:

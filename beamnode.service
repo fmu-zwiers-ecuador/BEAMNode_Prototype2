@@ -5,7 +5,9 @@ After=network.target
 [Service]
 Type=simple
 User=pi
+SupplementaryGroups=gpio spi
 WorkingDirectory=/home/pi/BEAMNode_Prototype2/scripts/node
+ExecStartPre=/bin/sleep 5
 ExecStart=/usr/bin/python3 /home/pi/BEAMNode_Prototype2/scripts/node/launcher.py
 Restart=always
 RestartSec=10
