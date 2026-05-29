@@ -226,24 +226,36 @@ def save_sensor_config(path: Path, config: dict):
         json.dump(config, f, indent=2)
 
 
+# Keys that are not sensors and should never be touched
+NON_SENSOR_KEYS = {
+    "global", "low_power_mode", "lpm_pvpi"
+}
+
 def disable_all_sensors(config: dict) -> List[str]:
     changed = []
-    for sensor in config.get("sensors", []):
-        if sensor.get("enabled", True):
-            sensor["enabled"] = False
-            changed.append(sensor.get("name", "unnamed"))
+    for key, section in config.items():
+        if key in NON_SENSOR_KEYS:
+            continue
+        if not isinstance(section, dict):
+            continue
+        if section.get("enabled", False):
+            section["enabled"] = False
+            changed.append(key)
     return changed
 
 
 def enable_all_sensors(config: dict) -> List[str]:
     changed = []
-    for sensor in config.get("sensors", []):
-        # Default False: sensors missing "enabled" are treated as disabled
-        # and will be restored, consistent with disable_all_sensors.
-        if not sensor.get("enabled", True):
-            sensor["enabled"] = False
-            changed.append(sensor.get("name", "unnamed"))
+    for key, section in config.items():
+        if key in NON_SENSOR_KEYS:
+            continue
+        if not isinstance(section, dict):
+            continue
+        if not section.get("enabled", True):
+            section["enabled"] = True
+            changed.append(key)
     return changed
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -344,24 +356,21 @@ def run_restore(timestamp: str, voltage: float, cfg: LpmConfig):
 
 
 def run_status(voltage: float):
-    if voltage < 0:
-        print("[WARN] Battery voltage unavailable — UART read failed.")
-
     config = load_sensor_config(SENSOR_CONFIG_PATH)
-    sensors = config.get("sensors", [])
 
-    enabled  = [s["name"] for s in sensors if s.get("enabled")]
-    disabled = [s["name"] for s in sensors if not s.get("enabled")]
+    enabled  = []
+    disabled = []
+    for key, section in config.items():
+        if key in NON_SENSOR_KEYS or not isinstance(section, dict):
+            continue
+        if section.get("enabled", False):
+            enabled.append(key)
+        else:
+            disabled.append(key)
 
     print("[STATUS] No changes made.")
-    print(
-        f"[SENSORS] Enabled  ({len(enabled)}): "
-        f"{', '.join(enabled) if enabled else 'none'}"
-    )
-    print(
-        f"[SENSORS] Disabled ({len(disabled)}): "
-        f"{', '.join(disabled) if disabled else 'none'}"
-    )
+    print(f"[SENSORS] Enabled  ({len(enabled)}): {', '.join(enabled) if enabled else 'none'}")
+    print(f"[SENSORS] Disabled ({len(disabled)}): {', '.join(disabled) if disabled else 'none'}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
