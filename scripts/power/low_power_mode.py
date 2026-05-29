@@ -5,13 +5,14 @@ Disables all sensors in config.json when voltage drops to/below LOW_VOLTAGE_THRE
 and re-enables them once voltage recovers to/above HIGH_VOLTAGE_THRESHOLD.
 """
 
+from __future__ import annotations
+
 import json
 import serial
 import time
 import logging
 import os
 import sys
-import re
 from datetime import datetime, timezone
 
 # ─── Configuration ────────────────────────────────────────────────────────────
@@ -22,7 +23,7 @@ CONFIG_PATH = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
 SERIAL_PORT = BAUD_RATE = SERIAL_TIMEOUT = None
 LOW_VOLTAGE_THRESHOLD = HIGH_VOLTAGE_THRESHOLD = None
 POLL_INTERVAL = MAX_PARSE_FAILURES = None
-JSON_LOG_PATH = None
+JSON_LOG_PATH = VOLTAGE_LOG_PATH = None
 
 # ─── Logging Setup ────────────────────────────────────────────────────────────
 
@@ -75,6 +76,18 @@ def append_json_record(path: str, status: str, voltage: float | None) -> None:
 
     with open(path, "w") as f:
         json.dump(records, f, indent=4)
+
+def append_voltage_sample(path: str, status: str, voltage: float | None) -> None:
+    """Append one voltage sample as JSON-lines for easy tailing."""
+    record = {
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "status": status,
+        "voltage_v": round(voltage, 3) if voltage is not None else None,
+    }
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a") as f:
+        f.write(json.dumps(record) + "\n")
 
 # ─── VE.Direct Raw Parser ─────────────────────────────────────────────────────
 
@@ -148,76 +161,73 @@ def load_config(path: str) -> dict:
     with open(path, "r") as f:
         return json.load(f)
 
+NON_SENSOR_KEYS = {"global", "low_power_mode", "lpm_pvpi"}
+STATE_DISABLED_KEY = "low_power_disabled_sensors"
+STATE_ACTIVE_KEY = "low_power_active"
+
 def save_config(path: str, config: dict) -> None:
     with open(path, "w") as f:
-        json.dump(config, f, indent=4)
+        json.dump(config, f, indent=2)
 
-def set_all_sensors(path: str, enabled: bool) -> None:
-    """
-    Reads config.json as raw text and replaces only the 'enabled' field values for sensor blocks,
-    leaving all other formatting and context untouched
-    """
-    with open(path, "r") as f:
-        raw = f.read()
-    # Parse json just to identify which keys are valid sensor blocks
-    config = json.loads(raw)
-
-    changed = []
-    skipped = []
-    new_raw = raw
-
+def sensor_sections(config: dict):
     for sensor_name, sensor_cfg in config.items():
+        if sensor_name in NON_SENSOR_KEYS:
+            continue
         if not isinstance(sensor_cfg, dict):
-            # Top-level key is not a sensor block (e.g. a plain string/int) — skip
-            skipped.append(sensor_name)
             continue
+        if isinstance(sensor_cfg.get("enabled"), bool):
+            yield sensor_name, sensor_cfg
 
-        if "enabled" not in sensor_cfg:
-            # Sensor block exists but has no 'enabled' field — leave it alone
-            skipped.append(sensor_name)
-            continue
+def enter_low_power(path: str) -> list[str]:
+    """
+    Disable currently enabled sensors and remember only the sensors changed by
+    this low-power transition. User-disabled sensors stay out of the restore set.
+    """
+    config = load_config(path)
+    lpm_section = config.setdefault("low_power_mode", {})
+    previously_managed = set(lpm_section.get(STATE_DISABLED_KEY, []))
+    changed = []
 
-        if not isinstance(sensor_cfg["enabled"], bool):
-            log.warning(
-                f"'{sensor_name}.enabled' is not a boolean "
-                f"(got {type(sensor_cfg['enabled']).__name__}) — skipping."
-            )
-            continue
-        current = sensor_cfg["enabled"]
-        if current == enabled:
-            continue
+    for sensor_name, sensor_cfg in sensor_sections(config):
+        if sensor_cfg["enabled"]:
+            sensor_cfg["enabled"] = False
+            changed.append(sensor_name)
 
-        # Replace the exact "enabled": true/false for this sensors block
-        # We anchor the search to the sensor name so we don't accidentally
-        # touch an 'enabled' field in a different section
-        old_val = "true" if current else "false"
-        new_val = "true" if enabled else "false"
-
-        # Match the sensor block opening and then find its enabled line
-        pattern = (
-            r'("' + re.escape(sensor_name) + r'"\s*:\s*\{[^}]*?'
-            r'"enabled"\s*:\s*)(' + old_val + r')'
-        )
-        replacement = r'\g<1>' + new_val
-        result, count = re.subn(pattern, replacement, new_raw, count=1, flags=re.DOTALL)
-
-        if count == 0:
-            log.warning(f"Could not find enabled field for '{sensor_name}' via regex - skipping.")
-            continue
-
-        new_raw = result
-        changed.append(sensor_name)
-
-    if skipped:
-        log.debug(f"Non-sensor keys ignored: {', '.join(skipped)}")
+    managed = sorted(previously_managed.union(changed))
+    lpm_section[STATE_DISABLED_KEY] = managed
+    lpm_section[STATE_ACTIVE_KEY] = True
+    save_config(path, config)
 
     if changed:
-        with open(path, "w") as f:
-            f.write(new_raw)
-        state_str = "ENABLED" if enabled else "DISABLED"
-        log.info(f"Sensors {state_str}: {', '.join(changed)}")
+        log.info(f"Sensors DISABLED: {', '.join(changed)}")
     else:
-        log.info("No sensor states needed changing.")
+        log.info("No additional sensors needed disabling.")
+    return changed
+
+def restore_low_power_sensors(path: str) -> list[str]:
+    """Restore only sensors previously disabled by this low-power manager."""
+    config = load_config(path)
+    lpm_section = config.setdefault("low_power_mode", {})
+    managed = lpm_section.get(STATE_DISABLED_KEY, [])
+    if not isinstance(managed, list):
+        managed = []
+
+    restored = []
+    for sensor_name in managed:
+        sensor_cfg = config.get(sensor_name)
+        if isinstance(sensor_cfg, dict) and sensor_cfg.get("enabled") is False:
+            sensor_cfg["enabled"] = True
+            restored.append(sensor_name)
+
+    lpm_section[STATE_DISABLED_KEY] = []
+    lpm_section[STATE_ACTIVE_KEY] = False
+    save_config(path, config)
+
+    if restored:
+        log.info(f"Sensors RESTORED: {', '.join(restored)}")
+    else:
+        log.info("No low-power-managed sensors needed restoring.")
+    return restored
 
 # ─── Main Loop ────────────────────────────────────────────────────────────────
 
@@ -225,7 +235,7 @@ def main():
     global SERIAL_PORT, BAUD_RATE, SERIAL_TIMEOUT
     global LOW_VOLTAGE_THRESHOLD, HIGH_VOLTAGE_THRESHOLD
     global POLL_INTERVAL, MAX_PARSE_FAILURES
-    global JSON_LOG_PATH
+    global JSON_LOG_PATH, VOLTAGE_LOG_PATH
 
     if not os.path.exists(CONFIG_PATH):
         log.error(f"config.json not found at: {os.path.abspath(CONFIG_PATH)}")
@@ -241,16 +251,19 @@ def main():
     POLL_INTERVAL          = _lpm["poll_interval"]
     MAX_PARSE_FAILURES     = _lpm["max_parse_failures"]
 
-    # Build JSON log path from config: ~/data/<directory>/<file_name>
+    # Build JSON log path from config: /home/pi/logs/<directory>/<file_name>
     log_dir  = _lpm.get("directory", "low_power_mode")
     log_file = _lpm.get("file_name",  "low_power_log.json")
-    JSON_LOG_PATH = os.path.join("/home/pi/data", log_dir, log_file)
+    voltage_log_file = _lpm.get("voltage_log_file", "voltage_log.jsonl")
+    JSON_LOG_PATH = os.path.join("/home/pi/logs", log_dir, log_file)
+    VOLTAGE_LOG_PATH = os.path.join("/home/pi/logs", log_dir, voltage_log_file)
 
     log.info("═" * 50)
     log.info("Low Power Mode Manager started")
     log.info(f"  Serial port : {SERIAL_PORT} @ {BAUD_RATE} baud")
     log.info(f"  Config file : {CONFIG_PATH}")
     log.info(f"  JSON log    : {JSON_LOG_PATH}")
+    log.info(f"  Voltage log : {VOLTAGE_LOG_PATH}")
     log.info(f"  OFF below   : {LOW_VOLTAGE_THRESHOLD} V")
     log.info(f"  ON above    : {HIGH_VOLTAGE_THRESHOLD} V")
     log.info(f"  Poll every  : {POLL_INTERVAL}s")
@@ -268,6 +281,7 @@ def main():
 
         if voltage is None:
             consecutive_failures += 1
+            append_voltage_sample(VOLTAGE_LOG_PATH, "read_failure", None)
             log.warning(
                 f"Could not read voltage from {SERIAL_PORT} "
                 f"(failure {consecutive_failures}/{MAX_PARSE_FAILURES})"
@@ -294,26 +308,29 @@ def main():
         # This prevents rapid toggling when voltage sits near a threshold.
 
         if voltage <= LOW_VOLTAGE_THRESHOLD and low_power_active is not True:
+            append_voltage_sample(VOLTAGE_LOG_PATH, "low_power_activated", voltage)
             log.warning(
                 f"Voltage {voltage:.3f} V ≤ {LOW_VOLTAGE_THRESHOLD} V "
                 f"— entering LOW POWER MODE"
             )
-            set_all_sensors(CONFIG_PATH, enabled=False)
+            enter_low_power(CONFIG_PATH)
             append_json_record(JSON_LOG_PATH, "low_power_activated", voltage)
             low_power_active = True
 
         elif voltage >= HIGH_VOLTAGE_THRESHOLD and low_power_active is not False:
+            append_voltage_sample(VOLTAGE_LOG_PATH, "sensors_restored", voltage)
             log.info(
                 f"Voltage {voltage:.3f} V ≥ {HIGH_VOLTAGE_THRESHOLD} V "
                 f"— exiting low power mode, RESTORING SENSORS"
             )
-            set_all_sensors(CONFIG_PATH, enabled=True)
+            restore_low_power_sensors(CONFIG_PATH)
             append_json_record(JSON_LOG_PATH, "sensors_restored", voltage)
             low_power_active = False
 
         else:
             # Voltage is in the middle band — hold current state
             state_str = "low_power" if low_power_active else "normal"
+            append_voltage_sample(VOLTAGE_LOG_PATH, f"hold_{state_str}", voltage)
             log.info(f"Voltage in hold band — maintaining {state_str} state.")
             append_json_record(JSON_LOG_PATH, f"hold_{state_str}", voltage)
 

@@ -191,8 +191,8 @@
   "motion_photo_flash_warmup_sec": 0.75,
   "motion_photo_flash_cooldown_sec": 0.15,
   "video": {
-    "resolution": [1280, 720],
-    "fps": 16
+    "resolution": [2560, 1440],
+    "fps": 30
   },
   "pictures": {
     "resolution": [4608, 2592],
@@ -285,15 +285,17 @@
     }
   },
   "low_power_mode": {
+    "enabled": true,
     "script_name": "low_power_mode.py",
     "directory": "low_power_mode",
     "file_name": "low_power_log.json",
+    "voltage_log_file": "voltage_log.jsonl",
     "serial_port": "/dev/ttyUSB0",
     "baud_rate": 19200,
     "serial_timeout": 5,
     "voltage_off_threshold": 11.8,
     "voltage_on_threshold": 13.1,
-    "poll_interval": 30,
+    "poll_interval": 10,
     "max_parse_failures": 5,
     "record_schema": {
       "timestamp": "ISO8601",
@@ -302,12 +304,15 @@
     }
   },
   "lpm_pvpi": {
+  "enabled": false,
   "script_name": "Lpm_pvpi.py",
   "directory": "lpm_pvpi",
   "file_name": "lpm.json",
+  "voltage_log_file": "pvpi_voltage_log.jsonl",
   "serial_port": "/dev/serial0",
   "baud_rate": 115200,
   "serial_timeout": 2,
+  "poll_interval": 10,
   "voltage_critical": 11.0,
   "voltage_low": 11.8,
   "voltage_ok": 12.4,

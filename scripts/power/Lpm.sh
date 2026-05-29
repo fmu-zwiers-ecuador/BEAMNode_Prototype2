@@ -16,7 +16,7 @@ After=network.target
 [Service]
 Type=simple
 User=pi
-ExecStart=/bin/bash /home/pi/BEAMNode_Prototype2/scripts/power/low_power_node.py
+ExecStart=/usr/bin/python3 /home/pi/BEAMNode_Prototype2/scripts/power/low_power_mode.py
 Restart=on-failure
 RestartSec=10
 
