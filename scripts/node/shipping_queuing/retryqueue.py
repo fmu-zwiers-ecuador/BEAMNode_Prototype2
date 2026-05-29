@@ -29,6 +29,7 @@ RUN_USER = "pi"
 
 MAX_RETRIES = 5
 PING_COUNT = 1
+ACTIVE_NODE_NAMES = {"node1", "node2", "node3", "node4", "node5"}
 
 # SSH options to force non-interactive mode and bypass prompts
 SSH_OPTS = [
@@ -85,6 +86,9 @@ def save_nodes(nodes):
 def get_full_host(name, info):
     raw_host = info.get("hostname", name)
     return raw_host if raw_host.endswith(".local") else f"{raw_host}.local"
+
+def should_process_node(name):
+    return name in ACTIVE_NODE_NAMES
 
 def ping_node(full_hostname):
     try:
@@ -288,6 +292,9 @@ def main():
 
     # STEP 1: Verify Node Health
     for name, info in nodes.items():
+        if not should_process_node(name):
+            log(f"{name}: SKIPPED - not in active node list")
+            continue
         full_host = get_full_host(name, info)
         nodes[name]["node_state"] = "alive" if ping_node(full_host) else "dead"
         if nodes[name]["node_state"] == "dead":
@@ -297,6 +304,8 @@ def main():
     # STEP 2: Initial Transfer Attempt
     failed_nodes = []
     for name, info in nodes.items():
+        if not should_process_node(name):
+            continue
         full_host = get_full_host(name, info)
 
         if info["node_state"] == "dead":
