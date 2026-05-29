@@ -1,10 +1,20 @@
 ## Script to request time from supervisor and set system time accordingly
 import os 
+import sys
+import atexit
 import subprocess
 import time
 import board, busio, digitalio
 import json
 import adafruit_rfm9x
+
+# --- Logging (redirect all output) ---
+LOG_PATH = "/home/pi/logs/time_request.log"
+os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+_log_file = open(LOG_PATH, "a", buffering=1)
+sys.stdout = _log_file
+sys.stderr = _log_file
+atexit.register(_log_file.close)
 
 SPI = busio.SPI(board.SCK, board.MOSI, board.MISO)
 CS = digitalio.DigitalInOut(board.CE1)
@@ -43,6 +53,7 @@ if __name__ == "__main__":
 
     # Load node ID from config
     config_path = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
+    time.sleep(3)
     with open(config_path, "r") as f:
         config = json.load(f)
     node_id = config["global"].get("node_id", "unknown-node")
