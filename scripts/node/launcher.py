@@ -18,6 +18,19 @@ CONFIG_PATH = os.path.join(NODE_DIR, "config.json")
 SCHEDULER_PATH = os.path.join(NODE_DIR, "scheduler.py")
 MOTION_TRIGGER_PATH = os.path.join(NODE_DIR, "Motion/beam_motion_trigger.py")
 MOTION_MERGE_WORKER_PATH = os.path.join(NODE_DIR, "Motion/motion_merge_worker.py")
+POWER_DIR = "/home/pi/BEAMNode_Prototype2/scripts/power"
+LOW_POWER_BACKENDS = {
+    "mppt": {
+        "config_key": "low_power_mode",
+        "path": os.path.join(POWER_DIR, "low_power_mode.py"),
+        "log_path": "/home/pi/logs/low_power_mode_output.log",
+    },
+    "pvpi": {
+        "config_key": "lpm_pvpi",
+        "path": os.path.join(POWER_DIR, "Lpm_pvpi.py"),
+        "log_path": "/home/pi/logs/lpm_pvpi_output.log",
+    },
+}
 DATA_DIR = "/home/pi/data"
 SHIPPING_DIR = "/home/pi/shipping"
 LOG_PATH = "/home/pi/logs/launcher.log"
@@ -28,6 +41,7 @@ MOTION_MERGE_LOG_PATH = "/home/pi/logs/motion_video_processing.log"
 
 _MOTION_LOG_HANDLE = None
 _MOTION_MERGE_LOG_HANDLE = None
+_LOW_POWER_LOG_HANDLE = None
 
 with open(CONFIG_PATH, "r") as f:
     config = json.load(f)
@@ -84,6 +98,57 @@ def start_scheduler_async():
         log(f"CRITICAL ERROR: Scheduler script missing.")
         return None
 
+def selected_low_power_backend():
+    """Return the configured low-power backend, or None when disabled/invalid."""
+    try:
+        with open(CONFIG_PATH, "r") as f:
+            current_config = json.load(f)
+    except Exception as e:
+        log(f"ERROR: Could not read low-power config: {e}")
+        return None
+
+    enabled_backends = []
+
+    for name, backend in LOW_POWER_BACKENDS.items():
+        section = current_config.get(backend["config_key"], {})
+        if isinstance(section, dict) and section.get("enabled", False):
+            enabled_backends.append(name)
+
+    if len(enabled_backends) == 0:
+        log("Low-power monitor disabled: both low_power_mode.enabled and lpm_pvpi.enabled are false")
+        return None
+
+    if len(enabled_backends) > 1:
+        log(
+            "ERROR: Multiple low-power backends enabled "
+            f"({', '.join(enabled_backends)}). Enable only one of low_power_mode or lpm_pvpi."
+        )
+        return None
+
+    return enabled_backends[0]
+
+def start_low_power_monitor_async():
+    """Start exactly one low-power monitor based on config.json."""
+    backend_name = selected_low_power_backend()
+    if backend_name is None:
+        return None
+
+    backend = LOW_POWER_BACKENDS[backend_name]
+    script_path = backend["path"]
+    if not os.path.exists(script_path):
+        log(f"ERROR: Low-power script missing for {backend_name}: {script_path}")
+        return None
+
+    log(f"Starting {backend_name} low-power monitor: {script_path}")
+    global _LOW_POWER_LOG_HANDLE
+    ensure_log_file(backend["log_path"])
+    _LOW_POWER_LOG_HANDLE = open(backend["log_path"], "a")
+    return subprocess.Popen(
+        ["python3", script_path],
+        stdout=_LOW_POWER_LOG_HANDLE,
+        stderr=_LOW_POWER_LOG_HANDLE,
+    )
+
 def motion_capture_enabled():
     """Return whether launcher should own motion capture processes."""
     return config.get("motion_capture", {}).get("enabled", True)
@@ -132,6 +197,25 @@ def warn_if_motion_services_active():
             log(
                 f"WARNING: {service} is active outside launcher. "
                 f"Disable it if launcher should be the only motion owner."
+            )
+
+def warn_if_legacy_low_power_services_active():
+    """Warn when old standalone low-power services are active outside launcher."""
+    for service in ["low_power_mode.service", "lpm_pvpi.service"]:
+        try:
+            result = subprocess.run(
+                ["systemctl", "is-active", "--quiet", service],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as e:
+            log(f"Could not check {service}: {e}")
+            continue
+
+        if result.returncode == 0:
+            log(
+                f"WARNING: {service} is active outside launcher. "
+                "Disable it so only the config-selected low-power monitor runs."
             )
 
 def start_motion_merge_worker_async():
@@ -268,8 +352,10 @@ if __name__ == "__main__":
 
     # 1b. REQUIREMENT: Start motion services on startup
     warn_if_motion_services_active()
+    warn_if_legacy_low_power_services_active()
     merge_proc = start_motion_merge_worker_async()
     motion_proc = start_motion_trigger_async()
+    low_power_proc = start_low_power_monitor_async()
 
     # 2. REQUIREMENT: Start original scheduler and keep it going
     sched_proc = start_scheduler_async()
@@ -301,6 +387,11 @@ if __name__ == "__main__":
                 log("ALERT: Motion merge worker stopped. Restarting...")
                 time.sleep(5)
                 merge_proc = start_motion_merge_worker_async()
+
+            if low_power_proc is not None and low_power_proc.poll() is not None:
+                log("ALERT: Low-power monitor stopped. Restarting...")
+                time.sleep(5)
+                low_power_proc = start_low_power_monitor_async()
 
             # B. REQUIREMENT: Run Shipping.py at 13:00
             # We use a 30-second window to ensure the trigger catches
@@ -335,6 +426,7 @@ if __name__ == "__main__":
 
         except KeyboardInterrupt:
             log("Manual shutdown detected. Terminating launcher-managed processes...")
+            terminate_process(low_power_proc, "low-power monitor")
             terminate_process(motion_proc, "motion trigger")
             terminate_process(merge_proc, "motion merge worker")
             terminate_process(sched_proc, "scheduler")

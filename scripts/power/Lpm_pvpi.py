@@ -34,7 +34,7 @@ SENSOR_CONFIG_PATH = Path(
 )
 
 # Base directory for log output
-LOG_DIR = Path("/home/pi/data")
+LOG_DIR = Path("/home/pi/logs")
 
 
 @dataclass

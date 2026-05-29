@@ -251,12 +251,12 @@ def main():
     POLL_INTERVAL          = _lpm["poll_interval"]
     MAX_PARSE_FAILURES     = _lpm["max_parse_failures"]
 
-    # Build JSON log path from config: ~/data/<directory>/<file_name>
+    # Build JSON log path from config: /home/pi/logs/<directory>/<file_name>
     log_dir  = _lpm.get("directory", "low_power_mode")
     log_file = _lpm.get("file_name",  "low_power_log.json")
     voltage_log_file = _lpm.get("voltage_log_file", "voltage_log.jsonl")
-    JSON_LOG_PATH = os.path.join("/home/pi/data", log_dir, log_file)
-    VOLTAGE_LOG_PATH = os.path.join("/home/pi/data", log_dir, voltage_log_file)
+    JSON_LOG_PATH = os.path.join("/home/pi/logs", log_dir, log_file)
+    VOLTAGE_LOG_PATH = os.path.join("/home/pi/logs", log_dir, voltage_log_file)
 
     log.info("═" * 50)
     log.info("Low Power Mode Manager started")

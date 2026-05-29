@@ -191,8 +191,8 @@
   "motion_photo_flash_warmup_sec": 0.75,
   "motion_photo_flash_cooldown_sec": 0.15,
   "video": {
-    "resolution": [1280, 720],
-    "fps": 16
+    "resolution": [2560, 1440],
+    "fps": 30
   },
   "pictures": {
     "resolution": [4608, 2592],
@@ -285,6 +285,7 @@
     }
   },
   "low_power_mode": {
+    "enabled": true,
     "script_name": "low_power_mode.py",
     "directory": "low_power_mode",
     "file_name": "low_power_log.json",
@@ -303,6 +304,7 @@
     }
   },
   "lpm_pvpi": {
+  "enabled": false,
   "script_name": "Lpm_pvpi.py",
   "directory": "lpm_pvpi",
   "file_name": "lpm.json",

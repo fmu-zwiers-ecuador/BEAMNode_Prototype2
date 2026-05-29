@@ -636,13 +636,10 @@ fi
 sudo raspi-config nonint do_i2c 0
 sudo raspi-config nonint do_spi 0
 
-# Configuring low power mode
-sudo chmod +x /home/pi/BEAMNode_Prototype2/scripts/power/Lpm.sh
-sudo bash /home/pi/BEAMNode_Prototype2/scripts/power/Lpm.sh
-
-# Configuring pv pi low power mode
-sudo chmod +x /home/pi/BEAMNode_Prototype2/scripts/power/pvpi_lpm.sh
-sudo bash /home/pi/BEAMNode_Prototype2/scripts/power/pvpi_lpm.sh
+echo "Low-power mode is managed by launcher.py using config.json."
+echo "Set exactly one of low_power_mode.enabled or lpm_pvpi.enabled to true."
+sudo systemctl disable --now low_power_mode.service 2>/dev/null || true
+sudo systemctl disable --now lpm_pvpi.service 2>/dev/null || true
 
 read -rp "Would you like to set the default boot to terminal mode? [y/n]: " TERM_MODE
 if [[ "${TERM_MODE,,}" == "y" ]]; then
@@ -664,4 +661,3 @@ if [[ "${REBOOT,,}" == "y" ]]; then
     echo "Rebooting now..."
     sudo reboot now
 fi
-
