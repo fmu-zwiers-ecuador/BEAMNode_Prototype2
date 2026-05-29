@@ -69,6 +69,11 @@ if [[ "${LORA_CHOICE,,}" == "y" ]]; then
   ip link set bat0 down 2>/dev/null || true
   ip link set wlan0 down 2>/dev/null || true
   modprobe -r batman-adv 2>/dev/null || true
+  # Allow time sync script to set system clock without sudo prompt
+  SUDOERS_DATE_FILE="/etc/sudoers.d/beamnode-date"
+  echo "pi ALL=(ALL) NOPASSWD: /bin/date" > "$SUDOERS_DATE_FILE"
+  chmod 440 "$SUDOERS_DATE_FILE"
+  visudo -cf "$SUDOERS_DATE_FILE" >/dev/null 2>&1 || true
   # Update the config.json to enable LoRa
   CONFIG_PATH="/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
 python3 - <<PY
