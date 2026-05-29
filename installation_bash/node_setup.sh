@@ -640,6 +640,10 @@ sudo raspi-config nonint do_spi 0
 sudo chmod +x /home/pi/BEAMNode_Prototype2/scripts/power/Lpm.sh
 sudo bash /home/pi/BEAMNode_Prototype2/scripts/power/Lpm.sh
 
+# Configuring pv pi low power mode
+sudo chmod +x /home/pi/BEAMNode_Prototype2/scripts/power/pvpi_lpm.sh
+sudo bash /home/pi/BEAMNode_Prototype2/scripts/power/pvpi_lpm.sh
+
 read -rp "Would you like to set the default boot to terminal mode? [y/n]: " TERM_MODE
 if [[ "${TERM_MODE,,}" == "y" ]]; then
     echo "=== Setting default boot to terminal mode ==="

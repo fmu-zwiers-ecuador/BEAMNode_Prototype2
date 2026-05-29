@@ -33,10 +33,8 @@ SENSOR_CONFIG_PATH = Path(
     "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
 )
 
-# Plain text log file
-LOG_FILE_PATH = Path(
-    "/home/pi/logs/low_power.log"
-)
+# Base directory for log output
+LOG_DIR = Path("/home/pi/data")
 
 
 @dataclass
@@ -49,6 +47,7 @@ class LpmConfig:
     voltage_low:      float = 11.8
     voltage_ok:       float = 12.4
     voltage_good:     float = 12.8
+    log_file:         str   = "lpm.json"     # read from config "file_name"
 
 
 def load_lpm_config(path: Path) -> LpmConfig:
@@ -84,6 +83,7 @@ def load_lpm_config(path: Path) -> LpmConfig:
         voltage_low      = section.get("voltage_low",      defaults.voltage_low),
         voltage_ok       = section.get("voltage_ok",       defaults.voltage_ok),
         voltage_good     = section.get("voltage_good",     defaults.voltage_good),
+        log_file         = section.get("file_name",        defaults.log_file),
     )
 
 
@@ -226,24 +226,36 @@ def save_sensor_config(path: Path, config: dict):
         json.dump(config, f, indent=2)
 
 
+# Keys that are not sensors and should never be touched
+NON_SENSOR_KEYS = {
+    "global", "low_power_mode", "lpm_pvpi"
+}
+
 def disable_all_sensors(config: dict) -> List[str]:
     changed = []
-    for sensor in config.get("sensors", []):
-        if sensor.get("enabled", False):
-            sensor["enabled"] = False
-            changed.append(sensor.get("name", "unnamed"))
+    for key, section in config.items():
+        if key in NON_SENSOR_KEYS:
+            continue
+        if not isinstance(section, dict):
+            continue
+        if section.get("enabled", False):
+            section["enabled"] = False
+            changed.append(key)
     return changed
 
 
 def enable_all_sensors(config: dict) -> List[str]:
     changed = []
-    for sensor in config.get("sensors", []):
-        # Default False: sensors missing "enabled" are treated as disabled
-        # and will be restored, consistent with disable_all_sensors.
-        if not sensor.get("enabled", False):
-            sensor["enabled"] = True
-            changed.append(sensor.get("name", "unnamed"))
+    for key, section in config.items():
+        if key in NON_SENSOR_KEYS:
+            continue
+        if not isinstance(section, dict):
+            continue
+        if not section.get("enabled", True):
+            section["enabled"] = True
+            changed.append(key)
     return changed
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -257,18 +269,31 @@ def log_event(
     affected: List[str],
     cfg: LpmConfig,
 ):
+    """
+    Append a single JSON object (one per line) to the log file inside LOG_DIR.
+    The log file name comes from cfg.log_file (config key: "file_name").
+
+    Example line written:
+        {"timestamp": "2025-06-01 08:30:00", "mode": "LOW_POWER",
+         "voltage_v": 11.65, "status": "LOW",
+         "affected_count": 3, "affected": ["co2", "temp", "humidity"]}
+    """
+    log_path = LOG_DIR / cfg.log_file
+
+    entry = {
+        "timestamp":      timestamp,
+        "mode":           mode,
+        "voltage_v":      round(voltage, 3),
+        "status":         voltage_label(voltage, cfg),
+        "affected_count": len(affected),
+        "affected":       affected if affected else [],
+    }
+
     try:
-        LOG_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with LOG_FILE_PATH.open("a") as logfile:
-            logfile.write(
-                f"[{timestamp}] "
-                f"MODE={mode} "
-                f"VOLTAGE={voltage:.3f}V "
-                f"STATUS={voltage_label(voltage, cfg)} "
-                f"AFFECTED={len(affected)} "
-                f"LIST={','.join(affected) if affected else 'none'}\n"
-            )
-        logger.info("Event logged to %s", LOG_FILE_PATH)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a") as logfile:
+            logfile.write(json.dumps(entry) + "\n")
+        logger.info("Event logged to %s", log_path)
     except Exception as exc:
         logger.error("Failed to write log file: %s", exc)
 
@@ -331,24 +356,21 @@ def run_restore(timestamp: str, voltage: float, cfg: LpmConfig):
 
 
 def run_status(voltage: float):
-    if voltage < 0:
-        print("[WARN] Battery voltage unavailable — UART read failed.")
-
     config = load_sensor_config(SENSOR_CONFIG_PATH)
-    sensors = config.get("sensors", [])
 
-    enabled  = [s["name"] for s in sensors if s.get("enabled")]
-    disabled = [s["name"] for s in sensors if not s.get("enabled")]
+    enabled  = []
+    disabled = []
+    for key, section in config.items():
+        if key in NON_SENSOR_KEYS or not isinstance(section, dict):
+            continue
+        if section.get("enabled", False):
+            enabled.append(key)
+        else:
+            disabled.append(key)
 
     print("[STATUS] No changes made.")
-    print(
-        f"[SENSORS] Enabled  ({len(enabled)}): "
-        f"{', '.join(enabled) if enabled else 'none'}"
-    )
-    print(
-        f"[SENSORS] Disabled ({len(disabled)}): "
-        f"{', '.join(disabled) if disabled else 'none'}"
-    )
+    print(f"[SENSORS] Enabled  ({len(enabled)}): {', '.join(enabled) if enabled else 'none'}")
+    print(f"[SENSORS] Disabled ({len(disabled)}): {', '.join(disabled) if disabled else 'none'}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
