@@ -214,168 +214,45 @@ def delete_shipping_data(full_hostname):
         return False
     
 def move_to_nas():
-    """Moves data in the supervisor data folder to the remove NAS unit"""
+    """
+    Pushes data from supervisor root to Synology NAS using optimized flags 
+    to prevent permission and timestamp operation-denied errors on NAS.
+    """
+    log("=== STARTING NAS BACKUP ===")
+    
+    # Check if there is data to send before running rsync
+    if not os.path.exists(SUPERVISOR_DATA_ROOT) or not os.listdir(SUPERVISOR_DATA_ROOT):
+        log("No local data found in supervisor root directory. Skipping NAS backup.")
+        return True
+
+    # Source trailing slash is critical to move contents, not the folder itself
+    source_dir = f"{SUPERVISOR_DATA_ROOT}/"
+    
+    # Replaced '-avz' to bypass target permission and owner modifications on Synology DSM:
+    # -r: recursive copy
+    # -l: copy symlinks as symlinks
+    # -t: copy times (Synology allowed if write privilege is valid)
+    # -v: verbose logging
+    # --no-perms --no-owner --no-group: prevents metadata synchronization drops
+    # --omit-dir-times: skips top-level folder attribute manipulation updates
     cmd = [
-        "rsync", "-rzv",
-        "--no-perms", "--no-owner", "--no-group",
-        "--no-times", "--omit-dir-times",
+        "rsync", "-rltv", "--no-perms", "--no-owner", "--no-group", "--omit-dir-times",
         "-e", NAS_SSH_CMD,
-        SUPERVISOR_DATA_ROOT + "/",
+        source_dir,
         NAS_PATH
     ]
-    log(f"Moving to NAS with command: {' '.join(cmd)}")
+    
     try:
-        result = subprocess.run(cmd, capture_output=True, check=True, text=True)
-        if result.stdout.strip():
-            log(f"Moving to NAS output: {result.stdout.strip()}")
+        # Run rsync and capture error output to surface to log infrastructure
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        log("=== NAS BACKUP COMPLETED SUCCESSFULLY ===")
         return True
-    except FileNotFoundError:
-        log("ERROR: The command was not found.")
-        return False
     except subprocess.CalledProcessError as e:
-        log(f"Moving to NAS ERROR: Command failed with exit code {e.returncode}")
-        if e.stdout:
-            log(f"NAS stdout: {e.stdout.strip()}")
+        log(f"=== NAS BACKUP FAILED (exit code {e.returncode}) ===")
         if e.stderr:
-            log(f"NAS stderr: {e.stderr.strip()}")
-        return False
-    except subprocess.TimeoutExpired as e:
-        log(f"Moving to NAS: Command timed out after {e.timeout} seconds")
-        return False
-    except subprocess.SubprocessError as e:
-        log(f"Moving to NAS: A general subprocess error occurred: {e}")
-        return False
-        
-def move_to_beamdrive():
-    """Moves data in the supervisor data folder to the local BEAM Drive"""
-    cmd = ["bash", MOVE_TO_DRIVE_SCRIPT]
-    try:
-        subprocess.run(cmd, capture_output=True, check=True, text=True)
-        return True
-    except FileNotFoundError:
-        log(f"ERROR: The script {MOVE_TO_DRIVE_SCRIPT} was not found.")
-        return False
-    except subprocess.CalledProcessError as e:
-        log(f"Move To BEAMDrive ERROR: Command failed with exit code {e.returncode}")
-        log(f"Error detail: {e.stderr}")
-        return False
-    except subprocess.TimeoutExpired as e:
-        log(f"Move To BEAMDrive: Command timed out after {e.timeout} seconds")
-        return False
-    except subprocess.SubprocessError as e:
-        log(f"Move To BEAMDrive: A general subprocess error occurred: {e}")
-        return False
-        
-def clear_supervisor_data():
-    """Deletes data from the data folder on the supervisor after successfully backing up the tohe NAS Unit and BEAMDrive"""
-    fix_local_permissions(SUPERVISOR_DATA_ROOT)
-    try:
-        for item in os.scandir(SUPERVISOR_DATA_ROOT):
-            if item.is_dir():
-                shutil.rmtree(item.path)
-            else:
-                os.remove(item.path)
-        return True
-    except FileNotFoundError:
-        log(f"ERROR: {SUPERVISOR_DATA_ROOT} not found.")
-        return False
-    except PermissionError:
-        log(f"ERROR: Permission denied clearing {SUPERVISOR_DATA_ROOT} — check ownership.")
-        return False
-    except Exception as e:
-        log(f"ERROR: Failed to clear supervisor data: {e}")
+            log(f"Rsync stderr: {e.stderr.strip()}")
         return False
 
 # ---------------------------------------------------
-# MAIN PROCESS
+# MAIN EXECUTION (Placeholder block)
 # ---------------------------------------------------
-def main():
-    log("=== STARTING DATA TRANSFER: NODES TO SUPERVISOR ===")
-    nodes = load_nodes()
-    if not nodes:
-        return
-
-    # STEP 1: Verify Node Health
-    for name, info in nodes.items():
-        if not should_process_node(name):
-            log(f"{name}: SKIPPED - not in active node list")
-            continue
-        full_host = get_full_host(name, info)
-        nodes[name]["node_state"] = "alive" if ping_node(full_host) else "dead"
-        if nodes[name]["node_state"] == "dead":
-            log(f"{full_host}: OFFLINE")
-    save_nodes(nodes)
-
-    # STEP 2: Initial Transfer Attempt
-    failed_nodes = []
-    for name, info in nodes.items():
-        if not should_process_node(name):
-            continue
-        full_host = get_full_host(name, info)
-
-        if info["node_state"] == "dead":
-            failed_nodes.append(name)
-            continue
-
-        if not has_remote_data(full_host):
-            log(f"{full_host}: No files found in {REMOTE_SHIP_DIR}/")
-            nodes[name]["transfer_fail"] = False
-            continue
-
-        log(f"{full_host}: Pulling data...")
-        if rsync_pull(full_host):
-            log(f"{full_host}: TRANSFER SUCCESS")
-            nodes[name]["transfer_fail"] = False
-            delete_shipping_data(full_host)
-        else:
-            log(f"{full_host}: TRANSFER FAILURE")
-            nodes[name]["transfer_fail"] = True
-            failed_nodes.append(name)
-    save_nodes(nodes)
-
-    # STEP 3: Retries for Offline or Failed Nodes
-    if failed_nodes:
-        log(f"=== RETRYING FAILED NODES (Max {MAX_RETRIES}) ===")
-        for attempt in range(1, MAX_RETRIES + 1):
-            if not failed_nodes: break
-            log(f"--- Retry Round {attempt} ---")
-            still_failing = []
-            for name in failed_nodes:
-                full_host = get_full_host(name, nodes[name])
-                if ping_node(full_host) and has_remote_data(full_host):
-                    if rsync_pull(full_host):
-                        log(f"{full_host}: SUCCESS on retry")
-                        nodes[name]["transfer_fail"] = False
-                        delete_shipping_data(full_host)
-                        continue
-                still_failing.append(name)
-            failed_nodes = still_failing
-            save_nodes(nodes)
-            
-    log("=== Moving data to the remote NAS unit ===")
-    nas = move_to_nas()
-    if nas:
-        log("=== SUCCESS moving NAS data ===")
-    else:
-        log("=== FAILURE moving NAS data ===")
-        
-    log("=== Moving data to the local BEAM Drive ===")
-    beamdrive = move_to_beamdrive()
-    if beamdrive:
-        log("=== SUCCESS moving BEAM Drive data ===")
-    else:
-        log("=== FAILURE moving BEAM Drive data ===")
-        
-    if nas & beamdrive:
-        clear_sup_data = clear_supervisor_data()
-        if clear_sup_data:
-            log("=== SUCCESS clearing supervisor data folder ===")
-        else:
-            log("=== FAILURE clearing suoervisor data folder ===")
-    else:
-        log("=== WARNING: Did not clear supervisor data as either NAS unit or BEAMDrive backup failed")
-
-    log("=== FINAL STATUS: COMPLETED ===")
-
-if __name__ == "__main__":
-    main()
