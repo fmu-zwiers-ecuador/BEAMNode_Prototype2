@@ -6,7 +6,10 @@ No PIR sensor required.
 import json
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 from gpiozero import Device, OutputDevice
 from picamera2 import Picamera2
@@ -151,8 +154,8 @@ def main():
 
         picam.stop_recording()
 
-    now_utc = datetime.now(timezone.utc)
-    event_ts = now_utc.strftime("%Y%m%d_%H%M%SZ")
+    now_local = datetime.now(EASTERN_TZ)
+    event_ts = now_local.strftime("%Y%m%d_%H%M%S%Z")
 
     lux = get_latest_lux()
     flash_active = should_use_flash(lux)

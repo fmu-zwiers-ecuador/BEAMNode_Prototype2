@@ -1,11 +1,14 @@
 import spidev
 import json
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import os
 
 from adafruit_bme280 import basic
 import board, busio
 from digitalio import DigitalInOut
+
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 # Determine project root dynamically
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -46,13 +49,12 @@ file_name = bme_config.get("file_name", "env_data.json")
 file_path = os.path.join(directory, file_name)
 
 # --- TIME CALCULATIONS ---
-now_utc = datetime.now(timezone.utc)
-now_local = now_utc.astimezone() 
+now_local = datetime.now(EASTERN_TZ)
 
 # New record with the separate fields
 env_json_data = {
-    "timestamp_utc": now_utc.isoformat(),        # UTC Timestamp
-    "local_time": now_local.strftime("%Y-%m-%d %H:%M:%S"), # Local clock time
+    "timestamp_eastern": now_local.isoformat(),
+    "local_time": now_local.strftime("%Y-%m-%d %H:%M:%S"),
     "timezone": now_local.tzname(),              # The specific zone name
     "temperature_C": temperature,
     "humidity_percent": humidity,

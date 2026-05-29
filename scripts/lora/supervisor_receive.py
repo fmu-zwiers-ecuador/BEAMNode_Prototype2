@@ -3,6 +3,9 @@ import os, re
 import sys
 import atexit
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+EASTERN_TZ = ZoneInfo("America/New_York")
 import board, busio, digitalio
 import adafruit_rfm9x
 
@@ -36,7 +39,7 @@ NODE_OUTPUT_DIRS = {}
 
 def log(msg):
     """Internal logging."""
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ts = datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
     line = f"[{ts}] [supervisor_receive] {msg}"
     print(line)
     try:
@@ -70,7 +73,7 @@ def node_num(node_id: str) -> str:
 
 # send time string to nodes for system clock
 def send_time():
-    now = datetime.now()
+    now = datetime.now(EASTERN_TZ)
     time_str = now.strftime("%Y-%m-%d %H:%M:%S")
     pkt = {
         "type": "TIME_RESPONSE",
@@ -88,7 +91,7 @@ def send_time():
 
 def get_node_output_dir(node_id: str, run_id: str | None) -> str:
     node_key = node_num(node_id)
-    run_key = run_id or datetime.now().strftime("%Y%m%dT%H%M%SZ")
+    run_key = run_id or datetime.now(EASTERN_TZ).strftime("%Y%m%dT%H%M%S%Z")
     dir_key = (node_key, run_key)
     if dir_key not in NODE_OUTPUT_DIRS:
         dir_name = f"node{node_key}_loradata_{run_key}"

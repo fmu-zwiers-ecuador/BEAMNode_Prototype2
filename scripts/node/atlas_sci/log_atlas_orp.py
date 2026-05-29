@@ -6,9 +6,11 @@ import time
 import sys
 import io
 import fcntl
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 CONFIG_PATH = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 
 class AtlasI2CDevice:
@@ -142,12 +144,10 @@ def log_data():
         print(f"Sensor Read Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    now_utc = datetime.now(timezone.utc)
-    now_local = datetime.now().astimezone()
+    now_local = datetime.now(EASTERN_TZ)
 
     data_point = {
-        "timestamp": now_utc.isoformat(),
-        "local_timestamp": now_local.isoformat(),
+        "timestamp_eastern": now_local.isoformat(),
         "orp_mV": value
     }
 

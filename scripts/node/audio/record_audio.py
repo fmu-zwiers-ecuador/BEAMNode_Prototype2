@@ -13,9 +13,12 @@ import json
 import time
 import wave
 import pyaudio
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import ctypes
 from ctypes.util import find_library
+
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 # Suppress ALSA warnings (from PyAudio backend)
 try:
@@ -45,8 +48,7 @@ audio_config = config["audio"]
 global_config = config["global"]
 
 # --- UPDATED TIME CALCULATIONS ---
-now_utc = datetime.now(timezone.utc)
-now_local = now_utc.astimezone()
+now_local = datetime.now(EASTERN_TZ)
 
 # Base directory setup
 base_dir = global_config.get("base_dir", os.path.join(project_root, "data"))
@@ -54,7 +56,7 @@ directory = os.path.join(base_dir, audio_config.get("directory", "audio"))
 os.makedirs(directory, exist_ok=True)
 
 # File path setup (Using a clean timestamp for the filename)
-file_ts = now_utc.strftime("%Y%m%d_%H%M%SZ")
+file_ts = now_local.strftime("%Y%m%d_%H%M%S%Z")
 file_prefix = audio_config.get("file_prefix", "recording_")
 wav_filename = os.path.join(directory, f"{file_prefix}{file_ts}.wav")
 
@@ -98,7 +100,7 @@ master_json = os.path.join(directory, "MASTER.json")
 
 # --- UPDATED RECORD ENTRY ---
 record_entry = {
-    "timestamp_utc": now_utc.isoformat(),
+    "timestamp_eastern": now_local.isoformat(),
     "local_time": now_local.strftime("%Y-%m-%d %H:%M:%S"),
     "timezone": now_local.tzname(),
     "file": wav_filename,

@@ -9,6 +9,9 @@ import os
 import time
 import json
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 
 # ---------------------------------------------------
@@ -27,7 +30,7 @@ PING_COUNT = 1
 # LOGGING
 # ---------------------------------------------------
 def log(msg):
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ts = datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
     line = f"[{ts}] {msg}"
     with open(LOG_FILE, "a") as f:
         f.write(line + "\n")

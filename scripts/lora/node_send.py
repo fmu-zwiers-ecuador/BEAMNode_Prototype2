@@ -9,6 +9,9 @@ import socket
 import atexit
 import board, busio, digitalio
 import adafruit_rfm9x
+from zoneinfo import ZoneInfo
+
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 # --- Logging (redirect all output) ---
 LOG_PATH = "/home/pi/logs/lora_send.log"
@@ -29,7 +32,7 @@ ACK_TIMEOUT = 20
 MAX_RETRIES = 5
 TX_RX_TURNAROUND = 0.1
 DEFAULT_DATA_DIR = "/home/pi/data"
-RUN_ID = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+RUN_ID = datetime.datetime.now(EASTERN_TZ).strftime("%Y%m%dT%H%M%S%Z")
 
 # --- Multi-node airtime coordination (best-effort) ---
 # LoRa is a shared medium; with multiple nodes, packets/ACKs will occasionally collide.
@@ -45,7 +48,7 @@ INTER_CHUNK_JITTER_MAX = 0.35
 
 def log(msg):
     """Internal logging."""
-    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ts = datetime.datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
     line = f"[{ts}] [lora_send] {msg}"
     print(line)
     try:

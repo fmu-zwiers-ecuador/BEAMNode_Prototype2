@@ -5,10 +5,12 @@ import os
 import board
 import busio
 import adafruit_bme680
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import sys
 
 CONFIG_PATH = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 def log_data():
     # 1. Load Configuration
@@ -45,11 +47,9 @@ def log_data():
 
     # 3. Collect Data (No Gas Reading)
     try:
-        now_utc = datetime.now(timezone.utc)
-        now_local = datetime.now().astimezone()
+        now_local = datetime.now(EASTERN_TZ)
         data_point = {
-            "timestamp": now_utc.isoformat(),
-            "local_timestamp": now_local.isoformat(),
+            "timestamp_eastern": now_local.isoformat(),
             "temperature_C": round(sensor.temperature, 2),
             "humidity_percent": round(sensor.relative_humidity, 2),
             "pressure_hPa": round(sensor.pressure, 2)

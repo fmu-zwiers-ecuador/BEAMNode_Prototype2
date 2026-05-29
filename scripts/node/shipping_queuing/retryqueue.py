@@ -14,6 +14,9 @@ import json
 from datetime import datetime
 from pathlib import Path
 import shutil
+from zoneinfo import ZoneInfo
+
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 # ---------------------------------------------------
 # CONFIGURATION
@@ -42,7 +45,7 @@ SSH_OPTS = [
 # LOGGING
 # ---------------------------------------------------
 def log(msg):
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ts = datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
     line = f"[{ts}] {msg}"
     log_dir = os.path.dirname(LOG_FILE)
     try:
@@ -211,48 +214,65 @@ def delete_shipping_data(full_hostname):
         return False
     
 def move_to_nas():
-    """Moves data in the supervisor data folder to the remove NAS unit"""
+    """
+    Pushes data from supervisor root to Synology NAS using optimized flags 
+    to prevent permission and timestamp operation-denied errors on NAS.
+    """
+    log("=== STARTING NAS BACKUP ===")
+    
+    # Check if there is data to send before running rsync
+    if not os.path.exists(SUPERVISOR_DATA_ROOT) or not os.listdir(SUPERVISOR_DATA_ROOT):
+        log("No local data found in supervisor root directory. Skipping NAS backup.")
+        return True
+
+    # Source trailing slash is critical to move contents, not the folder itself
+    source_dir = f"{SUPERVISOR_DATA_ROOT}/"
+    
+    # Replaced '-avz' to bypass target permission and timestamp modifications on Synology DSM:
+    # -r: recursive copy
+    # -z: compress file data
+    # -v: verbose logging
+    # --no-*: prevents metadata synchronization errors on the NAS
     cmd = [
-        "rsync", "-avz",
+        "rsync", "-rzv",
+        "--no-perms", "--no-owner", "--no-group",
+        "--no-times", "--omit-dir-times",
         "-e", NAS_SSH_CMD,
-        SUPERVISOR_DATA_ROOT + "/",
+        source_dir,
         NAS_PATH
     ]
-    log(f"Moving to NAS with command: {' '.join(cmd)}")
+    
+    try:
+        # Run rsync and capture error output to surface to log infrastructure
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        log("=== NAS BACKUP COMPLETED SUCCESSFULLY ===")
+        return True
+    except subprocess.CalledProcessError as e:
+        log(f"=== NAS BACKUP FAILED (exit code {e.returncode}) ===")
+        if e.stderr:
+            log(f"Rsync stderr: {e.stderr.strip()}")
+        return False
+
+# ---------------------------------------------------
+# LOCAL BEAMDRIVE BACKUP
+# ---------------------------------------------------
+def move_to_beamdrive():
+    """Copies supervisor data to the local BEAM Drive."""
+    cmd = ["bash", MOVE_TO_DRIVE_SCRIPT]
     try:
         result = subprocess.run(cmd, capture_output=True, check=True, text=True)
         if result.stdout.strip():
-            log(f"Moving to NAS output: {result.stdout.strip()}")
-        return True
-    except FileNotFoundError:
-        log("ERROR: The command was not found.")
-        return False
-    except subprocess.CalledProcessError as e:
-        log(f"Moving to NAS ERROR: Command failed with exit code {e.returncode}")
-        if e.stdout:
-            log(f"NAS stdout: {e.stdout.strip()}")
-        if e.stderr:
-            log(f"NAS stderr: {e.stderr.strip()}")
-        return False
-    except subprocess.TimeoutExpired as e:
-        log(f"Moving to NAS: Command timed out after {e.timeout} seconds")
-        return False
-    except subprocess.SubprocessError as e:
-        log(f"Moving to NAS: A general subprocess error occurred: {e}")
-        return False
-        
-def move_to_beamdrive():
-    """Moves data in the supervisor data folder to the local BEAM Drive"""
-    cmd = ["bash", MOVE_TO_DRIVE_SCRIPT]
-    try:
-        subprocess.run(cmd, capture_output=True, check=True, text=True)
+            log(f"Move To BEAMDrive output: {result.stdout.strip()}")
         return True
     except FileNotFoundError:
         log(f"ERROR: The script {MOVE_TO_DRIVE_SCRIPT} was not found.")
         return False
     except subprocess.CalledProcessError as e:
         log(f"Move To BEAMDrive ERROR: Command failed with exit code {e.returncode}")
-        log(f"Error detail: {e.stderr}")
+        if e.stdout:
+            log(f"BEAMDrive stdout: {e.stdout.strip()}")
+        if e.stderr:
+            log(f"BEAMDrive stderr: {e.stderr.strip()}")
         return False
     except subprocess.TimeoutExpired as e:
         log(f"Move To BEAMDrive: Command timed out after {e.timeout} seconds")
@@ -260,9 +280,9 @@ def move_to_beamdrive():
     except subprocess.SubprocessError as e:
         log(f"Move To BEAMDrive: A general subprocess error occurred: {e}")
         return False
-        
+
 def clear_supervisor_data():
-    """Deletes data from the data folder on the supervisor after successfully backing up the tohe NAS Unit and BEAMDrive"""
+    """Deletes supervisor data after successful NAS and BEAMDrive backups."""
     fix_local_permissions(SUPERVISOR_DATA_ROOT)
     try:
         for item in os.scandir(SUPERVISOR_DATA_ROOT):
@@ -275,7 +295,7 @@ def clear_supervisor_data():
         log(f"ERROR: {SUPERVISOR_DATA_ROOT} not found.")
         return False
     except PermissionError:
-        log(f"ERROR: Permission denied clearing {SUPERVISOR_DATA_ROOT} — check ownership.")
+        log(f"ERROR: Permission denied clearing {SUPERVISOR_DATA_ROOT} - check ownership.")
         return False
     except Exception as e:
         log(f"ERROR: Failed to clear supervisor data: {e}")
@@ -332,7 +352,8 @@ def main():
     if failed_nodes:
         log(f"=== RETRYING FAILED NODES (Max {MAX_RETRIES}) ===")
         for attempt in range(1, MAX_RETRIES + 1):
-            if not failed_nodes: break
+            if not failed_nodes:
+                break
             log(f"--- Retry Round {attempt} ---")
             still_failing = []
             for name in failed_nodes:
@@ -346,27 +367,26 @@ def main():
                 still_failing.append(name)
             failed_nodes = still_failing
             save_nodes(nodes)
-            
+
     log("=== Moving data to the remote NAS unit ===")
     nas = move_to_nas()
     if nas:
         log("=== SUCCESS moving NAS data ===")
     else:
         log("=== FAILURE moving NAS data ===")
-        
+
     log("=== Moving data to the local BEAM Drive ===")
     beamdrive = move_to_beamdrive()
     if beamdrive:
         log("=== SUCCESS moving BEAM Drive data ===")
     else:
         log("=== FAILURE moving BEAM Drive data ===")
-        
-    if nas & beamdrive:
-        clear_sup_data = clear_supervisor_data()
-        if clear_sup_data:
+
+    if nas and beamdrive:
+        if clear_supervisor_data():
             log("=== SUCCESS clearing supervisor data folder ===")
         else:
-            log("=== FAILURE clearing suoervisor data folder ===")
+            log("=== FAILURE clearing supervisor data folder ===")
     else:
         log("=== WARNING: Did not clear supervisor data as either NAS unit or BEAMDrive backup failed")
 
