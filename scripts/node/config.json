@@ -191,8 +191,8 @@
   "motion_photo_flash_warmup_sec": 0.75,
   "motion_photo_flash_cooldown_sec": 0.15,
   "video": {
-    "resolution": [2560, 1440],
-    "fps": 30
+    "resolution": [1920, 1080],
+    "fps": 35
   },
   "pictures": {
     "resolution": [4608, 2592],
