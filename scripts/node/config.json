@@ -126,7 +126,7 @@
     }
   },
   "audio": {
-  "enabled": true,
+  "enabled": false,
   "directory": "audio",
   "script_name": "record_audio.py",
   "file_prefix": "recording_",
@@ -140,7 +140,7 @@
 },
 
 "motion_audio": {
-  "enabled": true,
+  "enabled": false,
   "directory": "audio",
   "script_name": "audiomoth_motion_record.py",
   "file_prefix": "motionaudio_",
@@ -150,7 +150,7 @@
   "alsa_format": "S16_LE"
 },
 "motion_capture": {
-  "enabled": true,
+  "enabled": false,
   "directory": "motion_events",
   "duration_sec": 10,
   "start_delay_sec": 1.0,
@@ -160,7 +160,7 @@
   "merge_worker_enabled": true
 },
  "camera": {
-  "enabled": true,
+  "enabled": false,
   "interface": "CSI",
   "library": "picamera2",
   "expected_model": "imx708",
