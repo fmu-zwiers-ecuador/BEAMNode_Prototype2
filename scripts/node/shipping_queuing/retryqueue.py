@@ -215,42 +215,35 @@ def delete_shipping_data(full_hostname):
     
 def move_to_nas():
     """
-    Pushes data from supervisor root to Synology NAS using optimized flags 
-    to prevent permission and timestamp operation-denied errors on NAS.
+    Pushes data from supervisor root to Synology NAS using scp.
     """
     log("=== STARTING NAS BACKUP ===")
     
-    # Check if there is data to send before running rsync
+    # Check if there is data to send before running scp
     if not os.path.exists(SUPERVISOR_DATA_ROOT) or not os.listdir(SUPERVISOR_DATA_ROOT):
         log("No local data found in supervisor root directory. Skipping NAS backup.")
         return True
 
-    # Source trailing slash is critical to move contents, not the folder itself
-    source_dir = f"{SUPERVISOR_DATA_ROOT}/"
-    
-    # Replaced '-avz' to bypass target permission and timestamp modifications on Synology DSM:
-    # -r: recursive copy
-    # -z: compress file data
-    # -v: verbose logging
-    # --no-*: prevents metadata synchronization errors on the NAS
+    # The "/." suffix copies the contents of data, not a nested data folder.
+    source_dir = os.path.join(SUPERVISOR_DATA_ROOT, ".")
     cmd = [
-        "rsync", "-rzv",
-        "--no-perms", "--no-owner", "--no-group",
-        "--no-times", "--omit-dir-times",
-        "-e", NAS_SSH_CMD,
+        "scp", "-r",
         source_dir,
         NAS_PATH
     ]
     
     try:
-        # Run rsync and capture error output to surface to log infrastructure
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        if result.stdout.strip():
+            log(f"SCP stdout: {result.stdout.strip()}")
         log("=== NAS BACKUP COMPLETED SUCCESSFULLY ===")
         return True
     except subprocess.CalledProcessError as e:
         log(f"=== NAS BACKUP FAILED (exit code {e.returncode}) ===")
+        if e.stdout:
+            log(f"SCP stdout: {e.stdout.strip()}")
         if e.stderr:
-            log(f"Rsync stderr: {e.stderr.strip()}")
+            log(f"SCP stderr: {e.stderr.strip()}")
         return False
 
 # ---------------------------------------------------
