@@ -1,6 +1,7 @@
 [Unit]
 Description=BEAMNode Master Launcher Service
-After=network.target
+After=network.target dev-gpiomem.device
+Requires=dev-gpiomem.device
 
 [Service]
 Type=simple
