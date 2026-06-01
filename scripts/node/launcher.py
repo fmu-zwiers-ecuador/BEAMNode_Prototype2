@@ -39,6 +39,7 @@ SHIPPING_DIR = "/home/pi/shipping"
 LOG_PATH = "/home/pi/logs/launcher.log"
 SHIPPING_LOG_PATH = "/home/pi/logs/shipping.log"
 SHIPPING_PATH = os.path.join(NODE_DIR, "shipping_queuing/shipping.py")
+DETECT_LOG_PATH = "/home/pi/logs/detect_output.log"
 MOTION_LOG_PATH = "/home/pi/logs/motion_output.log"
 MOTION_MERGE_LOG_PATH = "/home/pi/logs/motion_video_processing.log"
 
@@ -350,8 +351,14 @@ if __name__ == "__main__":
 
     log("Daily data move scheduled for 18:00 Eastern")
 
-    # 1. REQUIREMENT: Run detect.py once on startup
-    run_script_sync(DETECT_PATH)
+    # 1. REQUIREMENT: Run detect.py once on startup (log output)
+    if os.path.exists(DETECT_PATH):
+        log(f"Executing: {DETECT_PATH}")
+        ensure_log_file(DETECT_LOG_PATH)
+        with open(DETECT_LOG_PATH, "a") as detect_log:
+            subprocess.run(["python3", DETECT_PATH], stdout=detect_log, stderr=detect_log)
+    else:
+        log(f"ERROR: File not found at {DETECT_PATH}")
 
     # 1b. REQUIREMENT: Start motion services on startup
     warn_if_motion_services_active()
