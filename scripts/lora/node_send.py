@@ -317,6 +317,11 @@ def main():
             ok = send_file(path)
             if not ok:
                 raise RuntimeError("Send failed")
+            try:
+                os.remove(path)
+                log(f"Deleted sent file {path}")
+            except Exception as del_err:
+                log(f"ERROR: Failed to delete sent file {path}: {del_err}")
         except Exception as e:
             failures += 1
             log(f"ERROR: Failed sending {path}: {e}")
