@@ -2,6 +2,7 @@ import datetime
 import time, json, base64, zlib, hashlib, random
 import sys
 import argparse
+import shutil
 import os
 import re
 from pathlib import Path
@@ -32,6 +33,7 @@ ACK_TIMEOUT = 20
 MAX_RETRIES = 5
 TX_RX_TURNAROUND = 0.1
 DEFAULT_DATA_DIR = "/home/pi/data"
+DEFAULT_STORAGE_DIR = "/home/pi/storage"
 RUN_ID = datetime.datetime.now(EASTERN_TZ).strftime("%Y%m%dT%H%M%S%Z")
 
 # --- Multi-node airtime coordination (best-effort) ---
@@ -235,7 +237,7 @@ def send_file(path):
 
         if not acked:
             log(f"Failed to deliver chunk {i}")
-            return
+            return False
 
     # send END
     end_pkt = {
@@ -249,6 +251,7 @@ def send_file(path):
     wait_for_channel_clear()
     send_packet(end_pkt)
     log("File sent!")
+    return True
 
 def iter_json_files(root_dir, recursive=True):
     root = Path(root_dir)
@@ -288,6 +291,11 @@ def main():
         default=0,
         help="Max number of files to send (0 = no limit)",
     )
+    parser.add_argument(
+        "--storage",
+        default=DEFAULT_STORAGE_DIR,
+        help=f"Directory to move failed files (default: {DEFAULT_STORAGE_DIR})",
+    )
 
     args = parser.parse_args()
 
@@ -302,13 +310,22 @@ def main():
     log(f"Found {len(paths)} JSON file(s) under {args.dir}")
 
     failures = 0
+    os.makedirs(args.storage, exist_ok=True)
     for idx, path in enumerate(paths, start=1):
         log(f"\n[{idx}/{len(paths)}] Sending {path}")
         try:
-            send_file(path)
+            ok = send_file(path)
+            if not ok:
+                raise RuntimeError("Send failed")
         except Exception as e:
             failures += 1
             log(f"ERROR: Failed sending {path}: {e}")
+            try:
+                dest_path = os.path.join(args.storage, os.path.basename(path))
+                shutil.move(path, dest_path)
+                log(f"Moved failed file to {dest_path}")
+            except Exception as move_err:
+                log(f"ERROR: Failed to move {path} to storage: {move_err}")
 
     if failures:
         log(f"\nDone with {failures} failure(s) out of {len(paths)} file(s)")

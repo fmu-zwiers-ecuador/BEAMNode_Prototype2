@@ -398,9 +398,9 @@ if __name__ == "__main__":
                 time.sleep(5)
                 low_power_proc = start_low_power_monitor_async()
 
-            # B. REQUIREMENT: Run Shipping.py at 13:00
+            # B. REQUIREMENT: Run Shipping.py at 13:00 (disabled when LoRa is enabled)
             # We use a 30-second window to ensure the trigger catches
-            if now.hour == 13 and now.minute == 0 and 0 <= now.second <= 30:
+            if (not lora_enabled) and now.hour == 13 and now.minute == 0 and 0 <= now.second <= 30:
                 log("13:00 Target reached. Running Shipping.py...")
                 log_shipping("Scheduled shipping trigger fired at 13:00")
                 result_code = run_script_sync(SHIPPING_PATH)
@@ -413,9 +413,10 @@ if __name__ == "__main__":
                 log("Shipping complete. Resuming monitor.")
                 time.sleep(31) # Avoid double-triggering within the same minute
 
-            # C. REQUIREMENT: Move /home/pi/data -> /home/pi/shipping at 18:00 Eastern
+            # C. REQUIREMENT: Move /home/pi/data -> /home/pi/shipping at 18:00 Eastern (disabled when LoRa is enabled)
             if (
-                now.hour == 18
+                (not lora_enabled)
+                and now.hour == 18
                 and now.minute == 0
                 and 0 <= now.second <= 30
                 and last_data_move_date != now.date()
