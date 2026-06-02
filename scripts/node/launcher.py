@@ -12,7 +12,7 @@ import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-EASTERN_TZ = ZoneInfo("America/New_York")
+EASTERN_TZ = ZoneInfo("Etc/UTC")
 
 # --- CONFIGURATION ---
 NODE_DIR = "/home/pi/BEAMNode_Prototype2/scripts/node"

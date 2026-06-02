@@ -55,7 +55,7 @@
     "enabled": false,
     "directory": "bme280",
     "script_name": "log_env_data.py",
-    "file_name": "env_data.json",
+    "file_name": "bme280.json",
     "frequency": 60,
     "spi": {
       "sck_pin": "SCK",
@@ -228,7 +228,7 @@
     "enabled": false,
     "directory": "conductivity",
     "script_name": "log_atlas_ec.py",
-    "file_name": "ec_data.json",
+    "file_name": "conductivity_data.json",
     "frequency": 60,
     "i2c_bus": 1,
     "address_hex": "0x64",
