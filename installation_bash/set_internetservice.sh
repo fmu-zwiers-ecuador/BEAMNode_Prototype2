@@ -1,6 +1,6 @@
 #!/bin/bash
 SERVICE_NAME="restart_internet"
-INTERNET_SCRIPT="BEAMNode_Prototype2/restart_internet.sh"
+INTERNET_SCRIPT="/home/pi/BEAMNode_Prototype2/restart_internet.sh"
 
 echo "Setting service for restarting the internet..."
 
