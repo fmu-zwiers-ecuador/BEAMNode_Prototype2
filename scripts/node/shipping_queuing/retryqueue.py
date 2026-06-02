@@ -15,6 +15,8 @@ from datetime import datetime
 from pathlib import Path
 import shutil
 from zoneinfo import ZoneInfo
+from dotenv import load_dotenv, dotenv_values 
+load_dotenv()
 
 EASTERN_TZ = ZoneInfo("America/New_York")
 
@@ -25,9 +27,9 @@ JSON_FILEPATH = "/home/pi/BEAMNode_Prototype2/scripts/node/shipping_queuing/node
 SUPERVISOR_DATA_ROOT = "/home/pi/data"
 REMOTE_SHIP_DIR = "/home/pi/shipping"
 LOG_FILE = "/home/pi/logs/queue.log"
-NAS_PATH = "PiSync@100.115.5.12:/BEAM_test_data/FEC/"
+NAS_PATH = os.getenv("NAS_KEY") + ":/BEAM_test_data/FEC/"
 NAS_SSH_CMD = "ssh -p 2222"
-MOVE_TO_DRIVE_SCRIPT = "move_supervisor_data_to_beamdrive.sh"
+MOVE_TO_DRIVE_SCRIPT = "/home/pi/BEAMNode_Prototype2/scripts/node/shipping_queuing/move_supervisor_data_to_beamdrive.sh"
 RUN_USER = "pi"
 
 MAX_RETRIES = 5
