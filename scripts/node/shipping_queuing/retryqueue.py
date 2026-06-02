@@ -229,7 +229,7 @@ def move_to_nas():
     # The "/." suffix copies the contents of data, not a nested data folder.
     source_dir = os.path.join(SUPERVISOR_DATA_ROOT, ".")
     cmd = [
-        "scp", "-r",
+        "scp", "-P", "2222", "-r", 
         source_dir,
         NAS_PATH
     ]
