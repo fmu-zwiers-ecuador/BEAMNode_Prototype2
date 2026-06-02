@@ -6,14 +6,11 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-read -rp "Mesh interface (batman) [bat0]: " MESH_IF
-MESH_IF=${MESH_IF:-bat0}
+MESH_IF="bat0"
 
-read -rp "Uplink internet interface [wlan1]: " UPLINK_IF
-UPLINK_IF=${UPLINK_IF:-wlan1}
+UPLINK_IF="wlan1"
 
-read -rp "Supervisor mesh IP/CIDR [10.42.0.30/16]: " MESH_IPCIDR
-MESH_IPCIDR=${MESH_IPCIDR:-10.42.0.30/16}
+MESH_IPCIDR="10.42.0.30/16"
 
 MESH_IP="${MESH_IPCIDR%/*}"
 MESH_PREFIX="${MESH_IPCIDR#*/}"
