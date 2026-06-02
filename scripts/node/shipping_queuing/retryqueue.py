@@ -29,7 +29,7 @@ REMOTE_SHIP_DIR = "/home/pi/shipping"
 LOG_FILE = "/home/pi/logs/queue.log"
 NAS_PATH = os.getenv("NAS_KEY") + ":/BEAM_test_data/FEC/"
 NAS_SSH_CMD = "ssh -p 2222"
-MOVE_TO_DRIVE_SCRIPT = "move_supervisor_data_to_beamdrive.sh"
+MOVE_TO_DRIVE_SCRIPT = "/home/pi/BEAMNode_Prototype2/scripts/node/shipping_queuing/move_supervisor_data_to_beamdrive.sh"
 RUN_USER = "pi"
 
 MAX_RETRIES = 5
