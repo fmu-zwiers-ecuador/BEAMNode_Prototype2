@@ -243,7 +243,7 @@ CANDIDATE_I2C_BUSES = (1,)
 
 def scan_i2c(busnum):
     try:
-        result = subprocess.run(["sudo", "i2cdetect", "-y", str(busnum)],
+        result = subprocess.run(["i2cdetect", "-y", str(busnum)],
                                 capture_output=True, text=True, check=True)
         return result.stdout
     except Exception as e:
