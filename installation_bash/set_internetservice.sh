@@ -11,7 +11,6 @@ After=network.target
 
 [Service]
 Type=oneshot
-User=pi
 ExecStart=/usr/bin/bash $INTERNET_SCRIPT
 
 [Install]
