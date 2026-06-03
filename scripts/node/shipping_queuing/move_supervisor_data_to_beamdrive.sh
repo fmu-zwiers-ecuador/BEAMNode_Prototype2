@@ -3,26 +3,38 @@ set -euo pipefail
 
 DATA_DIR="/home/pi/data"
 MOUNT_POINT="/home/pi/usbmnt"
-
+MOUNT_CMD="$(command -v mount)"
+CP_CMD="$(command -v cp)"
+DRIVE="/dev/sda1"
 mkdir -p "$MOUNT_POINT"
 
-is_mounted() {
-    findmnt -rn "$MOUNT_POINT" >/dev/null 2>&1
-}
-
-if is_mounted; then
-    echo "$MOUNT_POINT is already mounted."
+# Check if the drive is mounted
+if mount | grep -q "$MOUNT_POINT"; then
+    echo "Drive is already mounted. Proceeding to next step..."
 else
-    echo "$MOUNT_POINT is not mounted. Trying to mount it once..."
-    if ! sudo -n mount "$MOUNT_POINT"; then
-        echo "ERROR: Could not mount $MOUNT_POINT. If sudo needs a password, run the mount manually once or update /etc/fstab/sudoers."
+    echo "Drive is not mounted. Attempting to mount $DRIVE..."
+    
+    # Create mount point directory if it doesn't exist
+    mkdir -p "$MOUNT_POINT"
+    
+    # Mount the drive
+    if mount "$DRIVE" "$MOUNT_POINT"; then
+        echo "Mount successful. Proceeding to next step..."
+    else
+        echo "Error: Failed to mount the drive. Exiting script."
         exit 1
     fi
 fi
 
+# --- Your next steps go below this line ---
+echo "Doing the next step!"
 echo "Copying data..."
-if ! sudo -n cp -r "$DATA_DIR" "$MOUNT_POINT/"; then
-    echo "ERROR: Could not copy $DATA_DIR to $MOUNT_POINT. If sudo needs a password, fix permissions or run the copy manually once."
+if cp -r "$DATA_DIR" "$MOUNT_POINT/"; then
+    echo "Copy completed as pi user."
+elif sudo -n "$CP_CMD" -r "$DATA_DIR" "$MOUNT_POINT/"; then
+    echo "Copy completed with passwordless sudo."
+else
+    echo "ERROR: Could not copy $DATA_DIR to $MOUNT_POINT without a password. Run installation_bash/set_retryservice.sh once to install the passwordless copy rule."
     exit 1
 fi
 

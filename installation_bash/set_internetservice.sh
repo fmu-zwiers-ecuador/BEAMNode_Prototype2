@@ -41,7 +41,6 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-[Service]
 Type=simple
 ExecStart=/usr/bin/bash /home/pi/BEAMNode_Prototype2/monitor_internet.sh
 Restart=always
