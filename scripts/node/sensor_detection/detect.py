@@ -17,6 +17,7 @@ import os
 import time
 import json
 import sys
+import atexit
 import serial
 import serial.tools.list_ports
 from picamera2 import Picamera2
@@ -43,24 +44,12 @@ def set_config_flag(path, section, key, value):
 
 # ---------------- Logging Setup ---------------- #
 
-PRIMARY_LOG_DIR = "/home/pi/BEAMNode_Prototype2/logs"
-FALLBACK_LOG_DIR = "/tmp/beam_logs"
-
-def get_log_dir():
-    try:
-        os.makedirs(PRIMARY_LOG_DIR, exist_ok=True)
-        test_file = os.path.join(PRIMARY_LOG_DIR, ".writetest")
-        with open(test_file, "w") as f:
-            f.write("ok")
-        os.remove(test_file)
-        return PRIMARY_LOG_DIR
-    except Exception as e:
-        print(f"[detect] Log directory not writable ({e}), using fallback /tmp", file=sys.stderr)
-        os.makedirs(FALLBACK_LOG_DIR, exist_ok=True)
-        return FALLBACK_LOG_DIR
-
-LOG_DIR = get_log_dir()
-LOG_PATH = os.path.join(LOG_DIR, "detect_bme280.log")
+LOG_PATH = "/home/pi/logs/detect.log"
+os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+_log_file = open(LOG_PATH, "a", buffering=1)
+sys.stdout = _log_file
+sys.stderr = _log_file
+atexit.register(_log_file.close)
 
 spi_logger = logging.getLogger("detect_bme280")
 spi_logger.setLevel(logging.INFO)
@@ -252,7 +241,6 @@ def scan_i2c(busnum):
 
 def detect_i2c_sensors():
     detected = []  # sensors found on any bus
-
     # ── Pass 1: scan all buses and record every sensor that is found ──────────
     for bus in CANDIDATE_I2C_BUSES:
         if not os.path.exists(f"/dev/i2c-{bus}"):
