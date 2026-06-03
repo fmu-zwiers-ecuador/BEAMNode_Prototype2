@@ -225,7 +225,7 @@ I2C_ADDR_TABLE = {
     "atlas_ec": [0x64],
     "atlas_rtd": [0x66],
     "atlas_ph": [0x63],
-    "atlas_do": [0x65]
+    "atlas_do": [0x61]
 }
 
 CANDIDATE_I2C_BUSES = (1,)
