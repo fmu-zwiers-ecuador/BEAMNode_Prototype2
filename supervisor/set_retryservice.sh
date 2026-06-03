@@ -8,14 +8,17 @@ QUEUE_SCRIPT="$PROJECT_ROOT/scripts/node/shipping_queuing/retryqueue.py"
 SERVICE_NAME="retryqueue"
 LOG_DIR="/home/pi/logs"
 DATA_DIR="/home/pi/data"
+MOUNT_POINT="/home/pi/usbmnt"
+SUDOERS_FILE="/etc/sudoers.d/beamnode-usbmnt"
 
-echo "[1/4] Preparing supervisor directories..."
+echo "[1/5] Preparing supervisor directories..."
 mkdir -p "$LOG_DIR"
 mkdir -p "$DATA_DIR"
+mkdir -p "$MOUNT_POINT"
 mkdir -p "$PROJECT_ROOT/installation_bash"
 
 # 2. Set Permissions
-echo "[2/4] Setting execution permissions..."
+echo "[2/5] Setting execution permissions..."
 if [ -f "$QUEUE_SCRIPT" ]; then
     chmod +x "$QUEUE_SCRIPT"
 else
@@ -23,8 +26,25 @@ else
     exit 1
 fi
 
+echo "[3/5] Allowing passwordless USB mount for retryqueue..."
+MOUNT_CMD="$(command -v mount)"
+CP_CMD="$(command -v cp)"
+if [ -z "$MOUNT_CMD" ] || [ -z "$CP_CMD" ]; then
+    echo "ERROR: required command not found"
+    exit 1
+fi
+sudo bash -c "cat > $SUDOERS_FILE <<EOF
+pi ALL=(root) NOPASSWD: $MOUNT_CMD $MOUNT_POINT
+pi ALL=(root) NOPASSWD: $CP_CMD -r $DATA_DIR $MOUNT_POINT/
+EOF"
+sudo chmod 0440 "$SUDOERS_FILE"
+if ! sudo visudo -cf "$SUDOERS_FILE"; then
+    echo "ERROR: invalid sudoers file: $SUDOERS_FILE"
+    exit 1
+fi
+
 # 3. Create Systemd Files
-echo "[3/4] Generating systemd unit files..."
+echo "[4/5] Generating systemd unit files..."
 
 # Create the Service
 sudo bash -c "cat > /etc/systemd/system/$SERVICE_NAME.service <<EOF
@@ -53,7 +73,7 @@ WantedBy=timers.target
 EOF"
 
 # 4. Activation
-echo "[4/4] Activating timer..."
+echo "[5/5] Activating timer..."
 sudo systemctl daemon-reload
 sudo systemctl enable --now "$SERVICE_NAME.timer"
 
