@@ -34,7 +34,7 @@ RUN_USER = "pi"
 
 MAX_RETRIES = 5
 PING_COUNT = 1
-ACTIVE_NODE_NAMES = {"node1", "node2", "node3", "node4", "node5"}
+ACTIVE_NODE_NAMES = {"node1", "node2", "node3"}
 
 # SSH options to force non-interactive mode and bypass prompts
 SSH_OPTS = [
