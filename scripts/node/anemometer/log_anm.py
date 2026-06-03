@@ -9,7 +9,7 @@ import re
 EASTERN_TZ = ZoneInfo("America/New_York")
 
 # Match arduino baud rate
-ser = serial.Serial('/dev/ttyUSB0', 9600, timeout=1)
+ser = serial.Serial('/dev/ttyUSB1', 9600, timeout=1)
 
 # Determine project root dynamically
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))

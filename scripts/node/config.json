@@ -74,7 +74,7 @@
   "anemometer": {
     "enabled": false,
     "source": "serial",
-    "serial_port": "/dev/ttyUSB0",
+    "serial_port": "/dev/ttyUSB1",
     "baud_rate": 9600,
     "frequency_sec": 20,
     "frequency": 60,
