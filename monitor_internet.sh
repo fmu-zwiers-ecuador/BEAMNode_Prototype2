@@ -14,10 +14,6 @@ log "Internet monitor started."
 while true; do
   if ! ping -c 1 -W 5 8.8.8.8 >/dev/null 2>&1 || ! ping -c 1 -W 5 google.com >/dev/null 2>&1; then
     ONLINE=false
-    
-    log "$(date): Ping failed. Restarting internet..."
-    /home/pi/BEAMNode_Prototype2/restart_internet.sh
-
     log "Ping failed. Restarting internet."
 
     /home/pi/BEAMNode_Prototype2/restart_internet.sh >> "$LOG_FILE" 2>&1
