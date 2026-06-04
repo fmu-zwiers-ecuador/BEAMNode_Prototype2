@@ -48,7 +48,7 @@ if [[ "${DO_INSTALL,,}" == "y" ]]; then
     adafruit-circuitpython-bme680==3.5.0 \
     adafruit-circuitpython-tsl2591==1.4.6 \
     adafruit-circuitpython-ahtx0==1.0.28 \
-    adafruit-circuitpython-rfm9x==1.0.3 
+    adafruit-circuitpython-rfm9x==2.2.25 
 
   echo "=== PART 1 complete. Continuing to PART 2... ==="
 else
@@ -350,17 +350,28 @@ systemctl enable batman-gateway.service
 echo "[6/8] Applying gateway config now..."
 systemctl start batman-gateway.service
 
-echo "[7/8] Seting supervisor services..."
+echo "[7/8] Setting supervisor services..."
 RETRY_SERVICE="/home/pi/BEAMNode_Prototype2/installation_bash/set_retryservice.sh"
-INTERNET_SERVICE="home/pi/BEAMNode_Prototype2/installation_bash/set_internetservice.sh"
+INTERNET_SERVICE="/home/pi/BEAMNode_Prototype2/installation_bash/set_internetservice.sh"
 
-sudo chmod +x RETRY_SERVICE
-sudo chmod +x INTERNET_SERVICE
+sudo chmod +x "$RETRY_SERVICE"
+sudo chmod +x "$INTERNET_SERVICE"
 
-sudo bash RETRY_SERVICE
-sudo bash INTERNET_SERVICE
+sudo bash "$RETRY_SERVICE"
+sudo bash "$INTERNET_SERVICE"
 
-echo "[8/8] Quick checks:"
+echo "[8/9] Configuring passwordless sudo rules for BEAM Drive and data permissions..."
+# Allow pi to mount the BEAM Drive without a password (needed by move_supervisor_data_to_beamdrive.sh)
+echo "pi ALL=(ALL) NOPASSWD: /bin/mount /dev/sda1 /home/pi/usbmnt" > /etc/sudoers.d/beamdrive-mount
+chmod 440 /etc/sudoers.d/beamdrive-mount
+echo "  sudoers rule added: mount /dev/sda1"
+
+# Allow pi to chown/chmod /home/pi/data without a password (needed by retryqueue.py)
+echo "pi ALL=(ALL) NOPASSWD: /bin/chown -R pi:pi /home/pi/data" >> /etc/sudoers.d/beamdrive-mount
+echo "pi ALL=(ALL) NOPASSWD: /bin/chmod -R u+rwX /home/pi/data" >> /etc/sudoers.d/beamdrive-mount
+echo "  sudoers rules added: chown/chmod /home/pi/data"
+
+echo "[9/9] Quick checks:"
 ip -br a | grep -E "\b$MESH_IF\b" || true
 iptables -t nat -S | grep MASQUERADE || true
 systemctl is-active dnsmasq || true
