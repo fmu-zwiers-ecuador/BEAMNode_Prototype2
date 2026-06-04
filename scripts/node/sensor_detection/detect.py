@@ -282,12 +282,14 @@ def detect_audiomoth():
             if "audiomoth" in line.lower():
                 print(f"AudioMoth USB Found: {line.strip()}")
                 set_config_flag(CONFIG_PATH, "audio", "enabled", True)
+                set_config_flag(CONFIG_PATH, "motion_audio", "enabled", True)
                 set_config_flag(CONFIG_PATH, "audio", "mount_path", None)
                 return True
     except Exception as e:
         spi_logger.warning(f"AudioMoth detection failed: {e}")
     print("AudioMoth USB Not Found")
     set_config_flag(CONFIG_PATH, "audio", "enabled", False)
+    set_config_flag(CONFIG_PATH, "motion_audio", "enabled", False)
     set_config_flag(CONFIG_PATH, "audio", "mount_path", None)
     return False
 
