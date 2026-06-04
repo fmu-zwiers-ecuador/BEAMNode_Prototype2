@@ -361,15 +361,14 @@ sudo bash "$RETRY_SERVICE"
 sudo bash "$INTERNET_SERVICE"
 
 echo "[8/9] Configuring passwordless sudo rules for BEAM Drive and data permissions..."
-# Allow pi to mount the BEAM Drive without a password (needed by move_supervisor_data_to_beamdrive.sh)
-echo "pi ALL=(ALL) NOPASSWD: /bin/mount /dev/sda1 /home/pi/usbmnt" > /etc/sudoers.d/beamdrive-mount
+cat > /etc/sudoers.d/beamdrive-mount <<'EOF'
+pi ALL=(ALL) NOPASSWD: /bin/mount /dev/sda1 /home/pi/usbmnt
+pi ALL=(ALL) NOPASSWD: /bin/chown -R pi\:pi /home/pi/data
+pi ALL=(ALL) NOPASSWD: /bin/chmod -R u+rwX /home/pi/data
+EOF
 chmod 440 /etc/sudoers.d/beamdrive-mount
-echo "  sudoers rule added: mount /dev/sda1"
-
-# Allow pi to chown/chmod /home/pi/data without a password (needed by retryqueue.py)
-echo "pi ALL=(ALL) NOPASSWD: /bin/chown -R pi:pi /home/pi/data" >> /etc/sudoers.d/beamdrive-mount
-echo "pi ALL=(ALL) NOPASSWD: /bin/chmod -R u+rwX /home/pi/data" >> /etc/sudoers.d/beamdrive-mount
-echo "  sudoers rules added: chown/chmod /home/pi/data"
+visudo -cf /etc/sudoers.d/beamdrive-mount
+echo "  sudoers rules added: mount /dev/sda1 and chown/chmod /home/pi/data"
 
 echo "[9/9] Quick checks:"
 ip -br a | grep -E "\b$MESH_IF\b" || true
