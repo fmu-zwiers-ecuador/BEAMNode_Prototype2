@@ -18,7 +18,7 @@ else
     mkdir -p "$MOUNT_POINT"
     
     # Mount the drive
-    if mount "$DRIVE" "$MOUNT_POINT"; then
+    if sudo -n mount "$DRIVE" "$MOUNT_POINT"; then
         echo "Mount successful. Proceeding to next step..."
     else
         echo "Error: Failed to mount the drive. Exiting script."
