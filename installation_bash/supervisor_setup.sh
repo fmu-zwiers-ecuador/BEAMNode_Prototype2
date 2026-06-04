@@ -257,7 +257,7 @@ echo "DHCP range:   $DHCP_RANGE_START - $DHCP_RANGE_END ($DHCP_MASK)"
 echo "Chrony allow: $ALLOW_SUBNET"
 echo
 
-echo "[1/7] Writing dnsmasq config for mesh DHCP/DNS..."
+echo "[1/8] Writing dnsmasq config for mesh DHCP/DNS..."
 #Ensure the directory exist before creating it
 mkdir -p /etc/dnsmasq.d
 
@@ -275,7 +275,7 @@ EOF
 systemctl enable dnsmasq
 systemctl restart dnsmasq
 
-echo "[2/7] Configuring chrony to serve time to mesh..."
+echo "[2/8] Configuring chrony to serve time to mesh..."
 CHRONY_CONF="/etc/chrony/chrony.conf"
 grep -qE '^\s*pool\s+pool\.ntp\.org' "$CHRONY_CONF" || echo "pool pool.ntp.org iburst" >> "$CHRONY_CONF"
 grep -qE "^\s*allow\s+$ALLOW_SUBNET" "$CHRONY_CONF" || echo "allow $ALLOW_SUBNET" >> "$CHRONY_CONF"
@@ -284,7 +284,7 @@ grep -qE '^\s*local\s+stratum\s+10' "$CHRONY_CONF" || echo "local stratum 10" >>
 systemctl enable chrony
 systemctl restart chrony
 
-echo "[3/7] Creating a persistent systemd service for gateway setup..."
+echo "[3/8] Creating a persistent systemd service for gateway setup..."
 cat >/etc/systemd/system/batman-gateway.service <<EOF
 [Unit]
 Description=Batman Mesh Gateway (NAT + bat0 IP)
@@ -300,7 +300,7 @@ ExecStart=/usr/local/sbin/batman-gateway-apply
 WantedBy=multi-user.target
 EOF
 
-echo "[4/7] Writing gateway apply script..."
+echo "[4/8] Writing gateway apply script..."
 cat >/usr/local/sbin/batman-gateway-apply <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -343,14 +343,24 @@ PY
 
 chmod +x /usr/local/sbin/batman-gateway-apply
 
-echo "[5/7] Enabling gateway service..."
+echo "[5/8] Enabling gateway service..."
 systemctl daemon-reload
 systemctl enable batman-gateway.service
 
-echo "[6/7] Applying gateway config now..."
+echo "[6/8] Applying gateway config now..."
 systemctl start batman-gateway.service
 
-echo "[7/7] Quick checks:"
+echo "[7/8] Seting supervisor services..."
+RETRY_SERVICE="/home/pi/BEAMNode_Prototype2/installation_bash/set_retryservice.sh"
+INTERNET_SERVICE="home/pi/BEAMNode_Prototype2/installation_bash/set_internetservice.sh"
+
+sudo chmod +x RETRY_SERVICE
+sudo chmod +x INTERNET_SERVICE
+
+sudo bash RETRY_SERVICE
+sudo bash INTERNET_SERVICE
+
+echo "[8/8] Quick checks:"
 ip -br a | grep -E "\b$MESH_IF\b" || true
 iptables -t nat -S | grep MASQUERADE || true
 systemctl is-active dnsmasq || true
