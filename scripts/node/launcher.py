@@ -12,7 +12,7 @@ import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-EASTERN_TZ = ZoneInfo("Etc/UTC")
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 # --- CONFIGURATION ---
 NODE_DIR = "/home/pi/BEAMNode_Prototype2/scripts/node"
@@ -415,20 +415,6 @@ if __name__ == "__main__":
                 else:
                     log_shipping(f"Shipping failed (exit code {result_code})")
                 log("Shipping complete. Resuming monitor.")
-                time.sleep(31) # Avoid double-triggering within the same minute
-
-            # C. REQUIREMENT: Move /home/pi/data -> /home/pi/shipping at 18:00 Eastern (disabled when LoRa is enabled)
-            if (
-                (not lora_enabled)
-                and now.hour == 18
-                and now.minute == 0
-                and 0 <= now.second <= 30
-                and last_data_move_date != now.date()
-            ):
-                log("18:00 Eastern reached. Moving /home/pi/data to /home/pi/shipping...")
-                move_data_to_shipping()
-                last_data_move_date = now.date()
-                log("Data move complete. Resuming monitor.")
                 time.sleep(31) # Avoid double-triggering within the same minute
 
             # Sleep to keep CPU usage minimal
