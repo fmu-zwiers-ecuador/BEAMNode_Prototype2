@@ -121,7 +121,8 @@ def detect_spi_sensor():
 # ---------------- Camera (IMX219) ---------------- #
 
 def detect_camera():
-    set_config_flag(CONFIG_PATH, "camera", "enabled", False)
+    set_config_flag(CONFIG_PATH, "motion_capture", "enabled", False)
+    set_config_flag(CONFIG_PATH, "camera", "enabled", True)
     set_config_flag(CONFIG_PATH, "camera", "model", None)
 
     try:
@@ -201,6 +202,7 @@ def detect_camera():
                 raise last_error
 
         print(f"Camera Found: {model}")
+        set_config_flag(CONFIG_PATH, "motion_capture", "enabled", True)
         set_config_flag(CONFIG_PATH, "camera", "enabled", True)
         set_config_flag(CONFIG_PATH, "camera", "model", model.lower())
         if expected_model and expected_model not in model.lower():
