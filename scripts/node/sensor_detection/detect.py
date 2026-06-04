@@ -122,7 +122,7 @@ def detect_spi_sensor():
 
 def detect_camera():
     set_config_flag(CONFIG_PATH, "motion_capture", "enabled", False)
-    set_config_flag(CONFIG_PATH, "camera", "enabled", True)
+    set_config_flag(CONFIG_PATH, "camera", "enabled", False)
     set_config_flag(CONFIG_PATH, "camera", "model", None)
 
     try:
@@ -276,6 +276,7 @@ def detect_i2c_sensors():
 # ---------------- AudioMoth USB ---------------- #
 
 def detect_audiomoth():
+    set_config_flag(CONFIG_PATH, "motion_audio", "enabled", False)
     try:
         result = subprocess.run(["lsusb"], capture_output=True, text=True, check=True)
         for line in result.stdout.splitlines():
