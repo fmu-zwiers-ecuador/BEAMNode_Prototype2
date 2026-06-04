@@ -23,9 +23,9 @@ ensure_dir() {
   local dir="$1"
   mkdir -p "$dir"
   if id "$RUN_USER" >/dev/null 2>&1; then
-    chown -R "$RUN_USER:$RUN_USER" "$dir" 2>/dev/null || true
+    chown "$RUN_USER:$RUN_USER" "$dir" 2>/dev/null || true
   fi
-  chmod -R u+rwX "$dir" 2>/dev/null || true
+  chmod u+rwx "$dir" 2>/dev/null || true
 }
 
 make_executable() {
