@@ -369,6 +369,11 @@ if __name__ == "__main__":
 
     log("Daily data move scheduled for 18:00 Eastern")
 
+    print("Current configuration:")
+    for section, keys in config.items():
+        print(f"  {section}:")
+        for key, value in keys.items():
+            print(f"    {key}: {value}")
     # --- 1b. REQUIREMENT: Start motion services on startup ---
     warn_if_motion_services_active()
     warn_if_legacy_low_power_services_active()
