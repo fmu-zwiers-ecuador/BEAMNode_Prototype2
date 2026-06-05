@@ -47,10 +47,7 @@ _MOTION_LOG_HANDLE = None
 _MOTION_MERGE_LOG_HANDLE = None
 _LOW_POWER_LOG_HANDLE = None
 
-# config is intentionally NOT loaded here at module level.
-# It is loaded in two stages inside __main__:
-#   Stage 1 (pre-detect): minimal load for lora_enabled / network check
-#   Stage 2 (post-detect): full load after detect.py has written sensor results
+# config is loaded in __main__ after detect.py finishes.
 config = {}
 
 
@@ -326,20 +323,28 @@ def move_data_to_shipping():
 if __name__ == "__main__":
     log("=== BEAMNode System Startup ===")
 
-    # --- STAGE 1: Minimal pre-detect config load ---
-    # Only used for lora_enabled / network check.
-    # detect.py has NOT run yet, so we do not trust sensor fields here.
+    # --- 1. REQUIREMENT: Run detect.py first, before anything else ---
+    # detect.py may write sensor results to config.json; all subsequent
+    # steps will use the updated values.
+    if os.path.exists(DETECT_PATH):
+        run_script_sync(DETECT_PATH)
+    else:
+        log(f"ERROR: File not found at {DETECT_PATH}")
+
+    # --- Load config once, after detect.py has finished ---
+    log(f"Loading config from {CONFIG_PATH} (post-detect)...")
     try:
         with open(CONFIG_PATH, "r") as f:
-            _pre_config = json.load(f)
+            config = json.load(f)
+        log("Config loaded successfully.")
     except Exception as e:
-        log(f"CRITICAL ERROR: Could not read {CONFIG_PATH}: {e}")
+        log(f"CRITICAL ERROR: Could not read {CONFIG_PATH} after detect.py: {e}")
         sys.exit(1)
 
-    global_config = _pre_config["global"]
+    global_config = config["global"]
     lora_enabled = global_config.get("lora_enabled")
 
-    # Wait for network or run LoRa time sync
+    # --- Network / LoRa time sync ---
     if not lora_enabled:
         start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log(f"Startup time: {start}")
@@ -363,24 +368,6 @@ if __name__ == "__main__":
         run_lora_time_request()
 
     log("Daily data move scheduled for 18:00 Eastern")
-
-    # --- 1. REQUIREMENT: Run detect.py once on startup (synchronous) ---
-    if os.path.exists(DETECT_PATH):
-        run_script_sync(DETECT_PATH)
-    else:
-        log(f"ERROR: File not found at {DETECT_PATH}")
-
-    # --- STAGE 2: Full config load AFTER detect.py has finished ---
-    # detect.py may have updated sensor fields in config.json; reload now so
-    # all downstream functions see the correct, post-detection values.
-    log(f"Loading config from {CONFIG_PATH} (post-detect)...")
-    try:
-        with open(CONFIG_PATH, "r") as f:
-            config = json.load(f)
-        log("Config loaded successfully.")
-    except Exception as e:
-        log(f"CRITICAL ERROR: Could not read {CONFIG_PATH} after detect.py: {e}")
-        sys.exit(1)
 
     # --- 1b. REQUIREMENT: Start motion services on startup ---
     warn_if_motion_services_active()
