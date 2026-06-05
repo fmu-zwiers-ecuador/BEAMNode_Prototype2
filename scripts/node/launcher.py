@@ -356,7 +356,20 @@ if __name__ == "__main__":
         log(f"Executing: {DETECT_PATH}")
         ensure_log_file(DETECT_LOG_PATH)
         with open(DETECT_LOG_PATH, "a") as detect_log:
-            subprocess.run(["python3", DETECT_PATH], stdout=detect_log, stderr=detect_log)
+            subprocess.run(
+                ["/usr/bin/python3", DETECT_PATH],
+                stdout=detect_log,
+                stderr=detect_log,
+                cwd=NODE_DIR,
+            )
+
+        # Reload config after detect to keep memory in sync
+        try:
+            with open(CONFIG_PATH, "r") as f:
+                config = json.load(f)
+            log("Reloaded config.json after detection.")
+        except Exception as e:
+            log(f"ERROR reloading config after detection: {e}")
     else:
         log(f"ERROR: File not found at {DETECT_PATH}")
 

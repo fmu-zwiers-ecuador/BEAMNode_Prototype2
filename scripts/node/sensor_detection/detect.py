@@ -27,20 +27,36 @@ CONFIG_PATH = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
 # ---------------- Config Helper ---------------- #
 
 def set_config_flag(path, section, key, value):
-    """Safely set a flag in config.json """
+    """Set config.json flag atomically with logging."""
     try:
-        with open(path, "r") as f:
-            cfg = json.load(f)
-    except Exception:
-        cfg = {}
-    if section not in cfg or not isinstance(cfg[section], dict):
-        cfg[section] = {}
-    if cfg[section].get(key) != value:
-        cfg[section][key] = value
+        # Load current config
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                config = json.load(f)
+        else:
+            config = {}
+
+        if section not in config or not isinstance(config.get(section), dict):
+            config[section] = {}
+
+        current = config[section].get(key)
+        if current == value:
+            return
+
+        config[section][key] = value
+
+        # Atomic write
         tmp_path = f"{path}.tmp"
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(tmp_path, "w") as f:
-            json.dump(cfg, f, indent=2)
+            json.dump(config, f, indent=4)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp_path, path)
+
+        print(f"[detect] Updated {section}.{key} -> {value}")
+    except Exception as e:
+        print(f"[detect] ERROR writing config: {e}")
 
 # ---------------- Logging Setup ---------------- #
 
@@ -217,8 +233,7 @@ def detect_camera():
     return False
 
 # ---------------- I2C Sensors ---------------- #
-
-# NEW ADDITIONS: atlas_ec (0x64), atlas_orp (0x62), atlas_rtd (0x66)
+# NEW ADDITIONS: atlas_ec (0x64), atlas_orp (0x62), atlas_rtd (0x66), atlas_ph (0x63), atlas_do (0x61) - all share the same I2C protocol and can be detected together. See config.json for details.
 I2C_ADDR_TABLE = {
     "tsl2591": [0x29], 
     "ahtx0": [0x38], 
