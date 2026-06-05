@@ -125,6 +125,9 @@ def run_cmd(cmd, label, **kwargs):
 def fix_local_permissions(path):
     """Make a local data path writable by the pi user when sudo is available."""
     os.makedirs(path, exist_ok=True)
+    if os.access(path, os.R_OK | os.W_OK | os.X_OK):
+        return True
+
     commands = [
         ["sudo", "-n", "chown", "-R", f"{RUN_USER}:{RUN_USER}", path],
         ["sudo", "-n", "chmod", "-R", "u+rwX", path],
@@ -177,7 +180,9 @@ def has_remote_data(full_hostname):
 
 def rsync_pull(full_hostname):
     """Pulls data from node to supervisor data root."""
-    fix_local_permissions(SUPERVISOR_DATA_ROOT)
+    if not fix_local_permissions(SUPERVISOR_DATA_ROOT):
+        log(f"{full_hostname}: WARNING - continuing transfer; {SUPERVISOR_DATA_ROOT} may already be writable.")
+
     # The trailing slash on remote_source is critical to pull CONTENTS, not the folder
     remote_source = f"pi@{full_hostname}:{REMOTE_SHIP_DIR}/"
     ssh_cmd = "ssh " + " ".join(SSH_OPTS)
@@ -196,15 +201,22 @@ def rsync_pull(full_hostname):
 
 def delete_shipping_data(full_hostname):
     """Removes data from node shipping folder after successful pull."""
-    fix_remote_permissions(full_hostname, REMOTE_SHIP_DIR)
     cmd = ["ssh"] + SSH_OPTS + [f"pi@{full_hostname}", f"rm -rf {REMOTE_SHIP_DIR}/*"]
     try:
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
         log(f"{full_hostname}: Remote folder cleared.")
         return True
     except subprocess.CalledProcessError as e:
-        log(f"{full_hostname}: Deleting shipping folder: WARNING - SSH command failed (exit code {e.returncode}): {e.cmd}")
-        return False
+        log(f"{full_hostname}: Normal cleanup failed (exit code {e.returncode}); trying permission repair once.")
+        if not fix_remote_permissions(full_hostname, REMOTE_SHIP_DIR):
+            return False
+        try:
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
+            log(f"{full_hostname}: Remote folder cleared after permission repair.")
+            return True
+        except subprocess.CalledProcessError as retry_error:
+            log(f"{full_hostname}: Deleting shipping folder: WARNING - SSH command failed (exit code {retry_error.returncode}): {retry_error.cmd}")
+            return False
     except FileNotFoundError as e:
         log(f"{full_hostname}: Deleting shipping folder: WARNING - 'ssh' binary not found: {e}")
         return False
