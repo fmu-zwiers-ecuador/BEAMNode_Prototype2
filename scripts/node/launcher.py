@@ -363,13 +363,6 @@ if __name__ == "__main__":
                 cwd=NODE_DIR,
             )
 
-        # Reload config after detect to keep memory in sync
-        try:
-            with open(CONFIG_PATH, "r") as f:
-                config = json.load(f)
-            log("Reloaded config.json after detection.")
-        except Exception as e:
-            log(f"ERROR reloading config after detection: {e}")
     else:
         log(f"ERROR: File not found at {DETECT_PATH}")
 
