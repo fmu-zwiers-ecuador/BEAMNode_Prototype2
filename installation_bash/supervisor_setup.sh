@@ -370,12 +370,56 @@ chmod 440 /etc/sudoers.d/beamdrive-mount
 visudo -cf /etc/sudoers.d/beamdrive-mount
 echo "  sudoers rules added: mount /dev/sda1 and chown/chmod /home/pi/data"
 
-echo "[9/9] Quick checks:"
+echo "[9/10] Quick checks:"
 ip -br a | grep -E "\b$MESH_IF\b" || true
 iptables -t nat -S | grep MASQUERADE || true
 systemctl is-active dnsmasq || true
 systemctl is-active chrony || true
 chronyc tracking || true
+
+echo "[10/10] Automated SSH key setup for mesh nodes..."
+SUPERVISOR_HOSTNAME="$(hostname -s)"
+PI_HOME="/home/pi"
+PI_SSH_DIR="$PI_HOME/.ssh"
+sudo -u pi mkdir -p "$PI_SSH_DIR"
+sudo -u pi chmod 700 "$PI_SSH_DIR"
+
+read -rp "Optional: enter node hostnames (space-separated) or press Enter to auto-discover: " NODE_HOSTS_INPUT
+
+if [[ -n "$NODE_HOSTS_INPUT" ]]; then
+  NODE_HOSTS=($NODE_HOSTS_INPUT)
+else
+  NODE_HOSTS=()
+  while read -r _addr _host _rest; do
+    case "$_host" in
+      localhost|localhost.localdomain|ip6-localhost|ip6-loopback|$SUPERVISOR_HOSTNAME) continue ;;
+    esac
+    NODE_HOSTS+=("$_host")
+  done < <(awk 'NF>=2 {print $1, $2}' /etc/hosts)
+fi
+
+if [[ ${#NODE_HOSTS[@]} -eq 0 ]]; then
+  echo "No node hostnames found. Skipping SSH key distribution."
+else
+  for host in "${NODE_HOSTS[@]}"; do
+    if ! getent hosts "$host" >/dev/null 2>&1; then
+      if getent hosts "${host}.local" >/dev/null 2>&1; then
+        host="${host}.local"
+      else
+        echo "Skipping $host (not resolvable)."
+        continue
+      fi
+    fi
+
+    KEY_FILE="$PI_SSH_DIR/id_ed25519_${host//[^A-Za-z0-9_-]/_}"
+    if [[ ! -f "$KEY_FILE" ]]; then
+      sudo -u pi ssh-keygen -t ed25519 -f "$KEY_FILE" -N "" >/dev/null
+    fi
+
+    echo "Copying SSH key to $host..."
+    sudo -u pi ssh-copy-id -i "$KEY_FILE.pub" "pi@$host" || true
+  done
+fi
 
 echo
 echo "DONE. Supervisor is now a mesh gateway."
