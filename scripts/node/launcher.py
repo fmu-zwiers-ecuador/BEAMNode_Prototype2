@@ -156,7 +156,7 @@ def start_low_power_monitor_async():
 
 def motion_capture_enabled():
     """Return whether launcher should own motion capture processes."""
-    return config.get("motion_capture", {}).get("enabled", True)
+    return config.get("motion_capture", {}).get("enabled")
 
 def start_motion_trigger_async():
     """Starts motion trigger on startup (Asynchronous)."""
@@ -165,7 +165,7 @@ def start_motion_trigger_async():
         return None
 
     cam_config = config["camera"]
-    enabled = cam_config.get("enabled", False)
+    enabled = cam_config.get("enabled")
 
     if not enabled:
         log("Motion trigger disabled because camera.enabled is false in config.json")
@@ -231,7 +231,7 @@ def start_motion_merge_worker_async():
         log("Motion merge worker disabled because motion_capture.enabled is false in config.json")
         return None
 
-    enabled = motion_config.get("merge_worker_enabled", True)
+    enabled = motion_config.get("merge_worker_enabled")
     queue_dir = os.path.join(
         config.get("global", {}).get("base_dir", DATA_DIR),
         motion_config.get("directory", "motion_events"),
