@@ -300,20 +300,29 @@ def detect_anemometer():
     try:
         ports = serial.tools.list_ports.comports()
         detected = False
+        other_usb_present = False
         for port in ports:
-            if "USB" in port.device or "ACM" in port.device:
+            device = port.device
+            if device == "/dev/ttyUSB1":
                 try:
-                    ser = serial.Serial(port.device, 9600, timeout=1)
+                    ser = serial.Serial(device, 9600, timeout=1)
                     ser.close()
-                    print(f"Arduino/Anemometer detected on {port.device}")
+                    print(f"Arduino/Anemometer detected on {device}")
                     set_config_flag(CONFIG_PATH, "anemometer", "enabled", True)
                     detected = True
-                    break
                 except Exception:
-                    continue
-        if not detected:
+                    detected = False
+            elif device.startswith("/dev/ttyUSB") or device.startswith("/dev/ttyACM"):
+                other_usb_present = True
+
+        if detected and not other_usb_present:
+            return
+
+        if other_usb_present and not detected:
+            print("Arduino/Anemometer not detected: other USB/ACM ports present and /dev/ttyUSB1 not detected")
+        else:
             print("Arduino/Anemometer not detected")
-            set_config_flag(CONFIG_PATH, "anemometer", "enabled", False)
+        set_config_flag(CONFIG_PATH, "anemometer", "enabled", False)
     except Exception as e:
         print(f"Anemometer detection failed: {e}")
         set_config_flag(CONFIG_PATH, "anemometer", "enabled", False)
