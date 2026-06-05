@@ -12,7 +12,7 @@ import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-EASTERN_TZ = ZoneInfo("Etc/UTC")
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 # --- CONFIGURATION ---
 NODE_DIR = "/home/pi/BEAMNode_Prototype2/scripts/node"
@@ -47,8 +47,12 @@ _MOTION_LOG_HANDLE = None
 _MOTION_MERGE_LOG_HANDLE = None
 _LOW_POWER_LOG_HANDLE = None
 
-with open(CONFIG_PATH, "r") as f:
-    config = json.load(f)
+# config is intentionally NOT loaded here at module level.
+# It is loaded in two stages inside __main__:
+#   Stage 1 (pre-detect): minimal load for lora_enabled / network check
+#   Stage 2 (post-detect): full load after detect.py has written sensor results
+config = {}
+
 
 def ensure_log_file(path):
     """Create log file and parent directories if missing."""
@@ -318,19 +322,29 @@ def move_data_to_shipping():
     except Exception as e:
         log(f"ERROR ensuring data dir exists: {e}")
 
+
 if __name__ == "__main__":
     log("=== BEAMNode System Startup ===")
-    # wait for network - 10.42.0.30 connection to supervisor
-    # only if LoRA not enabled, otherwise LoRA will be used for time sync and data transfer
-    global_config = config["global"]
 
+    # --- STAGE 1: Minimal pre-detect config load ---
+    # Only used for lora_enabled / network check.
+    # detect.py has NOT run yet, so we do not trust sensor fields here.
+    try:
+        with open(CONFIG_PATH, "r") as f:
+            _pre_config = json.load(f)
+    except Exception as e:
+        log(f"CRITICAL ERROR: Could not read {CONFIG_PATH}: {e}")
+        sys.exit(1)
+
+    global_config = _pre_config["global"]
     lora_enabled = global_config.get("lora_enabled")
 
+    # Wait for network or run LoRa time sync
     if not lora_enabled:
         start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log(f"Startup time: {start}")
         log("Waiting for network connection to supervisor... (5 minutes max)")
-        while True and (datetime.now() - datetime.strptime(start, "%Y-%m-%d %H:%M:%S")).seconds < 360:  # Only wait for the first 30 seconds of startup
+        while True and (datetime.now() - datetime.strptime(start, "%Y-%m-%d %H:%M:%S")).seconds < 360:
             try:
                 result = subprocess.run(
                     ["ping", "-c", "1", "-W", "1", "10.42.0.30"],
@@ -348,33 +362,41 @@ if __name__ == "__main__":
         log("LoRa is enabled. Skipping network connection check and proceeding to time sync.")
         run_lora_time_request()
 
-
     log("Daily data move scheduled for 18:00 Eastern")
 
-    # 1. REQUIREMENT: Run detect.py once on startup (log output)
+    # --- 1. REQUIREMENT: Run detect.py once on startup (synchronous) ---
     if os.path.exists(DETECT_PATH):
-        log(f"Executing: {DETECT_PATH}")
-        ensure_log_file(DETECT_LOG_PATH)
-        with open(DETECT_LOG_PATH, "a") as detect_log:
-            subprocess.run(["python3", DETECT_PATH], stdout=detect_log, stderr=detect_log)
+        run_script_sync(DETECT_PATH)
     else:
         log(f"ERROR: File not found at {DETECT_PATH}")
 
-    # 1b. REQUIREMENT: Start motion services on startup
+    # --- STAGE 2: Full config load AFTER detect.py has finished ---
+    # detect.py may have updated sensor fields in config.json; reload now so
+    # all downstream functions see the correct, post-detection values.
+    log(f"Loading config from {CONFIG_PATH} (post-detect)...")
+    try:
+        with open(CONFIG_PATH, "r") as f:
+            config = json.load(f)
+        log("Config loaded successfully.")
+    except Exception as e:
+        log(f"CRITICAL ERROR: Could not read {CONFIG_PATH} after detect.py: {e}")
+        sys.exit(1)
+
+    # --- 1b. REQUIREMENT: Start motion services on startup ---
     warn_if_motion_services_active()
     warn_if_legacy_low_power_services_active()
     merge_proc = start_motion_merge_worker_async()
     motion_proc = start_motion_trigger_async()
     low_power_proc = start_low_power_monitor_async()
 
-    # 2. REQUIREMENT: Start original scheduler and keep it going
+    # --- 2. REQUIREMENT: Start original scheduler and keep it going ---
     sched_proc = start_scheduler_async()
 
     if sched_proc is None:
         log("Failed to initialize scheduler. System exiting.")
         sys.exit(1)
 
-    # 3. MONITORING LOOP
+    # --- 3. MONITORING LOOP ---
     log("Entering master monitoring loop...")
     last_data_move_date = None
     while True:
@@ -415,21 +437,7 @@ if __name__ == "__main__":
                 else:
                     log_shipping(f"Shipping failed (exit code {result_code})")
                 log("Shipping complete. Resuming monitor.")
-                time.sleep(31) # Avoid double-triggering within the same minute
-
-            # C. REQUIREMENT: Move /home/pi/data -> /home/pi/shipping at 18:00 Eastern (disabled when LoRa is enabled)
-            if (
-                (not lora_enabled)
-                and now.hour == 18
-                and now.minute == 0
-                and 0 <= now.second <= 30
-                and last_data_move_date != now.date()
-            ):
-                log("18:00 Eastern reached. Moving /home/pi/data to /home/pi/shipping...")
-                move_data_to_shipping()
-                last_data_move_date = now.date()
-                log("Data move complete. Resuming monitor.")
-                time.sleep(31) # Avoid double-triggering within the same minute
+                time.sleep(31)  # Avoid double-triggering within the same minute
 
             # Sleep to keep CPU usage minimal
             time.sleep(10)
