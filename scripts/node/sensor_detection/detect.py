@@ -105,7 +105,6 @@ def read_chip_ID(spi, reg, cs_pin):
     return response
 
 def detect_spi_sensor():
-    set_config_flag(CONFIG_PATH, "bme280", "enabled", False)
     spi = None
     try:
         spi = spi_init(CS_PIN_BME)
@@ -123,10 +122,12 @@ def detect_spi_sensor():
         else:
             print(f"SPI Sensor: Unknown or not found (ID 0x{chip:02X})")
             spi_logger.warning(f"Unexpected SPI chip ID 0x{chip:02X}")
+            set_config_flag(CONFIG_PATH, "bme280", "enabled", False)
             return None
     except Exception as e:
         print("SPI Sensor detection failed")
         spi_logger.exception("SPI detection failed")
+        set_config_flag(CONFIG_PATH, "bme280", "enabled", False)
         return None
     finally:
         if spi is not None:
@@ -137,10 +138,6 @@ def detect_spi_sensor():
 # ---------------- Camera (IMX219) ---------------- #
 
 def detect_camera():
-    set_config_flag(CONFIG_PATH, "motion_capture", "enabled", False)
-    set_config_flag(CONFIG_PATH, "camera", "enabled", False)
-    set_config_flag(CONFIG_PATH, "camera", "model", None)
-
     try:
         with open(CONFIG_PATH, "r") as f:
             cfg = json.load(f)
@@ -194,6 +191,9 @@ def detect_camera():
 
         if selected_camera is None:
             print("Camera Not Found: picamera2 reported no available cameras")
+            set_config_flag(CONFIG_PATH, "motion_capture", "enabled", False)
+            set_config_flag(CONFIG_PATH, "camera", "enabled", False)
+            set_config_flag(CONFIG_PATH, "camera", "model", None)
             return False
 
         model = _extract_camera_model(selected_camera)
@@ -230,6 +230,9 @@ def detect_camera():
         print(f"Camera Not Found: {e}")
         spi_logger.warning(f"Camera detection failed: {e}")
     print("Camera Not Found")
+    set_config_flag(CONFIG_PATH, "motion_capture", "enabled", False)
+    set_config_flag(CONFIG_PATH, "camera", "enabled", False)
+    set_config_flag(CONFIG_PATH, "camera", "model", None)
     return False
 
 # ---------------- I2C Sensors ---------------- #
@@ -291,7 +294,6 @@ def detect_i2c_sensors():
 # ---------------- AudioMoth USB ---------------- #
 
 def detect_audiomoth():
-    set_config_flag(CONFIG_PATH, "motion_audio", "enabled", False)
     try:
         result = subprocess.run(["lsusb"], capture_output=True, text=True, check=True)
         for line in result.stdout.splitlines():
@@ -469,12 +471,14 @@ def detect_air_quality():
     air_cfg = _load_air_quality_cfg()
     interface = str(air_cfg.get("interface", "i2c")).strip().lower()
 
-    set_config_flag(CONFIG_PATH, "air_quality", "enabled", False)
-
     if interface == "i2c":
-        return _detect_air_quality_i2c(air_cfg)
+        detected = _detect_air_quality_i2c(air_cfg)
+        if not detected:
+            set_config_flag(CONFIG_PATH, "air_quality", "enabled", False)
+        return detected
 
     print(f"Air Quality detection skipped (unsupported interface '{interface}')")
+    set_config_flag(CONFIG_PATH, "air_quality", "enabled", False)
     return False
 
 # ---------------- Ultrasonic (HC-SR04) ---------------- #
@@ -483,7 +487,6 @@ TRIG_PIN = 20
 ECHO_PIN = 21
 
 def detect_ultrasonic():
-    set_config_flag(CONFIG_PATH, "ultrasonic", "enabled", False)
     try:
         GPIO.setwarnings(False)
         GPIO.setmode(GPIO.BCM)
@@ -522,11 +525,13 @@ def detect_ultrasonic():
         else:
             print("Ultrasonic Sensor Not Found")
             spi_logger.info("HC-SR04 not detected")
+            set_config_flag(CONFIG_PATH, "ultrasonic", "enabled", False)
 
         return detected
     except Exception as e:
         print(f"Ultrasonic Sensor detection failed: {e}")
         spi_logger.exception("Ultrasonic detection failed")
+        set_config_flag(CONFIG_PATH, "ultrasonic", "enabled", False)
         return False
     finally:
         GPIO.cleanup()
