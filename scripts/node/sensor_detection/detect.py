@@ -539,6 +539,22 @@ def detect_ultrasonic():
 
 # ---------------- Main ---------------- #
 
+# set last modified by in config
+try:
+    with open(CONFIG_PATH, "r") as f:
+        cfg = json.load(f)
+    if "global" not in cfg or not isinstance(cfg["global"], dict):
+        cfg["global"] = {}
+    cfg["global"]["last_modified_by"] = "detect.py"
+    tmp_path = f"{CONFIG_PATH}.tmp"
+    with open(tmp_path, "w") as f:
+        json.dump(cfg, f, indent=4)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, CONFIG_PATH)
+except Exception as e:
+    print(f"Warning: could not update config.json with last_modified_by: {e}")
+
 print("=== Sensor Detection Summary ===")
 detect_spi_sensor()
 detect_air_quality()

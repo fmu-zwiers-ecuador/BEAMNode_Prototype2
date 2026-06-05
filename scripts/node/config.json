@@ -6,7 +6,8 @@
     "base_dir": "/home/pi/data",
     "ship_dir": "/home/pi/shipping",
     "timezone": "America/New_York",
-    "print_debug": true
+    "print_debug": true,
+    "last_modified_by": "unknown"
   },
   "tsl2591": {
     "enabled": false,
