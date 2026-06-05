@@ -354,14 +354,7 @@ if __name__ == "__main__":
     # 1. REQUIREMENT: Run detect.py once on startup (log output)
     if os.path.exists(DETECT_PATH):
         log(f"Executing: {DETECT_PATH}")
-        ensure_log_file(DETECT_LOG_PATH)
-        with open(DETECT_LOG_PATH, "a") as detect_log:
-            subprocess.run(
-                ["/usr/bin/python3", DETECT_PATH],
-                stdout=detect_log,
-                stderr=detect_log,
-                cwd=NODE_DIR,
-            )
+        run_script_sync(DETECT_PATH)
 
     else:
         log(f"ERROR: File not found at {DETECT_PATH}")
