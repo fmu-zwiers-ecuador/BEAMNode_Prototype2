@@ -340,6 +340,13 @@ if __name__ == "__main__":
     except Exception as e:
         log(f"CRITICAL ERROR: Could not read {CONFIG_PATH} after detect.py: {e}")
         sys.exit(1)
+    
+    log("Current configuration:")
+    #
+    for section, keys in config.items():
+        log(f"  {section}:")
+        for key, value in keys.items():
+            log(f"    {key}: {value}")
 
     global_config = config["global"]
     lora_enabled = global_config.get("lora_enabled")
@@ -369,11 +376,6 @@ if __name__ == "__main__":
 
     log("Daily data move scheduled for 18:00 Eastern")
 
-    print("Current configuration:")
-    for section, keys in config.items():
-        print(f"  {section}:")
-        for key, value in keys.items():
-            print(f"    {key}: {value}")
     # --- 1b. REQUIREMENT: Start motion services on startup ---
     warn_if_motion_services_active()
     warn_if_legacy_low_power_services_active()
