@@ -33,8 +33,11 @@ SENSOR_CONFIG_PATH = Path(
     "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
 )
 
-# Base directory for log output
+# Base directory for event log output
 LOG_DIR = Path("/home/pi/logs")
+
+# Base directory for collected voltage samples
+DATA_DIR = Path("/home/pi/data")
 
 
 @dataclass
@@ -323,7 +326,7 @@ def log_event(
 
 def log_voltage_sample(timestamp: str, mode: str, voltage: float, cfg: LpmConfig):
     """Append one voltage sample as JSON-lines for easy tailing."""
-    log_path = LOG_DIR / cfg.log_dir / cfg.voltage_log_file
+    log_path = DATA_DIR / cfg.log_dir / cfg.voltage_log_file
     entry = {
         "timestamp": timestamp,
         "mode": mode,

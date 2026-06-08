@@ -106,30 +106,68 @@ def read_vedirect_voltage(port: str, baud: int, timeout: int) -> float | None:
         "4": "Absorption", "5": "Float", "7": "Equalize",
         "245": "Starting", "247": "Auto equalize", "252": "External control"
     }
+
+    REQUIRED_FIELDS = {"V"}
+    MAX_SYNC_LINES = 40
+    MAX_FRAME_LINES = 40
+    MAX_FRAMES_TO_TRY = 3
+
+    def read_label_value(ser: serial.Serial) -> tuple[str, str] | None:
+        raw = ser.readline()
+        if not raw:
+            return None
+
+        try:
+            line = raw.decode("ascii", errors="ignore").strip()
+        except Exception:
+            return None
+
+        if "\t" not in line:
+            return None
+
+        label, _, value = line.partition("\t")
+        return label.strip(), value.strip()
+
     try:
         with serial.Serial(port, baud, timeout=timeout) as ser:
-            frame = {}
-            # Read lines until we get a complete frame (ends at Checksum line)
-            # Give up after reading 40 lines to avoid hanging
-            for _ in range(40):
-                raw = ser.readline()
-                if not raw:
+            # The serial stream may open in the middle of a frame. First wait
+            # for the next Checksum line, then start reading the following
+            # frame from its beginning.
+            synced = False
+            for _ in range(MAX_SYNC_LINES):
+                parsed = read_label_value(ser)
+                if parsed is None:
                     continue
-                try:
-                    line = raw.decode("ascii", errors="ignore").strip()
-                except Exception:
-                    continue
-
-                if "\t" not in line:
-                    continue
-
-                label, _, value = line.partition("\t")
-                label = label.strip()
-                value = value.strip()
-
+                label, _ = parsed
                 if label == "Checksum":
-                    # End of frame — check if we captured voltage
-                    if "V" in frame:
+                    synced = True
+                    break
+
+            if not synced:
+                log.error("Could not find VE.Direct frame boundary before timeout.")
+                return None
+
+            for _ in range(MAX_FRAMES_TO_TRY):
+                frame = {}
+                frame_finished = False
+
+                for _ in range(MAX_FRAME_LINES):
+                    parsed = read_label_value(ser)
+                    if parsed is None:
+                        continue
+
+                    label, value = parsed
+
+                    if label == "Checksum":
+                        frame_finished = True
+                        missing = REQUIRED_FIELDS - frame.keys()
+                        if missing:
+                            log.warning(
+                                "Incomplete VE.Direct frame missing: "
+                                f"{', '.join(sorted(missing))}"
+                            )
+                            break
+
                         volts = int(frame["V"]) / 1000.0
 
                         soc = int(frame.get("SOC", -1)) / 10.0
@@ -142,11 +180,11 @@ def read_vedirect_voltage(port: str, baud: int, timeout: int) -> float | None:
                             log.info(f"Battery: {volts:.3f} V | SOC unavailable | State: {cs_name}")
 
                         return volts
-                    else:
-                        # Frame complete but no voltage key — reset and keep reading
-                        frame = {}
-                else:
+
                     frame[label] = value
+
+                if not frame_finished:
+                    log.warning("Timed out before a complete VE.Direct frame was read.")
 
     except serial.SerialException as e:
         log.error(f"Serial error on {port}: {e}")
@@ -251,12 +289,12 @@ def main():
     POLL_INTERVAL          = _lpm["poll_interval"]
     MAX_PARSE_FAILURES     = _lpm["max_parse_failures"]
 
-    # Build JSON log path from config: /home/pi/logs/<directory>/<file_name>
+    # Build event log and voltage data paths from config.
     log_dir  = _lpm.get("directory", "low_power_mode")
     log_file = _lpm.get("file_name",  "low_power_log.json")
     voltage_log_file = _lpm.get("voltage_log_file", "voltage_log.jsonl")
     JSON_LOG_PATH = os.path.join("/home/pi/logs", log_dir, log_file)
-    VOLTAGE_LOG_PATH = os.path.join("/home/pi/logs", log_dir, voltage_log_file)
+    VOLTAGE_LOG_PATH = os.path.join("/home/pi/data", log_dir, voltage_log_file)
 
     log.info("═" * 50)
     log.info("Low Power Mode Manager started")
