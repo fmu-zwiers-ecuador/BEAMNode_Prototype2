@@ -36,6 +36,9 @@ SENSOR_CONFIG_PATH = Path(
 # Base directory for event log output
 LOG_DIR = Path("/home/pi/logs")
 
+# Base directory for collected voltage data
+DATA_DIR = Path("/home/pi/data")
+
 @dataclass
 class LpmConfig:
     """Runtime settings loaded from the lpm_pvpi config section."""
@@ -49,6 +52,7 @@ class LpmConfig:
     voltage_good:     float = 12.8
     log_dir:          str   = "lpm_pvpi"
     log_file:         str   = "lpm.json"     # read from config "file_name"
+    voltage_log_file: str   = "voltage_log.jsonl"
 
 
 def load_lpm_config(path: Path) -> LpmConfig:
@@ -87,6 +91,7 @@ def load_lpm_config(path: Path) -> LpmConfig:
         voltage_good     = section.get("voltage_good",     defaults.voltage_good),
         log_dir          = section.get("directory",        defaults.log_dir),
         log_file         = section.get("file_name",        defaults.log_file),
+        voltage_log_file = section.get("voltage_log_file", defaults.voltage_log_file),
     )
 
 
@@ -318,6 +323,24 @@ def log_event(
         logger.error("Failed to write log file: %s", exc)
 
 
+def log_voltage_sample(timestamp: str, mode: str, voltage: float, cfg: LpmConfig):
+    """Append one voltage sample as JSON-lines data."""
+    log_path = DATA_DIR / cfg.log_dir / cfg.voltage_log_file
+    entry = {
+        "timestamp": timestamp,
+        "mode": mode,
+        "voltage_v": round(voltage, 3) if voltage >= 0 else None,
+        "status": voltage_label(voltage, cfg),
+    }
+
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a") as logfile:
+            logfile.write(json.dumps(entry) + "\n")
+    except Exception as exc:
+        logger.error("Failed to write voltage data file: %s", exc)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Actions
 # ─────────────────────────────────────────────────────────────────────────────
@@ -434,6 +457,8 @@ def run_once(args, cfg: LpmConfig, ser: serial.Serial):
         mode = "STATUS"
     else:
         mode = "LOW POWER CHECK"
+
+    log_voltage_sample(timestamp, mode, voltage, cfg)
 
     if voltage < 0 and not args.status:
         print("")

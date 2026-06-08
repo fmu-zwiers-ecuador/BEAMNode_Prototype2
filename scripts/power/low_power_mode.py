@@ -23,7 +23,7 @@ CONFIG_PATH = "/home/pi/BEAMNode_Prototype2/scripts/node/config.json"
 SERIAL_PORT = BAUD_RATE = SERIAL_TIMEOUT = None
 LOW_VOLTAGE_THRESHOLD = HIGH_VOLTAGE_THRESHOLD = None
 POLL_INTERVAL = MAX_PARSE_FAILURES = None
-JSON_LOG_PATH = None
+JSON_LOG_PATH = VOLTAGE_LOG_PATH = None
 
 # ─── Logging Setup ────────────────────────────────────────────────────────────
 
@@ -76,6 +76,18 @@ def append_json_record(path: str, status: str, voltage: float | None) -> None:
 
     with open(path, "w") as f:
         json.dump(records, f, indent=4)
+
+def append_voltage_sample(path: str, status: str, voltage: float | None) -> None:
+    """Append one voltage sample as JSON-lines data."""
+    record = {
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "status": status,
+        "voltage_v": round(voltage, 3) if voltage is not None else None,
+    }
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a") as f:
+        f.write(json.dumps(record) + "\n")
 
 # ─── VE.Direct Raw Parser ─────────────────────────────────────────────────────
 
@@ -261,7 +273,7 @@ def main():
     global SERIAL_PORT, BAUD_RATE, SERIAL_TIMEOUT
     global LOW_VOLTAGE_THRESHOLD, HIGH_VOLTAGE_THRESHOLD
     global POLL_INTERVAL, MAX_PARSE_FAILURES
-    global JSON_LOG_PATH
+    global JSON_LOG_PATH, VOLTAGE_LOG_PATH
 
     if not os.path.exists(CONFIG_PATH):
         log.error(f"config.json not found at: {os.path.abspath(CONFIG_PATH)}")
@@ -277,16 +289,19 @@ def main():
     POLL_INTERVAL          = _lpm["poll_interval"]
     MAX_PARSE_FAILURES     = _lpm["max_parse_failures"]
 
-    # Build event log path from config.
+    # Build event log and voltage data paths from config.
     log_dir  = _lpm.get("directory", "low_power_mode")
     log_file = _lpm.get("file_name",  "low_power_log.json")
+    voltage_log_file = _lpm.get("voltage_log_file", "voltage_log.jsonl")
     JSON_LOG_PATH = os.path.join("/home/pi/logs", log_dir, log_file)
+    VOLTAGE_LOG_PATH = os.path.join("/home/pi/data", log_dir, voltage_log_file)
 
     log.info("═" * 50)
     log.info("Low Power Mode Manager started")
     log.info(f"  Serial port : {SERIAL_PORT} @ {BAUD_RATE} baud")
     log.info(f"  Config file : {CONFIG_PATH}")
     log.info(f"  JSON log    : {JSON_LOG_PATH}")
+    log.info(f"  Voltage data: {VOLTAGE_LOG_PATH}")
     log.info(f"  OFF below   : {LOW_VOLTAGE_THRESHOLD} V")
     log.info(f"  ON above    : {HIGH_VOLTAGE_THRESHOLD} V")
     log.info(f"  Poll every  : {POLL_INTERVAL}s")
@@ -304,6 +319,7 @@ def main():
 
         if voltage is None:
             consecutive_failures += 1
+            append_voltage_sample(VOLTAGE_LOG_PATH, "read_failure", None)
             log.warning(
                 f"Could not read voltage from {SERIAL_PORT} "
                 f"(failure {consecutive_failures}/{MAX_PARSE_FAILURES})"
@@ -330,6 +346,7 @@ def main():
         # This prevents rapid toggling when voltage sits near a threshold.
 
         if voltage <= LOW_VOLTAGE_THRESHOLD and low_power_active is not True:
+            append_voltage_sample(VOLTAGE_LOG_PATH, "low_power_activated", voltage)
             log.warning(
                 f"Voltage {voltage:.3f} V ≤ {LOW_VOLTAGE_THRESHOLD} V "
                 f"— entering LOW POWER MODE"
@@ -339,6 +356,7 @@ def main():
             low_power_active = True
 
         elif voltage >= HIGH_VOLTAGE_THRESHOLD and low_power_active is not False:
+            append_voltage_sample(VOLTAGE_LOG_PATH, "sensors_restored", voltage)
             log.info(
                 f"Voltage {voltage:.3f} V ≥ {HIGH_VOLTAGE_THRESHOLD} V "
                 f"— exiting low power mode, RESTORING SENSORS"
@@ -350,6 +368,7 @@ def main():
         else:
             # Voltage is in the middle band — hold current state
             state_str = "low_power" if low_power_active else "normal"
+            append_voltage_sample(VOLTAGE_LOG_PATH, f"hold_{state_str}", voltage)
             log.info(f"Voltage in hold band — maintaining {state_str} state.")
             append_json_record(JSON_LOG_PATH, f"hold_{state_str}", voltage)
 
