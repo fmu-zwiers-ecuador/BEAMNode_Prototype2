@@ -240,10 +240,11 @@ log "START: backing up $SHIP_DIR to $DEST_DIR"
 rsync -a --ignore-existing "$SHIP_DIR"/ "$DEST_DIR"/ >> "$LOG_FILE" 2>&1
 log "DONE: backup complete"
 """
-    cmd = ["ssh"] + SSH_OPTS + [f"pi@{full_hostname}", "bash -lc " + json.dumps(remote_script)]
+    cmd = ["ssh"] + SSH_OPTS + [f"pi@{full_hostname}", "bash", "-s"]
     return run_cmd(
         cmd,
         f"{full_hostname}: USB backup before transfer",
+        input=remote_script,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         text=True
