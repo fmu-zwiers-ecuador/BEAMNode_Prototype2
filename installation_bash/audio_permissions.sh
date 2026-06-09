@@ -6,7 +6,7 @@
 set -e
  
 # --- Config ---
-BEAM_USER="${pi}"
+BEAM_USER="pi"  # change if your BEAM user is different
 BEAM_DIR="/home/$BEAM_USER/BEAMNode_Prototype2"
 DATA_DIR="$BEAM_DIR/data"
  

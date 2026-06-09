@@ -592,6 +592,10 @@ echo
 
 fi
 
+# Set up audio permissions
+echo "[1/1] Setting up audio permissions..."
+sudo bash audio_permissions.sh
+
 
 # ======================================
 # === PART 4: Autostart installation ===
