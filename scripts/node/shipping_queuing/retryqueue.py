@@ -262,9 +262,10 @@ fi
 
 log "START: backing up $SHIP_DIR to $DEST_DIR"
 copy_as="pi"
-if rsync -a --ignore-existing "$SHIP_DIR"/ "$DEST_DIR"/ >> "$LOG_FILE" 2>&1; then
+RSYNC_OPTS="-rt --ignore-existing --no-owner --no-group --no-perms --omit-dir-times"
+if rsync $RSYNC_OPTS "$SHIP_DIR"/ "$DEST_DIR"/ >> "$LOG_FILE" 2>&1; then
   copy_as="pi"
-elif sudo -n rsync -a --ignore-existing "$SHIP_DIR"/ "$DEST_DIR"/ >> "$LOG_FILE" 2>&1; then
+elif sudo -n rsync $RSYNC_OPTS "$SHIP_DIR"/ "$DEST_DIR"/ >> "$LOG_FILE" 2>&1; then
   copy_as="root"
 else
   log "ERROR: rsync backup failed: $SHIP_DIR -> $DEST_DIR"

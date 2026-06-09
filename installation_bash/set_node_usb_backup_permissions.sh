@@ -48,8 +48,8 @@ $RUN_USER ALL=(root) NOPASSWD: $CHOWN_CMD -R $RUN_USER\\:$RUN_USER $MOUNT_POINT
 $RUN_USER ALL=(root) NOPASSWD: $CHMOD_CMD -R u+rwX $MOUNT_POINT
 $RUN_USER ALL=(root) NOPASSWD: $MKDIR_CMD -p $MOUNT_POINT/shipping_archive/*
 $RUN_USER ALL=(root) NOPASSWD: $MKDIR_CMD -p /media/pi/BEAMdrive/shipping_archive/*
-$RUN_USER ALL=(root) NOPASSWD: $RSYNC_CMD -a --ignore-existing /home/pi/shipping/ $MOUNT_POINT/shipping_archive/*/
-$RUN_USER ALL=(root) NOPASSWD: $RSYNC_CMD -a --ignore-existing /home/pi/shipping/ /media/pi/BEAMdrive/shipping_archive/*/
+$RUN_USER ALL=(root) NOPASSWD: $RSYNC_CMD -rt --ignore-existing --no-owner --no-group --no-perms --omit-dir-times /home/pi/shipping/ $MOUNT_POINT/shipping_archive/*/
+$RUN_USER ALL=(root) NOPASSWD: $RSYNC_CMD -rt --ignore-existing --no-owner --no-group --no-perms --omit-dir-times /home/pi/shipping/ /media/pi/BEAMdrive/shipping_archive/*/
 EOF"
 
 sudo chmod 0440 "$SUDOERS_FILE"
