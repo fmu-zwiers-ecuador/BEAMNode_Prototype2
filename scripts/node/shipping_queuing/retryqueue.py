@@ -31,6 +31,10 @@ NAS_PATH = os.getenv("NAS_PATH") + ":/BEAM_test_data/FEC/"
 NAS_SSH_CMD = "ssh -p 2222"
 MOVE_TO_DRIVE_SCRIPT = "/home/pi/BEAMNode_Prototype2/scripts/node/shipping_queuing/move_supervisor_data_to_beamdrive.sh"
 RUN_USER = "pi"
+NODE_USB_DEVICE = "/dev/sda1"
+NODE_USB_FALLBACK_MOUNT = "/home/pi/usbmnt"
+NODE_USB_DRIVE_NAME = "BEAMdrive"
+NODE_USB_BACKUP_SUBDIR = "shipping_archive"
 
 MAX_RETRIES = 5
 PING_COUNT = 1
@@ -177,6 +181,73 @@ def has_remote_data(full_hostname):
     except Exception as e:
         log(f"{full_hostname}: Exception {e}")
         return False
+
+def backup_remote_shipping_to_usb(full_hostname):
+    """Copies the node shipping folder to that node's USB drive before transfer."""
+    remote_script = f"""
+set -euo pipefail
+
+SHIP_DIR={REMOTE_SHIP_DIR!r}
+USB_DEVICE={NODE_USB_DEVICE!r}
+FALLBACK_MOUNT={NODE_USB_FALLBACK_MOUNT!r}
+DRIVE_NAME={NODE_USB_DRIVE_NAME!r}
+BACKUP_SUBDIR={NODE_USB_BACKUP_SUBDIR!r}
+LOG_FILE=/home/pi/logs/node_usb_backup.log
+
+mkdir -p "$(dirname "$LOG_FILE")"
+
+log() {{
+  printf '[%s] %s\\n' "$(date -Iseconds)" "$*" >> "$LOG_FILE"
+}}
+
+if [ ! -d "$SHIP_DIR" ]; then
+  log "INFO: shipping dir not found: $SHIP_DIR"
+  exit 0
+fi
+
+if ! find "$SHIP_DIR" -mindepth 1 -print -quit | grep -q .; then
+  log "INFO: shipping is empty; nothing to back up"
+  exit 0
+fi
+
+MOUNT_POINT="$(findmnt -rn -S "LABEL=$DRIVE_NAME" -o TARGET 2>/dev/null || true)"
+
+if [ -z "$MOUNT_POINT" ] && mountpoint -q "/media/pi/$DRIVE_NAME"; then
+  MOUNT_POINT="/media/pi/$DRIVE_NAME"
+fi
+
+if [ -z "$MOUNT_POINT" ]; then
+  mkdir -p "$FALLBACK_MOUNT"
+  if sudo -n mount "$USB_DEVICE" "$FALLBACK_MOUNT" 2>>"$LOG_FILE"; then
+    MOUNT_POINT="$FALLBACK_MOUNT"
+  fi
+fi
+
+if [ -z "$MOUNT_POINT" ] || [ ! -d "$MOUNT_POINT" ]; then
+  log "ERROR: USB drive not mounted/found. Expected LABEL=$DRIVE_NAME, /media/pi/$DRIVE_NAME, or $USB_DEVICE mounted at $FALLBACK_MOUNT"
+  exit 1
+fi
+
+sudo -n chown -R pi:pi "$MOUNT_POINT" 2>>"$LOG_FILE" || true
+sudo -n chmod -R u+rwX "$MOUNT_POINT" 2>>"$LOG_FILE" || true
+
+HOST="$(hostname)"
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
+DEST_DIR="$MOUNT_POINT/$BACKUP_SUBDIR/$HOST-$RUN_ID"
+mkdir -p "$DEST_DIR"
+
+log "START: backing up $SHIP_DIR to $DEST_DIR"
+rsync -a --ignore-existing "$SHIP_DIR"/ "$DEST_DIR"/ >> "$LOG_FILE" 2>&1
+log "DONE: backup complete"
+"""
+    cmd = ["ssh"] + SSH_OPTS + [f"pi@{full_hostname}", "bash -lc " + json.dumps(remote_script)]
+    return run_cmd(
+        cmd,
+        f"{full_hostname}: USB backup before transfer",
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True
+    )
 
 def rsync_pull(full_hostname):
     """Pulls data from node to supervisor data root."""
@@ -330,12 +401,28 @@ def main():
 
     # STEP 2: Initial Transfer Attempt
     failed_nodes = []
+    usb_backed_up_nodes = set()
+
+    def ensure_usb_backup(name, full_host):
+        if name in usb_backed_up_nodes:
+            return True
+        if backup_remote_shipping_to_usb(full_host):
+            usb_backed_up_nodes.add(name)
+            return True
+        return False
+
     for name, info in nodes.items():
         if not should_process_node(name):
             continue
         full_host = get_full_host(name, info)
 
         if info["node_state"] == "dead":
+            failed_nodes.append(name)
+            continue
+
+        if not ensure_usb_backup(name, full_host):
+            log(f"{full_host}: USB BACKUP FAILURE - skipping transfer to protect node data")
+            nodes[name]["transfer_fail"] = True
             failed_nodes.append(name)
             continue
 
@@ -365,7 +452,7 @@ def main():
             still_failing = []
             for name in failed_nodes:
                 full_host = get_full_host(name, nodes[name])
-                if ping_node(full_host) and has_remote_data(full_host):
+                if ping_node(full_host) and ensure_usb_backup(name, full_host) and has_remote_data(full_host):
                     if rsync_pull(full_host):
                         log(f"{full_host}: SUCCESS on retry")
                         nodes[name]["transfer_fail"] = False
