@@ -216,6 +216,10 @@ if [ -z "$MOUNT_POINT" ] && mountpoint -q "/media/pi/$DRIVE_NAME"; then
   MOUNT_POINT="/media/pi/$DRIVE_NAME"
 fi
 
+if [ -z "$MOUNT_POINT" ] && mountpoint -q "$FALLBACK_MOUNT"; then
+  MOUNT_POINT="$FALLBACK_MOUNT"
+fi
+
 if [ -z "$MOUNT_POINT" ]; then
   mkdir -p "$FALLBACK_MOUNT"
   RUN_UID="$(id -u pi)"
@@ -232,6 +236,8 @@ if [ -z "$MOUNT_POINT" ] || [ ! -d "$MOUNT_POINT" ]; then
   echo "USB_BACKUP_ERROR reason=usb_not_mounted"
   exit 1
 fi
+
+echo "USB_MOUNT_READY mount=$MOUNT_POINT"
 
 if [ ! -w "$MOUNT_POINT" ] && [ "$MOUNT_POINT" = "$FALLBACK_MOUNT" ]; then
   RUN_UID="$(id -u pi)"
@@ -452,12 +458,14 @@ def main():
     failed_nodes = []
     usb_backed_up_nodes = set()
 
-    def ensure_usb_backup(name, full_host):
+    def try_usb_backup(name, full_host):
         if name in usb_backed_up_nodes:
+            log(f"{full_host}: USB backup already completed this run")
             return True
         if backup_remote_shipping_to_usb(full_host):
             usb_backed_up_nodes.add(name)
             return True
+        log(f"{full_host}: WARNING - USB backup failed; continuing supervisor pull anyway")
         return False
 
     for name, info in nodes.items():
@@ -469,16 +477,12 @@ def main():
             failed_nodes.append(name)
             continue
 
-        if not ensure_usb_backup(name, full_host):
-            log(f"{full_host}: USB BACKUP FAILURE - skipping transfer to protect node data")
-            nodes[name]["transfer_fail"] = True
-            failed_nodes.append(name)
-            continue
-
         if not has_remote_data(full_host):
             log(f"{full_host}: No files found in {REMOTE_SHIP_DIR}/")
             nodes[name]["transfer_fail"] = False
             continue
+
+        try_usb_backup(name, full_host)
 
         log(f"{full_host}: Pulling data...")
         if rsync_pull(full_host):
@@ -501,7 +505,8 @@ def main():
             still_failing = []
             for name in failed_nodes:
                 full_host = get_full_host(name, nodes[name])
-                if ping_node(full_host) and ensure_usb_backup(name, full_host) and has_remote_data(full_host):
+                if ping_node(full_host) and has_remote_data(full_host):
+                    try_usb_backup(name, full_host)
                     if rsync_pull(full_host):
                         log(f"{full_host}: SUCCESS on retry")
                         nodes[name]["transfer_fail"] = False
