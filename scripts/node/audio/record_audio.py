@@ -13,12 +13,14 @@ import json
 import time
 import wave
 import pyaudio
+import fcntl
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import ctypes
 from ctypes.util import find_library
 
 EASTERN_TZ = ZoneInfo("America/New_York")
+AUDIO_LOCK_PATH = "/tmp/beam_audiomoth.lock"
 
 # Suppress ALSA warnings (from PyAudio backend)
 try:
@@ -67,23 +69,45 @@ CHANNELS = audio_config.get("channels", 1)
 FORMAT = pyaudio.paInt16 if audio_config.get("format", "int16") == "int16" else pyaudio.paFloat32
 CHUNK = audio_config.get("chunk", 1024)
 
+lock_fd = os.open(AUDIO_LOCK_PATH, os.O_RDWR | os.O_CREAT, 0o666)
+try:
+    os.chmod(AUDIO_LOCK_PATH, 0o666)
+except OSError:
+    pass
+
+try:
+    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    if global_config.get("print_debug", True):
+        print("[BEAM] AudioMoth is already recording; skipping scheduled audio capture.")
+    os.close(lock_fd)
+    raise SystemExit(0)
+
 # Initialize audio interface
-audio = pyaudio.PyAudio()
-stream = audio.open(format=FORMAT, channels=CHANNELS,
-                    rate=RATE, input=True,
-                    frames_per_buffer=CHUNK)
+audio = None
+stream = None
+try:
+    audio = pyaudio.PyAudio()
+    stream = audio.open(format=FORMAT, channels=CHANNELS,
+                        rate=RATE, input=True,
+                        frames_per_buffer=CHUNK)
 
-if global_config.get("print_debug", True):
-    print(f"[BEAM] Recording {DURATION}s of audio to {wav_filename}")
+    if global_config.get("print_debug", True):
+        print(f"[BEAM] Recording {DURATION}s of audio to {wav_filename}")
 
-frames = []
-for _ in range(0, int(RATE / CHUNK * DURATION)):
-    data = stream.read(CHUNK, exception_on_overflow=False)
-    frames.append(data)
-
-stream.stop_stream()
-stream.close()
-audio.terminate()
+    frames = []
+    for _ in range(0, int(RATE / CHUNK * DURATION)):
+        data = stream.read(CHUNK, exception_on_overflow=False)
+        frames.append(data)
+finally:
+    if stream is not None:
+        if stream.is_active():
+            stream.stop_stream()
+        stream.close()
+    if audio is not None:
+        audio.terminate()
+    fcntl.flock(lock_fd, fcntl.LOCK_UN)
+    os.close(lock_fd)
 
 # Save .wav file
 with wave.open(wav_filename, 'wb') as wf:

@@ -20,6 +20,8 @@ Folder layout:
 
 import json
 import math
+import os
+import fcntl
 import subprocess
 import time
 from datetime import datetime
@@ -46,6 +48,7 @@ LUX_LOG_PATH = Path("/home/pi/data/tsl2591/lux_data.json")
 DEFAULT_DATA_DIR = Path("/home/pi/data")
 LOG_DIR = Path("/home/pi/logs")
 VIDEO_PROCESSING_LOG_PATH = LOG_DIR / "motion_video_processing.log"
+AUDIO_LOCK_PATH = Path("/tmp/beam_audiomoth.lock")
 
 MOTION_AUDIO_PREFIX = "motionaudio_"
 FINAL_VIDEO_PREFIX  = "motionvid_audio_"
@@ -173,6 +176,18 @@ def start_motion_audio_recording(config, audio_output, duration_sec, metadata_ou
     audio_output = Path(audio_output)
     audio_output.parent.mkdir(parents=True, exist_ok=True)
 
+    lock_fd = os.open(AUDIO_LOCK_PATH, os.O_RDWR | os.O_CREAT, 0o666)
+    try:
+        os.chmod(AUDIO_LOCK_PATH, 0o666)
+    except OSError:
+        pass
+
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(lock_fd)
+        raise RuntimeError("AudioMoth is already recording; skipping motion audio")
+
     cmd = [
         "arecord",
         "-D", settings["alsa_device"],
@@ -184,7 +199,13 @@ def start_motion_audio_recording(config, audio_output, duration_sec, metadata_ou
     ]
     logger.info("Starting live audio recording before video: %s", audio_output)
     logger.info("Running command: %s", " ".join(cmd))
-    proc = subprocess.Popen(cmd)
+    try:
+        proc = subprocess.Popen(cmd)
+    except Exception:
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        os.close(lock_fd)
+        raise
+
     start_epoch = time.time()
     start_monotonic = time.monotonic()
     write_audio_metadata(metadata_output, {
@@ -193,7 +214,7 @@ def start_motion_audio_recording(config, audio_output, duration_sec, metadata_ou
         "output": str(audio_output),
         "command": cmd,
     })
-    return proc, start_epoch, start_monotonic
+    return proc, start_epoch, start_monotonic, lock_fd
 
 
 def finish_motion_audio_recording(
@@ -203,17 +224,22 @@ def finish_motion_audio_recording(
     start_epoch,
     start_monotonic,
     timeout_sec,
+    lock_fd,
 ):
     try:
-        result = proc.wait(timeout=timeout_sec)
-    except subprocess.TimeoutExpired:
-        logger.warning("Audio recording timed out; terminating arecord")
-        proc.terminate()
         try:
-            result = proc.wait(timeout=5)
+            result = proc.wait(timeout=timeout_sec)
         except subprocess.TimeoutExpired:
-            proc.kill()
-            result = proc.wait()
+            logger.warning("Audio recording timed out; terminating arecord")
+            proc.terminate()
+            try:
+                result = proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                result = proc.wait()
+    finally:
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        os.close(lock_fd)
 
     elapsed = time.monotonic() - start_monotonic
     end_epoch = time.time()
@@ -438,7 +464,7 @@ def handle_motion(config, camera_capture):
     )
 
     try:
-        audio_proc, audio_start_epoch, audio_start_monotonic = start_motion_audio_recording(
+        audio_proc, audio_start_epoch, audio_start_monotonic, audio_lock_fd = start_motion_audio_recording(
             config,
             motion_audio_file,
             audio_duration,
@@ -449,6 +475,7 @@ def handle_motion(config, camera_capture):
         audio_proc = None
         audio_start_epoch = None
         audio_start_monotonic = None
+        audio_lock_fd = None
 
     if audio_start_epoch is not None:
         start_at_epoch = audio_start_epoch + target_audio_preroll_sec
@@ -496,6 +523,7 @@ def handle_motion(config, camera_capture):
             audio_start_epoch,
             audio_start_monotonic,
             audio_duration + 5,
+            audio_lock_fd,
         )
     else:
         audio_ready = False
