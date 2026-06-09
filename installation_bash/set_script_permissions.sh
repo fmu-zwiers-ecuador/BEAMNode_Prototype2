@@ -52,6 +52,7 @@ make_executable "$PROJECT_ROOT/installation_bash/set_retryservice.sh"
 make_executable "$PROJECT_ROOT/installation_bash/set_internetservice.sh"
 make_executable "$PROJECT_ROOT/installation_bash/wlan0.sh"
 make_executable "$PROJECT_ROOT/installation_bash/set_script_permissions.sh"
+make_executable "$PROJECT_ROOT/installation_bash/set_node_usb_backup_permissions.sh"
 
 echo
 echo "[3/4] Setting retry queue and shipping script permissions..."
