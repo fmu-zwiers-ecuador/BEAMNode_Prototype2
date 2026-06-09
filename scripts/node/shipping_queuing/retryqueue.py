@@ -218,7 +218,11 @@ fi
 
 if [ -z "$MOUNT_POINT" ]; then
   mkdir -p "$FALLBACK_MOUNT"
-  if sudo -n mount "$USB_DEVICE" "$FALLBACK_MOUNT" 2>>"$LOG_FILE"; then
+  RUN_UID="$(id -u pi)"
+  RUN_GID="$(id -g pi)"
+  if sudo -n mount -o "uid=$RUN_UID,gid=$RUN_GID,umask=0002" "$USB_DEVICE" "$FALLBACK_MOUNT" 2>>"$LOG_FILE"; then
+    MOUNT_POINT="$FALLBACK_MOUNT"
+  elif sudo -n mount "$USB_DEVICE" "$FALLBACK_MOUNT" 2>>"$LOG_FILE"; then
     MOUNT_POINT="$FALLBACK_MOUNT"
   fi
 fi
@@ -231,10 +235,20 @@ fi
 sudo -n chown -R pi:pi "$MOUNT_POINT" 2>>"$LOG_FILE" || true
 sudo -n chmod -R u+rwX "$MOUNT_POINT" 2>>"$LOG_FILE" || true
 
+if [ ! -w "$MOUNT_POINT" ] && [ "$MOUNT_POINT" = "$FALLBACK_MOUNT" ]; then
+  RUN_UID="$(id -u pi)"
+  RUN_GID="$(id -g pi)"
+  sudo -n mount -o "remount,uid=$RUN_UID,gid=$RUN_GID,umask=0002" "$MOUNT_POINT" 2>>"$LOG_FILE" || true
+fi
+
 HOST="$(hostname)"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 DEST_DIR="$MOUNT_POINT/$BACKUP_SUBDIR/$HOST-$RUN_ID"
-mkdir -p "$DEST_DIR"
+
+if ! mkdir -p "$DEST_DIR" 2>>"$LOG_FILE"; then
+  log "ERROR: cannot create USB backup directory: $DEST_DIR"
+  exit 1
+fi
 
 log "START: backing up $SHIP_DIR to $DEST_DIR"
 rsync -a --ignore-existing "$SHIP_DIR"/ "$DEST_DIR"/ >> "$LOG_FILE" 2>&1

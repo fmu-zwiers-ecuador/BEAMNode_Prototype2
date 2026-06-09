@@ -8,6 +8,8 @@ RUN_USER="${SUDO_USER:-pi}"
 if ! id "$RUN_USER" >/dev/null 2>&1; then
   RUN_USER="pi"
 fi
+RUN_UID="$(id -u "$RUN_USER")"
+RUN_GID="$(id -g "$RUN_USER")"
 
 MOUNT_POINT="/home/pi/usbmnt"
 USB_DEVICE="/dev/sda1"
@@ -19,6 +21,8 @@ CHMOD_CMD="$(command -v chmod)"
 
 echo "=== BEAMNode Node USB Backup Permission Setup ==="
 echo "Runtime user: $RUN_USER"
+echo "Runtime uid:  $RUN_UID"
+echo "Runtime gid:  $RUN_GID"
 echo "USB device:   $USB_DEVICE"
 echo "Mount point:  $MOUNT_POINT"
 echo
@@ -36,6 +40,8 @@ chmod -R u+rwX /home/pi/data /home/pi/shipping /home/pi/logs "$MOUNT_POINT" 2>/d
 echo "[2/4] Installing passwordless sudo rules for node USB backup..."
 sudo bash -c "cat > $SUDOERS_FILE <<EOF
 $RUN_USER ALL=(root) NOPASSWD: $MOUNT_CMD $USB_DEVICE $MOUNT_POINT
+$RUN_USER ALL=(root) NOPASSWD: $MOUNT_CMD -o uid=$RUN_UID\\,gid=$RUN_GID\\,umask=0002 $USB_DEVICE $MOUNT_POINT
+$RUN_USER ALL=(root) NOPASSWD: $MOUNT_CMD -o remount\\,uid=$RUN_UID\\,gid=$RUN_GID\\,umask=0002 $MOUNT_POINT
 $RUN_USER ALL=(root) NOPASSWD: $CHOWN_CMD -R $RUN_USER\\:$RUN_USER $MOUNT_POINT
 $RUN_USER ALL=(root) NOPASSWD: $CHMOD_CMD -R u+rwX $MOUNT_POINT
 EOF"
