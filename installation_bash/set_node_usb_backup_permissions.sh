@@ -18,6 +18,8 @@ SUDOERS_FILE="/etc/sudoers.d/beamnode-node-usb-backup"
 MOUNT_CMD="$(command -v mount)"
 CHOWN_CMD="$(command -v chown)"
 CHMOD_CMD="$(command -v chmod)"
+MKDIR_CMD="$(command -v mkdir)"
+RSYNC_CMD="$(command -v rsync)"
 
 echo "=== BEAMNode Node USB Backup Permission Setup ==="
 echo "Runtime user: $RUN_USER"
@@ -27,8 +29,8 @@ echo "USB device:   $USB_DEVICE"
 echo "Mount point:  $MOUNT_POINT"
 echo
 
-if [[ -z "$MOUNT_CMD" || -z "$CHOWN_CMD" || -z "$CHMOD_CMD" ]]; then
-  echo "ERROR: required command missing. Need mount, chown, and chmod."
+if [[ -z "$MOUNT_CMD" || -z "$CHOWN_CMD" || -z "$CHMOD_CMD" || -z "$MKDIR_CMD" || -z "$RSYNC_CMD" ]]; then
+  echo "ERROR: required command missing. Need mount, chown, chmod, mkdir, and rsync."
   exit 1
 fi
 
@@ -44,6 +46,10 @@ $RUN_USER ALL=(root) NOPASSWD: $MOUNT_CMD -o uid=$RUN_UID\\,gid=$RUN_GID\\,umask
 $RUN_USER ALL=(root) NOPASSWD: $MOUNT_CMD -o remount\\,uid=$RUN_UID\\,gid=$RUN_GID\\,umask=0002 $MOUNT_POINT
 $RUN_USER ALL=(root) NOPASSWD: $CHOWN_CMD -R $RUN_USER\\:$RUN_USER $MOUNT_POINT
 $RUN_USER ALL=(root) NOPASSWD: $CHMOD_CMD -R u+rwX $MOUNT_POINT
+$RUN_USER ALL=(root) NOPASSWD: $MKDIR_CMD -p $MOUNT_POINT/shipping_archive/*
+$RUN_USER ALL=(root) NOPASSWD: $MKDIR_CMD -p /media/pi/BEAMdrive/shipping_archive/*
+$RUN_USER ALL=(root) NOPASSWD: $RSYNC_CMD -a --ignore-existing /home/pi/shipping/ $MOUNT_POINT/shipping_archive/*/
+$RUN_USER ALL=(root) NOPASSWD: $RSYNC_CMD -a --ignore-existing /home/pi/shipping/ /media/pi/BEAMdrive/shipping_archive/*/
 EOF"
 
 sudo chmod 0440 "$SUDOERS_FILE"

@@ -229,11 +229,9 @@ fi
 
 if [ -z "$MOUNT_POINT" ] || [ ! -d "$MOUNT_POINT" ]; then
   log "ERROR: USB drive not mounted/found. Expected LABEL=$DRIVE_NAME, /media/pi/$DRIVE_NAME, or $USB_DEVICE mounted at $FALLBACK_MOUNT"
+  echo "USB_BACKUP_ERROR reason=usb_not_mounted"
   exit 1
 fi
-
-sudo -n chown -R pi:pi "$MOUNT_POINT" 2>>"$LOG_FILE" || true
-sudo -n chmod -R u+rwX "$MOUNT_POINT" 2>>"$LOG_FILE" || true
 
 if [ ! -w "$MOUNT_POINT" ] && [ "$MOUNT_POINT" = "$FALLBACK_MOUNT" ]; then
   RUN_UID="$(id -u pi)"
@@ -245,24 +243,60 @@ HOST="$(hostname)"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 DEST_DIR="$MOUNT_POINT/$BACKUP_SUBDIR/$HOST-$RUN_ID"
 
-if ! mkdir -p "$DEST_DIR" 2>>"$LOG_FILE"; then
+mkdir_as="pi"
+if mkdir -p "$DEST_DIR" 2>>"$LOG_FILE"; then
+  mkdir_as="pi"
+elif sudo -n mkdir -p "$DEST_DIR" 2>>"$LOG_FILE"; then
+  mkdir_as="root"
+else
   log "ERROR: cannot create USB backup directory: $DEST_DIR"
+  echo "USB_BACKUP_ERROR reason=mkdir_failed dest=$DEST_DIR"
   exit 1
 fi
 
 log "START: backing up $SHIP_DIR to $DEST_DIR"
-rsync -a --ignore-existing "$SHIP_DIR"/ "$DEST_DIR"/ >> "$LOG_FILE" 2>&1
-log "DONE: backup complete"
+copy_as="pi"
+if rsync -a --ignore-existing "$SHIP_DIR"/ "$DEST_DIR"/ >> "$LOG_FILE" 2>&1; then
+  copy_as="pi"
+elif sudo -n rsync -a --ignore-existing "$SHIP_DIR"/ "$DEST_DIR"/ >> "$LOG_FILE" 2>&1; then
+  copy_as="root"
+else
+  log "ERROR: rsync backup failed: $SHIP_DIR -> $DEST_DIR"
+  echo "USB_BACKUP_ERROR reason=rsync_failed dest=$DEST_DIR"
+  exit 1
+fi
+
+file_count="$(find "$DEST_DIR" -type f 2>/dev/null | wc -l | tr -d ' ')"
+byte_count="$(du -sk "$DEST_DIR" 2>/dev/null | awk '{{print $1 * 1024}}' || echo unknown)"
+log "DONE: backup complete dest=$DEST_DIR files=$file_count bytes=$byte_count mkdir_as=$mkdir_as copy_as=$copy_as"
+echo "USB_BACKUP_SUCCESS dest=$DEST_DIR files=$file_count bytes=$byte_count mkdir_as=$mkdir_as copy_as=$copy_as"
 """
     cmd = ["ssh"] + SSH_OPTS + [f"pi@{full_hostname}", "bash", "-s"]
-    return run_cmd(
-        cmd,
-        f"{full_hostname}: USB backup before transfer",
-        input=remote_script,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        text=True
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            input=remote_script,
+            capture_output=True,
+            check=True,
+            text=True
+        )
+        for line in result.stdout.splitlines():
+            if line.strip():
+                log(f"{full_hostname}: {line.strip()}")
+        log(f"{full_hostname}: USB BACKUP SUCCESS")
+        return True
+    except FileNotFoundError as e:
+        log(f"{full_hostname}: USB backup before transfer: command not found: {e}")
+        return False
+    except subprocess.CalledProcessError as e:
+        detail = ""
+        for output in (e.stdout, e.stderr):
+            if output:
+                lines = [line.strip() for line in output.splitlines() if line.strip()]
+                if lines:
+                    detail = ": " + " | ".join(lines[-3:])
+        log(f"{full_hostname}: USB backup before transfer failed with exit code {e.returncode}{detail}")
+        return False
 
 def rsync_pull(full_hostname):
     """Pulls data from node to supervisor data root."""
