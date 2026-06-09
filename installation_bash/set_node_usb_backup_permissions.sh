@@ -36,7 +36,7 @@ chmod -R u+rwX /home/pi/data /home/pi/shipping /home/pi/logs "$MOUNT_POINT" 2>/d
 echo "[2/4] Installing passwordless sudo rules for node USB backup..."
 sudo bash -c "cat > $SUDOERS_FILE <<EOF
 $RUN_USER ALL=(root) NOPASSWD: $MOUNT_CMD $USB_DEVICE $MOUNT_POINT
-$RUN_USER ALL=(root) NOPASSWD: $CHOWN_CMD -R $RUN_USER:$RUN_USER $MOUNT_POINT
+$RUN_USER ALL=(root) NOPASSWD: $CHOWN_CMD -R $RUN_USER\\:$RUN_USER $MOUNT_POINT
 $RUN_USER ALL=(root) NOPASSWD: $CHMOD_CMD -R u+rwX $MOUNT_POINT
 EOF"
 
