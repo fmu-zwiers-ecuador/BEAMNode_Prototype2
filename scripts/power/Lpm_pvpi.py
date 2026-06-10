@@ -241,6 +241,12 @@ NON_SENSOR_KEYS = {
 STATE_DISABLED_KEY = "low_power_disabled_sensors"
 STATE_ACTIVE_KEY = "low_power_active"
 
+def ensure_low_power_state(config: dict) -> bool:
+    section = config.setdefault("lpm_pvpi", {})
+    section.setdefault(STATE_ACTIVE_KEY, False)
+    section.setdefault(STATE_DISABLED_KEY, [])
+    return bool(section.get(STATE_ACTIVE_KEY, False))
+
 def iter_sensor_sections(config: dict):
     for key, section in config.items():
         if key in NON_SENSOR_KEYS:
@@ -400,6 +406,8 @@ def run_restore(timestamp: str, voltage: float, cfg: LpmConfig):
 
 def run_status(voltage: float):
     config = load_sensor_config(SENSOR_CONFIG_PATH)
+    active = ensure_low_power_state(config)
+    save_sensor_config(SENSOR_CONFIG_PATH, config)
 
     enabled  = []
     disabled = []
@@ -412,6 +420,7 @@ def run_status(voltage: float):
             disabled.append(key)
 
     print("[STATUS] No changes made.")
+    print(f"[STATUS] Low power active: {active}")
     print(f"[SENSORS] Enabled  ({len(enabled)}): {', '.join(enabled) if enabled else 'none'}")
     print(f"[SENSORS] Disabled ({len(disabled)}): {', '.join(disabled) if disabled else 'none'}")
 
@@ -509,6 +518,10 @@ def main():
     args = parse_args()
 
     cfg = load_lpm_config(SENSOR_CONFIG_PATH)
+    config = load_sensor_config(SENSOR_CONFIG_PATH)
+    ensure_low_power_state(config)
+    save_sensor_config(SENSOR_CONFIG_PATH, config)
+
     ser = open_serial(cfg)
     if ser is None:
         print("")

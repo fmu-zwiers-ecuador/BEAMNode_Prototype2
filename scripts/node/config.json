@@ -287,6 +287,8 @@
   },
   "low_power_mode": {
     "enabled": true,
+    "low_power_active": false,
+    "low_power_disabled_sensors": [],
     "script_name": "low_power_mode.py",
     "directory": "low_power_mode",
     "file_name": "low_power_log.json",
@@ -306,6 +308,8 @@
   },
   "lpm_pvpi": {
   "enabled": false,
+  "low_power_active": false,
+  "low_power_disabled_sensors": [],
   "script_name": "Lpm_pvpi.py",
   "directory": "lpm_pvpi",
   "file_name": "lpm.json",

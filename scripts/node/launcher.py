@@ -51,6 +51,12 @@ _LOW_POWER_LOG_HANDLE = None
 config = {}
 
 
+def load_config_from_disk():
+    """Read the current config.json."""
+    with open(CONFIG_PATH, "r") as f:
+        return json.load(f)
+
+
 def ensure_log_file(path):
     """Create log file and parent directories if missing."""
     try:
@@ -102,6 +108,14 @@ def start_scheduler_async():
     else:
         log(f"CRITICAL ERROR: Scheduler script missing.")
         return None
+
+def low_power_active():
+    """Return whether either low-power backend says the node is in low power."""
+    for section_name in ("low_power_mode", "lpm_pvpi"):
+        section = config.get(section_name, {})
+        if isinstance(section, dict) and section.get("low_power_active", False):
+            return True
+    return False
 
 def selected_low_power_backend():
     """Return the configured low-power backend, or None when disabled/invalid."""
@@ -156,10 +170,22 @@ def start_low_power_monitor_async():
 
 def motion_capture_enabled():
     """Return whether launcher should own motion capture processes."""
+    if low_power_active():
+        return False
     return config.get("motion_capture", {}).get("enabled")
+
+def motion_trigger_enabled():
+    """Return whether the PIR/camera trigger should be running."""
+    if not motion_capture_enabled():
+        return False
+    return config.get("camera", {}).get("enabled")
 
 def start_motion_trigger_async():
     """Starts motion trigger on startup (Asynchronous)."""
+    if low_power_active():
+        log("Motion trigger disabled because low_power_active is true in config.json")
+        return None
+
     if not motion_capture_enabled():
         log("Motion trigger disabled because motion_capture.enabled is false in config.json")
         return None
@@ -334,8 +360,7 @@ if __name__ == "__main__":
     # --- Load config once, after detect.py has finished ---
     log(f"Loading config from {CONFIG_PATH} (post-detect)...")
     try:
-        with open(CONFIG_PATH, "r") as f:
-            config = json.load(f)
+        config = load_config_from_disk()
         log("Config loaded successfully.")
     except Exception as e:
         log(f"CRITICAL ERROR: Could not read {CONFIG_PATH} after detect.py: {e}")
@@ -397,18 +422,34 @@ if __name__ == "__main__":
         try:
             now = datetime.now(EASTERN_TZ)
 
+            try:
+                config = load_config_from_disk()
+                lora_enabled = config.get("global", {}).get("lora_enabled")
+            except Exception as e:
+                log(f"ERROR: Could not reload config.json: {e}")
+
             # A. Check Scheduler Health (Restart if Pi went down or process crashed)
             if sched_proc is None or sched_proc.poll() is not None:
                 log("ALERT: Scheduler process stopped. Restarting...")
                 time.sleep(5)
                 sched_proc = start_scheduler_async()
 
-            if motion_proc is not None and motion_proc.poll() is not None:
+            if not motion_trigger_enabled():
+                if motion_proc is not None and motion_proc.poll() is None:
+                    log("Motion trigger no longer enabled by config; stopping it")
+                    terminate_process(motion_proc, "motion trigger")
+                motion_proc = None
+            elif motion_proc is None or motion_proc.poll() is not None:
                 log("ALERT: Motion trigger process stopped. Restarting...")
                 time.sleep(5)
                 motion_proc = start_motion_trigger_async()
 
-            if merge_proc is not None and merge_proc.poll() is not None:
+            if not motion_capture_enabled():
+                if merge_proc is not None and merge_proc.poll() is None:
+                    log("Motion merge worker no longer enabled by config; stopping it")
+                    terminate_process(merge_proc, "motion merge worker")
+                merge_proc = None
+            elif merge_proc is None or merge_proc.poll() is not None:
                 log("ALERT: Motion merge worker stopped. Restarting...")
                 time.sleep(5)
                 merge_proc = start_motion_merge_worker_async()

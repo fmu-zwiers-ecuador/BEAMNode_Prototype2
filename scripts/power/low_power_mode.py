@@ -216,6 +216,24 @@ def sensor_sections(config: dict):
         if isinstance(sensor_cfg.get("enabled"), bool):
             yield sensor_name, sensor_cfg
 
+def ensure_low_power_state(path: str) -> bool:
+    """Ensure state fields exist and return the persisted low-power state."""
+    config = load_config(path)
+    lpm_section = config.setdefault("low_power_mode", {})
+    changed = False
+
+    if STATE_ACTIVE_KEY not in lpm_section:
+        lpm_section[STATE_ACTIVE_KEY] = False
+        changed = True
+    if STATE_DISABLED_KEY not in lpm_section:
+        lpm_section[STATE_DISABLED_KEY] = []
+        changed = True
+
+    if changed:
+        save_config(path, config)
+
+    return bool(lpm_section.get(STATE_ACTIVE_KEY, False))
+
 def enter_low_power(path: str) -> list[str]:
     """
     Disable currently enabled sensors and remember only the sensors changed by
@@ -309,9 +327,9 @@ def main():
 
     append_json_record(JSON_LOG_PATH, "manager_started", None)
 
-    # Track current power state so we only write config.json on transitions
-    # Start as None (unknown) so we always apply correct state on first read
-    low_power_active = None
+    # Track current power state so we only write config.json on transitions.
+    low_power_active = ensure_low_power_state(CONFIG_PATH)
+    log.info(f"Initial low-power active state: {low_power_active}")
     consecutive_failures = 0
 
     while True:

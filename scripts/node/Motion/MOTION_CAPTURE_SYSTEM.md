@@ -99,6 +99,11 @@ Current intended behavior:
 ```json
 "camera": {
   "expected_model": "imx708",
+  "pir_response_profile": "instant",
+  "pir_sensitivity_profile": "high",
+  "motion_delay_profile": "fast",
+  "detection_range_profile": "widest",
+  "pir_warmup_sec": 5,
   "video_bitrate": 5000000,
   "video": {
     "resolution": [1280, 720],
@@ -114,6 +119,38 @@ Current intended behavior:
 
 The photos use the Pi Camera Module 3 full 12MP still resolution. The video uses
 a lighter 720p setting so the Pi Zero can keep up more reliably.
+
+## PIR Motion Sensitivity
+
+`beam_motion_trigger.py` uses the same camera PIR tuning keys as the older camera
+scripts. `pir_sensitivity_profile` controls detection range/sensitivity:
+
+- `high`: most sensitive, threshold `0.3`, sample rate `30`
+- `widest`: sensitive, threshold `0.4`, sample rate `20`
+- `medium`: default, threshold `0.5`, sample rate `10`
+- `narrow`: least sensitive, threshold `0.7`, sample rate `8`
+
+`pir_response_profile` controls how quickly the trigger loop reacts and cools
+down:
+
+- `instant`: poll interval `0.02`, cooldown `0.25`
+- `fast`: poll interval `0.05`, cooldown `0.5`
+- `normal`: poll interval `0.1`, cooldown `1.0`
+- `slow`: poll interval `0.2`, cooldown `2.0`
+
+Older aliases still work: `motion_delay_profile` is used if
+`pir_response_profile` is missing, and `detection_range_profile` is used if
+`pir_sensitivity_profile` is missing. Explicit values such as
+`pir_sample_rate`, `pir_queue_len`, `pir_threshold`, `pir_poll_interval_sec`, and
+`cooldown_sec` override the selected profiles.
+
+## Low Power Behavior
+
+The launcher reloads `config.json` during its monitor loop. If low-power mode
+sets `low_power_active` or disables `motion_capture`, the launcher stops the
+motion trigger and merge worker instead of restarting them. The motion trigger
+also reloads config while armed and exits cleanly if low-power mode becomes
+active.
 
 ## Audio/Video Sync
 

@@ -55,6 +55,60 @@ FINAL_VIDEO_PREFIX  = "motionvid_audio_"
 
 logger = setup_motion_logger("beam_motion_trigger")
 
+DELAY_PROFILES = {
+    "instant": {
+        "cooldown_sec": 0.25,
+        "pir_poll_interval_sec": 0.02,
+        "pir_sample_rate": 30,
+        "pir_queue_len": 1,
+        "pir_threshold": 0.3,
+    },
+    "fast": {
+        "cooldown_sec": 0.5,
+        "pir_poll_interval_sec": 0.05,
+        "pir_sample_rate": 20,
+        "pir_queue_len": 1,
+        "pir_threshold": 0.5,
+    },
+    "normal": {
+        "cooldown_sec": 1.0,
+        "pir_poll_interval_sec": 0.1,
+        "pir_sample_rate": 10,
+        "pir_queue_len": 1,
+        "pir_threshold": 0.5,
+    },
+    "slow": {
+        "cooldown_sec": 2.0,
+        "pir_poll_interval_sec": 0.2,
+        "pir_sample_rate": 5,
+        "pir_queue_len": 2,
+        "pir_threshold": 0.5,
+    },
+}
+
+RANGE_PROFILES = {
+    "high": {
+        "pir_sample_rate": 30,
+        "pir_queue_len": 1,
+        "pir_threshold": 0.3,
+    },
+    "widest": {
+        "pir_sample_rate": 20,
+        "pir_queue_len": 1,
+        "pir_threshold": 0.4,
+    },
+    "medium": {
+        "pir_sample_rate": 10,
+        "pir_queue_len": 1,
+        "pir_threshold": 0.5,
+    },
+    "narrow": {
+        "pir_sample_rate": 8,
+        "pir_queue_len": 2,
+        "pir_threshold": 0.7,
+    },
+}
+
 
 def load_config():
     if not CONFIG_PATH.exists():
@@ -70,6 +124,30 @@ def load_config():
 
 def get_base_data_dir(config):
     return Path(config.get("global", {}).get("base_dir", str(DEFAULT_DATA_DIR)))
+
+
+def low_power_active(config):
+    for section_name in ("low_power_mode", "lpm_pvpi"):
+        section = config.get(section_name, {})
+        if isinstance(section, dict) and section.get("low_power_active", False):
+            return True
+    return False
+
+
+def motion_capture_allowed(config):
+    if low_power_active(config):
+        logger.info("Low power is active in config.json; stopping motion trigger")
+        return False
+    if not config.get("motion_capture", {}).get("enabled", False):
+        logger.info("motion_capture is disabled in config.json; stopping motion trigger")
+        return False
+    if not config.get("camera", {}).get("enabled", True):
+        logger.info("Camera is disabled in config.json; stopping motion trigger")
+        return False
+    if not config.get("motion_audio", {}).get("enabled", True):
+        logger.info("motion_audio is disabled in config.json; stopping motion trigger")
+        return False
+    return True
 
 
 def get_required_number(config_section, key, label, value_type=float):
@@ -104,6 +182,90 @@ def validate_camera_gpio(camera_config, pir_pin):
             "camera.pir_gpio/gpio_pin and camera.flash_gpio cannot both be "
             f"GPIO{pir_pin}. PIR should use GPIO24 and flash should use GPIO26."
         )
+
+
+def normalize_delay_profile(camera_config):
+    configured = str(
+        camera_config.get(
+            "pir_response_profile",
+            camera_config.get("motion_delay_profile", "normal"),
+        )
+    ).lower()
+    aliases = {
+        "highest": "instant",
+        "high": "fast",
+        "medium": "normal",
+        "default": "normal",
+        "low": "slow",
+    }
+    return aliases.get(configured, configured)
+
+
+def normalize_range_profile(camera_config):
+    configured = str(
+        camera_config.get(
+            "pir_sensitivity_profile",
+            camera_config.get("detection_range_profile", "medium"),
+        )
+    ).lower()
+    aliases = {
+        "highest": "high",
+        "high": "high",
+        "more": "widest",
+        "medium": "medium",
+        "default": "medium",
+        "low": "narrow",
+        "narrowest": "narrow",
+    }
+    return aliases.get(configured, configured)
+
+
+def build_motion_settings(camera_config):
+    delay_profile_name = normalize_delay_profile(camera_config)
+    range_profile_name = normalize_range_profile(camera_config)
+
+    settings = {}
+    settings.update(DELAY_PROFILES.get(delay_profile_name, DELAY_PROFILES["normal"]))
+    settings.update(RANGE_PROFILES.get(range_profile_name, RANGE_PROFILES["medium"]))
+
+    for key in (
+        "cooldown_sec",
+        "pir_warmup_sec",
+        "pir_poll_interval_sec",
+        "pir_sample_rate",
+        "pir_queue_len",
+        "pir_threshold",
+    ):
+        if key in camera_config:
+            settings[key] = camera_config[key]
+
+    settings["motion_delay_profile"] = delay_profile_name
+    settings["detection_range_profile"] = range_profile_name
+    return settings
+
+
+def validate_motion_settings(settings):
+    for key in (
+        "cooldown_sec",
+        "pir_warmup_sec",
+        "pir_poll_interval_sec",
+        "pir_sample_rate",
+        "pir_queue_len",
+        "pir_threshold",
+    ):
+        if key not in settings:
+            raise ValueError(f"Missing camera.{key} in config.json")
+
+    for key in ("cooldown_sec", "pir_warmup_sec", "pir_poll_interval_sec", "pir_sample_rate"):
+        if float(settings[key]) <= 0:
+            raise ValueError(f"camera.{key} must be greater than 0")
+
+    if int(settings["pir_queue_len"]) <= 0:
+        raise ValueError("camera.pir_queue_len must be greater than 0")
+
+    threshold = float(settings["pir_threshold"])
+    if threshold <= 0 or threshold > 1:
+        raise ValueError("camera.pir_threshold must be greater than 0 and no more than 1")
 
 
 def create_event_dirs(config, timestamp_text):
@@ -590,26 +752,19 @@ def handle_motion(config, camera_capture):
 def main():
     config = load_config()
 
-    camera_config       = config.get("camera", {})
-    motion_audio_config = config.get("motion_audio", {})
+    if not motion_capture_allowed(config):
+        return
 
-    if not camera_config.get("enabled", True):
-        logger.info("Camera is disabled in config.json")
-        return
-    if not motion_audio_config.get("enabled", True):
-        logger.info("motion_audio is disabled in config.json")
-        return
+    camera_config = config.get("camera", {})
 
     try:
         pir_pin = get_pir_gpio(camera_config)
         validate_camera_gpio(camera_config, pir_pin)
-        warmup = get_required_number(camera_config, "pir_warmup_sec", "camera.pir_warmup_sec")
-        poll_interval = get_required_number(
-            camera_config,
-            "pir_poll_interval_sec",
-            "camera.pir_poll_interval_sec",
-        )
-        cooldown = get_required_number(camera_config, "cooldown_sec", "camera.cooldown_sec")
+        motion_settings = build_motion_settings(camera_config)
+        validate_motion_settings(motion_settings)
+        warmup = float(motion_settings["pir_warmup_sec"])
+        poll_interval = float(motion_settings["pir_poll_interval_sec"])
+        cooldown = float(motion_settings["cooldown_sec"])
         clear_timeout = float(camera_config.get("pir_clear_timeout_sec", 20.0))
         if clear_timeout <= 0:
             clear_timeout = None
@@ -621,6 +776,17 @@ def main():
     logger.info("PIR GPIO pin: %s", pir_pin)
     logger.info("Warmup seconds: %s", warmup)
     logger.info("PIR clear timeout: %s", clear_timeout if clear_timeout is not None else "disabled")
+    logger.info(
+        "Motion tuning: response_profile=%s, sensitivity_profile=%s, "
+        "sample_rate=%s, queue_len=%s, threshold=%s, poll_interval=%s, cooldown=%s",
+        motion_settings["motion_delay_profile"],
+        motion_settings["detection_range_profile"],
+        motion_settings["pir_sample_rate"],
+        motion_settings["pir_queue_len"],
+        motion_settings["pir_threshold"],
+        poll_interval,
+        cooldown,
+    )
 
     pir = None
     camera_capture = None
@@ -629,9 +795,9 @@ def main():
             pir_pin,
             pull_up=None,
             active_state=True,
-            queue_len=int(camera_config.get("pir_queue_len", 1)),
-            sample_rate=float(camera_config.get("pir_sample_rate", 10)),
-            threshold=float(camera_config.get("pir_threshold", 0.5)),
+            queue_len=int(motion_settings["pir_queue_len"]),
+            sample_rate=float(motion_settings["pir_sample_rate"]),
+            threshold=float(motion_settings["pir_threshold"]),
         )
         camera_capture = MotionCameraCapture(config)
         camera_capture.start()
@@ -648,8 +814,12 @@ def main():
 
     try:
         while True:
+            current_config = load_config()
+            if not motion_capture_allowed(current_config):
+                break
+
             if pir.motion_detected:
-                handle_motion(config, camera_capture)
+                handle_motion(current_config, camera_capture)
                 logger.info("Cooling down for %s seconds", cooldown)
                 time.sleep(cooldown)
                 logger.info("Waiting for motion to clear")
