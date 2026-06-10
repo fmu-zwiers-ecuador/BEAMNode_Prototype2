@@ -13,6 +13,7 @@ import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import os
+import time
 
 EASTERN_TZ = ZoneInfo("America/New_York")
 
@@ -55,6 +56,15 @@ INTEGRATION_OPTIONS = {
     "600ms": "INTEGRATIONTIME_600MS",
 }
 
+INTEGRATION_WAIT_SEC = {
+    "100ms": 0.12,
+    "200ms": 0.22,
+    "300ms": 0.32,
+    "400ms": 0.42,
+    "500ms": 0.52,
+    "600ms": 0.62,
+}
+
 
 def set_sensor_option(attribute, configured_value, options, default_key):
     configured_key = str(configured_value or default_key).lower()
@@ -62,6 +72,20 @@ def set_sensor_option(attribute, configured_value, options, default_key):
     constant_value = getattr(adafruit_tsl2591, constant_name)
     setattr(sensor, attribute, constant_value)
     return configured_key if configured_key in options else default_key
+
+
+def collect_raw_channels():
+    channels = {}
+    for output_name, attribute_name in (
+        ("visible", "visible"),
+        ("infrared", "infrared"),
+        ("full_spectrum", "full_spectrum"),
+    ):
+        try:
+            channels[output_name] = getattr(sensor, attribute_name)
+        except Exception:
+            pass
+    return channels
 
 
 def read_lux_with_overflow_retry():
@@ -77,25 +101,27 @@ def read_lux_with_overflow_retry():
         INTEGRATION_OPTIONS,
         "100ms",
     )
+    time.sleep(INTEGRATION_WAIT_SEC.get(integration_name, 0.12))
 
     try:
-        return sensor.lux, "ok", gain_name, integration_name
+        return sensor.lux, "ok", gain_name, integration_name, collect_raw_channels()
     except RuntimeError as e:
         if "Overflow reading light channels" not in str(e):
             raise
 
         sensor.gain = adafruit_tsl2591.GAIN_LOW
         sensor.integration_time = adafruit_tsl2591.INTEGRATIONTIME_100MS
+        time.sleep(INTEGRATION_WAIT_SEC["100ms"])
         try:
-            return sensor.lux, "ok_after_overflow_retry", "low", "100ms"
+            return sensor.lux, "ok_after_overflow_retry", "low", "100ms", collect_raw_channels()
         except RuntimeError as retry_error:
             if "Overflow reading light channels" not in str(retry_error):
                 raise
-            return None, "overflow", "low", "100ms"
+            return None, "overflow", "low", "100ms", collect_raw_channels()
 
 
 # Read lux
-lux, read_status, gain_name, integration_name = read_lux_with_overflow_retry()
+lux, read_status, gain_name, integration_name, raw_channels = read_lux_with_overflow_retry()
 
 # --- TIME CALCULATIONS ---
 now_local = datetime.now(EASTERN_TZ)
@@ -108,7 +134,8 @@ new_lux_data = {
     "lux": lux,
     "status": read_status,
     "gain": gain_name,
-    "integration_time": integration_name
+    "integration_time": integration_name,
+    "raw_channels": raw_channels
 }
 
 # Append to JSON
@@ -130,6 +157,10 @@ try:
         json.dump(data, f, indent=4)
 
     if global_config.get("print_debug", True):
-        print(f"Lux data appended to {file_name} at {now_local.strftime('%Y-%m-%d %H:%M:%S')} {now_local.tzname()}")
+        print(
+            f"Lux data appended to {file_name} at "
+            f"{now_local.strftime('%Y-%m-%d %H:%M:%S')} {now_local.tzname()} "
+            f"(status={read_status}, lux={lux})"
+        )
 except Exception as e:
     print(f"Error saving lux data: {e}")
