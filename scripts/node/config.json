@@ -15,6 +15,8 @@
     "directory": "tsl2591",
     "file_name": "lux_data.json",
     "frequency": 60,
+    "gain": "low",
+    "integration_time": "100ms",
     "i2c_bus": null,
     "address_hex": null,
     "record_schema": {

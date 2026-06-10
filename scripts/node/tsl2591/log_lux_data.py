@@ -39,8 +39,63 @@ file_path = os.path.join(directory, file_name)
 i2c = board.I2C()
 sensor = adafruit_tsl2591.TSL2591(i2c)
 
+GAIN_OPTIONS = {
+    "low": "GAIN_LOW",
+    "medium": "GAIN_MED",
+    "high": "GAIN_HIGH",
+    "max": "GAIN_MAX",
+}
+
+INTEGRATION_OPTIONS = {
+    "100ms": "INTEGRATIONTIME_100MS",
+    "200ms": "INTEGRATIONTIME_200MS",
+    "300ms": "INTEGRATIONTIME_300MS",
+    "400ms": "INTEGRATIONTIME_400MS",
+    "500ms": "INTEGRATIONTIME_500MS",
+    "600ms": "INTEGRATIONTIME_600MS",
+}
+
+
+def set_sensor_option(attribute, configured_value, options, default_key):
+    configured_key = str(configured_value or default_key).lower()
+    constant_name = options.get(configured_key, options[default_key])
+    constant_value = getattr(adafruit_tsl2591, constant_name)
+    setattr(sensor, attribute, constant_value)
+    return configured_key if configured_key in options else default_key
+
+
+def read_lux_with_overflow_retry():
+    gain_name = set_sensor_option(
+        "gain",
+        tsl_config.get("gain", "low"),
+        GAIN_OPTIONS,
+        "low",
+    )
+    integration_name = set_sensor_option(
+        "integration_time",
+        tsl_config.get("integration_time", "100ms"),
+        INTEGRATION_OPTIONS,
+        "100ms",
+    )
+
+    try:
+        return sensor.lux, "ok", gain_name, integration_name
+    except RuntimeError as e:
+        if "Overflow reading light channels" not in str(e):
+            raise
+
+        sensor.gain = adafruit_tsl2591.GAIN_LOW
+        sensor.integration_time = adafruit_tsl2591.INTEGRATIONTIME_100MS
+        try:
+            return sensor.lux, "ok_after_overflow_retry", "low", "100ms"
+        except RuntimeError as retry_error:
+            if "Overflow reading light channels" not in str(retry_error):
+                raise
+            return None, "overflow", "low", "100ms"
+
+
 # Read lux
-lux = sensor.lux
+lux, read_status, gain_name, integration_name = read_lux_with_overflow_retry()
 
 # --- TIME CALCULATIONS ---
 now_local = datetime.now(EASTERN_TZ)
@@ -50,7 +105,10 @@ new_lux_data = {
     "timestamp_eastern": now_local.isoformat(),
     "local_time": now_local.strftime("%Y-%m-%d %H:%M:%S"),
     "timezone": now_local.tzname(),
-    "lux": lux
+    "lux": lux,
+    "status": read_status,
+    "gain": gain_name,
+    "integration_time": integration_name
 }
 
 # Append to JSON
