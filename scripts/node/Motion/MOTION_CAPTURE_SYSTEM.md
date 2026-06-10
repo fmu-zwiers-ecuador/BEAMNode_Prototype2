@@ -156,6 +156,17 @@ active.
 
 Audio starts before video. This is intentional.
 
+Motion audio uses `motion_audio.alsa_device`. Set it to `auto` to choose the
+AudioMoth/USB capture card from `arecord -l` at runtime. If auto-selection picks
+the wrong device, run:
+
+```bash
+arecord -l
+```
+
+Then set `motion_audio.alsa_device` to the matching device, for example
+`plughw:2,0`.
+
 The merge worker trims the audio so the final MP4 starts at the video start. The
 trim amount is calculated from:
 

@@ -22,6 +22,7 @@ import json
 import math
 import os
 import fcntl
+import re
 import subprocess
 import time
 from datetime import datetime
@@ -306,9 +307,78 @@ def should_use_flash(camera_config, camera_capture, lux_value):
     return lux_value is not None and lux_value < flash_threshold
 
 
+def list_alsa_capture_devices():
+    try:
+        result = subprocess.run(
+            ["arecord", "-l"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except FileNotFoundError:
+        logger.warning("arecord not found; install alsa-utils for motion audio")
+        return []
+    except Exception as e:
+        logger.warning("Could not list ALSA capture devices: %s", e)
+        return []
+
+    if result.returncode != 0:
+        logger.warning("arecord -l failed: %s", result.stderr.strip())
+        return []
+
+    devices = []
+    pattern = re.compile(r"card\s+(\d+):\s+(.+?),\s+device\s+(\d+):\s+(.+)")
+    for line in result.stdout.splitlines():
+        match = pattern.search(line)
+        if not match:
+            continue
+        card_index, card_name, device_index, device_name = match.groups()
+        devices.append({
+            "card": card_index,
+            "device": device_index,
+            "card_name": card_name,
+            "device_name": device_name,
+            "alsa_device": f"plughw:{card_index},{device_index}",
+        })
+
+    return devices
+
+
+def resolve_alsa_device(configured_device):
+    if str(configured_device).lower() != "auto":
+        return configured_device
+
+    devices = list_alsa_capture_devices()
+    if not devices:
+        logger.warning("No ALSA capture devices found; falling back to default")
+        return "default"
+
+    preferred_terms = ("audiomoth", "usb", "audio")
+    for device in devices:
+        label = f"{device['card_name']} {device['device_name']}".lower()
+        if any(term in label for term in preferred_terms):
+            logger.info(
+                "Auto-selected ALSA capture device %s (%s / %s)",
+                device["alsa_device"],
+                device["card_name"],
+                device["device_name"],
+            )
+            return device["alsa_device"]
+
+    selected = devices[0]
+    logger.info(
+        "Auto-selected first ALSA capture device %s (%s / %s)",
+        selected["alsa_device"],
+        selected["card_name"],
+        selected["device_name"],
+    )
+    return selected["alsa_device"]
+
+
 def get_motion_audio_settings(config):
     audio_config = config.get("audio", {})
     motion_audio_config = config.get("motion_audio", {})
+    configured_alsa_device = motion_audio_config.get("alsa_device", "auto")
     return {
         "sample_rate": int(motion_audio_config.get(
             "sample_rate", audio_config.get("sample_rate", 48000)
@@ -316,7 +386,7 @@ def get_motion_audio_settings(config):
         "channels": int(motion_audio_config.get(
             "channels", audio_config.get("channels", 1)
         )),
-        "alsa_device": motion_audio_config.get("alsa_device", "plughw:1,0"),
+        "alsa_device": resolve_alsa_device(configured_alsa_device),
         "alsa_format": motion_audio_config.get("alsa_format", "S16_LE"),
     }
 

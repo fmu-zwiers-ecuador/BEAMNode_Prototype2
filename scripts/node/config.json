@@ -149,7 +149,7 @@
   "file_prefix": "motionaudio_",
   "sample_rate": 48000,
   "channels": 1,
-  "alsa_device": "plughw:1,0",
+  "alsa_device": "auto",
   "alsa_format": "S16_LE"
 },
 "motion_capture": {
