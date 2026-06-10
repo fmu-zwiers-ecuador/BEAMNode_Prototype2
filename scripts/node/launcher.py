@@ -21,6 +21,11 @@ CONFIG_PATH = os.path.join(NODE_DIR, "config.json")
 SCHEDULER_PATH = os.path.join(NODE_DIR, "scheduler.py")
 MOTION_TRIGGER_PATH = os.path.join(NODE_DIR, "Motion/beam_motion_trigger.py")
 MOTION_MERGE_WORKER_PATH = os.path.join(NODE_DIR, "Motion/motion_merge_worker.py")
+PROJECT_ROOT = "/home/pi/BEAMNode_Prototype2"
+NODE_USB_BACKUP_PERMISSIONS_PATH = os.path.join(
+    PROJECT_ROOT,
+    "installation_bash/set_node_usb_backup_permissions.sh",
+)
 POWER_DIR = "/home/pi/BEAMNode_Prototype2/scripts/power"
 LOW_POWER_BACKENDS = {
     "mppt": {
@@ -99,6 +104,44 @@ def run_script_sync(path):
     else:
         log(f"ERROR: File not found at {path}")
         return None
+
+def setup_node_usb_backup_permissions():
+    """Run the node USB backup permission setup once at launcher startup."""
+    if not os.path.exists(NODE_USB_BACKUP_PERMISSIONS_PATH):
+        log(f"USB backup permission setup script missing: {NODE_USB_BACKUP_PERMISSIONS_PATH}")
+        return None
+
+    log(f"Setting up node USB backup permissions: {NODE_USB_BACKUP_PERMISSIONS_PATH}")
+    try:
+        result = subprocess.run(
+            ["sudo", "-n", "bash", NODE_USB_BACKUP_PERMISSIONS_PATH],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        log("USB backup permission setup timed out")
+        return 1
+    except FileNotFoundError as e:
+        log(f"USB backup permission setup failed: {e}")
+        return 1
+    except Exception as e:
+        log(f"USB backup permission setup error: {e}")
+        return 1
+
+    if result.stdout.strip():
+        log(f"USB backup permission setup output: {result.stdout.strip()}")
+    if result.stderr.strip():
+        log(f"USB backup permission setup errors: {result.stderr.strip()}")
+
+    if result.returncode == 0:
+        log("USB backup permissions are ready")
+    else:
+        log(
+            "WARNING: USB backup permission setup failed with exit code "
+            f"{result.returncode}; retryqueue USB backup may need manual setup"
+        )
+    return result.returncode
 
 def start_scheduler_async():
     """Starts the original scheduler.py in the background (Asynchronous)."""
@@ -348,6 +391,8 @@ def move_data_to_shipping():
 
 if __name__ == "__main__":
     log("=== BEAMNode System Startup ===")
+
+    setup_node_usb_backup_permissions()
 
     # --- 1. REQUIREMENT: Run detect.py first, before anything else ---
     # detect.py may write sensor results to config.json; all subsequent
