@@ -219,11 +219,11 @@
       "min_lux": 1000,
       "max_lux": 10000,
       "photo_ae_enabled": false,
-      "photo_exposure_us": 2500,
+      "photo_exposure_us": 500,
       "photo_gain": 1.0,
       "photo_awb_settle_sec": 0.5,
       "video_ae_enabled": false,
-      "video_exposure_us": 3000,
+      "video_exposure_us": 700,
       "video_gain": 1.0,
       "video_warmup_sec": 0.5
     },
