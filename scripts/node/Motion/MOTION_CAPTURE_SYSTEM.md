@@ -152,6 +152,24 @@ motion trigger and merge worker instead of restarting them. The motion trigger
 also reloads config while armed and exits cleanly if low-power mode becomes
 active.
 
+## Lux-Based Exposure
+
+Before each motion event, `beam_motion_trigger.py` reads the latest TSL2591 lux
+value and asks `camera_motion_capture.py` to apply the matching
+`camera.lux_exposure_profiles` entry.
+
+```json
+"lux_exposure_profiles": [
+  {"name": "night_or_dark", "max_lux": 50, "photo_ae_enabled": true, "video_ae_enabled": true},
+  {"name": "shade", "min_lux": 50, "max_lux": 1000, "photo_ae_enabled": true, "video_ae_enabled": true},
+  {"name": "daylight", "min_lux": 1000, "max_lux": 10000, "photo_exposure_us": 2500},
+  {"name": "bright_sun", "min_lux": 10000, "photo_exposure_us": 1000}
+]
+```
+
+If direct-sun photos are still white, lower the `bright_sun.photo_exposure_us`
+toward `500`. If they are too dark, raise it toward `1500` or `2000`.
+
 ## Audio/Video Sync
 
 Audio starts before video. This is intentional.
@@ -166,6 +184,9 @@ arecord -l
 
 Then set `motion_audio.alsa_device` to the matching device, for example
 `plughw:2,0`.
+
+If `motion_audio.enabled` is `false`, the motion trigger still captures photos
+and video. It logs that audio is disabled and keeps the normal video-only MP4.
 
 The merge worker trims the audio so the final MP4 starts at the video start. The
 trim amount is calculated from:

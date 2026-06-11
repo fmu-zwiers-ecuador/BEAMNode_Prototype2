@@ -145,9 +145,6 @@ def motion_capture_allowed(config):
     if not config.get("camera", {}).get("enabled", True):
         logger.info("Camera is disabled in config.json; stopping motion trigger")
         return False
-    if not config.get("motion_audio", {}).get("enabled", True):
-        logger.info("motion_audio is disabled in config.json; stopping motion trigger")
-        return False
     return True
 
 
@@ -665,10 +662,13 @@ def handle_motion(config, camera_capture):
     logger.info("Saving event to: %s", event_dir)
 
     camera_config = config.get("camera", {})
+    motion_audio_config = config.get("motion_audio", {})
+    audio_enabled = motion_audio_config.get("enabled", True)
     picture_config = camera_config.get("pictures", {})
     picture_mode = picture_config.get("mode", "before_video")
 
     lux = get_latest_lux()
+    camera_capture.set_lux_exposure(lux)
     flash_active = should_use_flash(camera_config, camera_capture, lux)
     if flash_active:
         logger.info("Night detected, lux=%s. Flash sequence armed", lux)
@@ -695,15 +695,22 @@ def handle_motion(config, camera_capture):
         + max(audio_sync_offset_sec, 0.0)
     )
 
-    try:
-        audio_proc, audio_start_epoch, audio_start_monotonic, audio_lock_fd = start_motion_audio_recording(
-            config,
-            motion_audio_file,
-            audio_duration,
-            motion_audio_metadata_file,
-        )
-    except Exception as e:
-        logger.exception("Audio capture failed to start: %s", e)
+    if audio_enabled:
+        try:
+            audio_proc, audio_start_epoch, audio_start_monotonic, audio_lock_fd = start_motion_audio_recording(
+                config,
+                motion_audio_file,
+                audio_duration,
+                motion_audio_metadata_file,
+            )
+        except Exception as e:
+            logger.exception("Audio capture failed to start: %s", e)
+            audio_proc = None
+            audio_start_epoch = None
+            audio_start_monotonic = None
+            audio_lock_fd = None
+    else:
+        logger.info("motion_audio is disabled in config.json; proceeding with photos and video only")
         audio_proc = None
         audio_start_epoch = None
         audio_start_monotonic = None
@@ -722,13 +729,16 @@ def handle_motion(config, camera_capture):
         motion_start.strftime("%Y-%m-%d %H:%M:%S.%f"),
         motion_duration,
     )
-    logger.info(
-        "Audio pre-roll %.3fs, post-roll %.3fs, sync offset %.3fs, total audio %.3fs",
-        target_audio_preroll_sec,
-        audio_postroll_sec,
-        audio_sync_offset_sec,
-        audio_duration,
-    )
+    if audio_enabled:
+        logger.info(
+            "Audio pre-roll %.3fs, post-roll %.3fs, sync offset %.3fs, total audio %.3fs",
+            target_audio_preroll_sec,
+            audio_postroll_sec,
+            audio_sync_offset_sec,
+            audio_duration,
+        )
+    else:
+        logger.info("Audio disabled; video will start after %.3fs delay", video_start_delay)
 
     try:
         video_file = run_camera_capture(
@@ -790,7 +800,10 @@ def handle_motion(config, camera_capture):
         logger.info("Extracted %s motion photos from video", len(extracted_photos))
 
     if not audio_ready:
-        logger.warning("Audio not available; keeping video-only file")
+        if audio_enabled:
+            logger.warning("Audio not available; keeping video-only file")
+        else:
+            logger.info("Audio disabled in config; keeping video-only file")
         return
 
     audio_metadata = load_audio_metadata(motion_audio_metadata_file)

@@ -81,6 +81,59 @@ def get_required_number(config_section, key, label, value_type=float):
     return value
 
 
+def get_bool(config_section, key, default):
+    value = config_section.get(key, default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
+
+
+def get_lux_exposure_profile(camera_config, lux_value):
+    profiles = camera_config.get("lux_exposure_profiles", [])
+    if lux_value is None or not isinstance(profiles, list):
+        return None
+
+    try:
+        lux_float = float(lux_value)
+    except (TypeError, ValueError):
+        return None
+
+    for profile in profiles:
+        if not isinstance(profile, dict):
+            continue
+        min_lux = profile.get("min_lux")
+        max_lux = profile.get("max_lux")
+        if min_lux is not None and lux_float < float(min_lux):
+            continue
+        if max_lux is not None and lux_float >= float(max_lux):
+            continue
+        return profile
+
+    return None
+
+
+def apply_exposure_profile(camera_config, profile):
+    if not profile:
+        return camera_config
+
+    merged = dict(camera_config)
+    for key in (
+        "photo_ae_enabled",
+        "photo_exposure_us",
+        "photo_gain",
+        "photo_awb_settle_sec",
+        "video_ae_enabled",
+        "video_exposure_us",
+        "video_gain",
+        "video_warmup_sec",
+    ):
+        if key in profile:
+            merged[key] = profile[key]
+    return merged
+
+
 def count_h264_frames(raw_video_path):
     cmd = [
         "ffprobe",
@@ -222,31 +275,11 @@ class MotionCameraCapture:
             self.flash = OutputDevice(self.flash_pin)
             self.set_flash_state(False)
 
-        frame_us = int(1_000_000 / self.video_fps)
-        exposure_us = int(self.camera_config.get("video_exposure_us", frame_us))
-        if exposure_us > frame_us:
-            logger.warning(
-                "Configured video_exposure_us=%s is longer than the %.3f fps frame time; clamping to %s us",
-                exposure_us,
-                self.video_fps,
-                frame_us,
-            )
-            exposure_us = frame_us
-        analogue_gain = float(self.camera_config.get("video_gain", 1.0))
+        self.frame_us = int(1_000_000 / self.video_fps)
         self.video_warmup_sec = float(self.camera_config.get("video_warmup_sec", 1.0))
         self.video_bitrate = int(self.camera_config.get("video_bitrate", 2_000_000))
-        self.fixed_fps_controls = {
-            "FrameRate": self.video_fps,
-            "FrameDurationLimits": (frame_us, frame_us),
-            "AeEnable": False,
-            "AwbEnable": True,
-            "ExposureTime": exposure_us,
-            "AnalogueGain": analogue_gain,
-        }
-        self.photo_controls = {
-            "AeEnable": True,
-            "AwbEnable": True,
-        }
+        self.active_exposure_profile = None
+        self.apply_camera_controls(self.camera_config, log_profile=False)
 
         self.video_config = self.picam2.create_video_configuration(
             main={"size": (self.video_width, self.video_height), "format": "YUV420"},
@@ -269,24 +302,102 @@ class MotionCameraCapture:
             self.picture_count,
         )
         logger.info(
-            "Fixed video controls: exposure_us=%s gain=%s awb_enabled=%s warmup_sec=%s bitrate=%s",
-            self.fixed_fps_controls["ExposureTime"],
-            self.fixed_fps_controls["AnalogueGain"],
+            "Flash enabled=%s gpio=%s",
+            self.flash_enabled,
+            self.flash_pin,
+        )
+        self.log_camera_controls()
+
+    def build_video_controls(self, camera_config):
+        video_ae_enabled = get_bool(camera_config, "video_ae_enabled", False)
+        exposure_us = int(camera_config.get("video_exposure_us", self.frame_us))
+        if exposure_us > self.frame_us:
+            logger.warning(
+                "Configured video_exposure_us=%s is longer than the %.3f fps frame time; clamping to %s us",
+                exposure_us,
+                self.video_fps,
+                self.frame_us,
+            )
+            exposure_us = self.frame_us
+        controls = {
+            "FrameRate": self.video_fps,
+            "FrameDurationLimits": (self.frame_us, self.frame_us),
+            "AeEnable": video_ae_enabled,
+            "AwbEnable": True,
+        }
+        if not video_ae_enabled:
+            controls.update({
+                "ExposureTime": exposure_us,
+                "AnalogueGain": float(camera_config.get("video_gain", 1.0)),
+            })
+        return controls
+
+    def build_photo_controls(self, camera_config):
+        photo_ae_enabled = get_bool(camera_config, "photo_ae_enabled", True)
+        controls = {
+            "AeEnable": photo_ae_enabled,
+            "AwbEnable": True,
+        }
+        if not photo_ae_enabled:
+            controls.update({
+                "ExposureTime": int(camera_config.get("photo_exposure_us", 2000)),
+                "AnalogueGain": float(camera_config.get("photo_gain", 1.0)),
+            })
+        return controls
+
+    def log_camera_controls(self):
+        logger.info(
+            "Video controls: profile=%s ae_enabled=%s exposure_us=%s gain=%s awb_enabled=%s warmup_sec=%s bitrate=%s",
+            self.active_exposure_profile or "default",
+            self.fixed_fps_controls["AeEnable"],
+            self.fixed_fps_controls.get("ExposureTime", "auto"),
+            self.fixed_fps_controls.get("AnalogueGain", "auto"),
             self.fixed_fps_controls["AwbEnable"],
             self.video_warmup_sec,
             self.video_bitrate,
         )
         logger.info(
-            "Flash enabled=%s gpio=%s",
-            self.flash_enabled,
-            self.flash_pin,
-        )
-        logger.info(
-            "Photo controls: awb_enabled=%s settle_sec=%s flash_warmup_sec=%s",
+            "Photo controls: profile=%s ae_enabled=%s exposure_us=%s gain=%s awb_enabled=%s settle_sec=%s flash_warmup_sec=%s",
+            self.active_exposure_profile or "default",
+            self.photo_controls["AeEnable"],
+            self.photo_controls.get("ExposureTime", "auto"),
+            self.photo_controls.get("AnalogueGain", "auto"),
             self.photo_controls["AwbEnable"],
             self.photo_awb_settle_sec,
             self.photo_flash_warmup_sec,
         )
+
+    def apply_camera_controls(self, camera_config, log_profile=True):
+        self.fixed_fps_controls = self.build_video_controls(camera_config)
+        self.photo_controls = self.build_photo_controls(camera_config)
+        self.photo_awb_settle_sec = float(
+            camera_config.get("photo_awb_settle_sec", self.photo_awb_settle_sec)
+        )
+        self.video_warmup_sec = float(
+            camera_config.get("video_warmup_sec", self.video_warmup_sec)
+        )
+        if log_profile:
+            self.log_camera_controls()
+
+    def set_lux_exposure(self, lux_value):
+        profile = get_lux_exposure_profile(self.camera_config, lux_value)
+        profile_name = profile.get("name", "lux_profile") if profile else None
+        if profile_name == self.active_exposure_profile:
+            return
+
+        self.active_exposure_profile = profile_name
+        event_camera_config = apply_exposure_profile(self.camera_config, profile)
+        logger.info(
+            "Applying camera exposure profile for lux=%s: %s",
+            lux_value,
+            self.active_exposure_profile or "default",
+        )
+        self.apply_camera_controls(event_camera_config)
+        if self.started:
+            try:
+                self.picam2.set_controls(self.fixed_fps_controls)
+            except Exception as e:
+                logger.warning("Could not apply video exposure controls immediately: %s", e)
 
     @property
     def flash_available(self):
