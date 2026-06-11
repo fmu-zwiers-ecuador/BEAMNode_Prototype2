@@ -164,12 +164,14 @@ If the live read fails, it falls back to the latest logged TSL lux value.
   {"name": "night_or_dark", "max_lux": 50, "photo_ae_enabled": true, "video_ae_enabled": true},
   {"name": "shade", "min_lux": 50, "max_lux": 1000, "photo_ae_enabled": true, "video_ae_enabled": true},
   {"name": "daylight", "min_lux": 1000, "max_lux": 10000, "photo_exposure_us": 2500},
-  {"name": "bright_sun", "min_lux": 10000, "photo_exposure_us": 1000}
+  {"name": "bright_sun", "min_lux": 10000, "max_lux": 30000, "photo_exposure_us": 600},
+  {"name": "extreme_sun", "min_lux": 30000, "photo_exposure_us": 250}
 ]
 ```
 
-If direct-sun photos are still white, lower the `bright_sun.photo_exposure_us`
-toward `500`. If they are too dark, raise it toward `1500` or `2000`.
+At around 53,000 lux the `extreme_sun` profile is used. If photos are still too
+bright, lower `extreme_sun.photo_exposure_us` toward `100`. If they are too
+dark, raise it toward `500`.
 
 ## Audio/Video Sync
 
