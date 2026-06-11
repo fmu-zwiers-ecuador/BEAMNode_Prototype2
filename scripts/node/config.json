@@ -195,6 +195,7 @@
   "video_exposure_us": 2000,
   "video_gain": 1.0,
   "video_warmup_sec": 1.0,
+  "live_lux_on_motion": true,
   "lux_exposure_profiles": [
     {
       "name": "night_or_dark",

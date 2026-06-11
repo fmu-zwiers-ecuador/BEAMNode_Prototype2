@@ -296,6 +296,96 @@ def get_latest_lux():
     return None
 
 
+def set_tsl_option(sensor, tsl_module, attribute, configured_value, options, default_key):
+    configured_key = str(configured_value or default_key).lower()
+    constant_name = options.get(configured_key, options[default_key])
+    setattr(sensor, attribute, getattr(tsl_module, constant_name))
+    return configured_key if configured_key in options else default_key
+
+
+def read_live_lux(config):
+    """Read TSL2591 directly for camera exposure without writing a lux log."""
+    try:
+        import board
+        import adafruit_tsl2591
+    except Exception as e:
+        logger.warning("Live lux read unavailable; TSL library import failed: %s", e)
+        return None
+
+    tsl_config = config.get("tsl2591", {})
+    gain_options = {
+        "low": "GAIN_LOW",
+        "medium": "GAIN_MED",
+        "high": "GAIN_HIGH",
+        "max": "GAIN_MAX",
+    }
+    integration_options = {
+        "100ms": "INTEGRATIONTIME_100MS",
+        "200ms": "INTEGRATIONTIME_200MS",
+        "300ms": "INTEGRATIONTIME_300MS",
+        "400ms": "INTEGRATIONTIME_400MS",
+        "500ms": "INTEGRATIONTIME_500MS",
+        "600ms": "INTEGRATIONTIME_600MS",
+    }
+    integration_wait_sec = {
+        "100ms": 0.12,
+        "200ms": 0.22,
+        "300ms": 0.32,
+        "400ms": 0.42,
+        "500ms": 0.52,
+        "600ms": 0.62,
+    }
+
+    try:
+        sensor = adafruit_tsl2591.TSL2591(board.I2C())
+        gain_name = set_tsl_option(
+            sensor,
+            adafruit_tsl2591,
+            "gain",
+            tsl_config.get("gain", "low"),
+            gain_options,
+            "low",
+        )
+        integration_name = set_tsl_option(
+            sensor,
+            adafruit_tsl2591,
+            "integration_time",
+            tsl_config.get("integration_time", "100ms"),
+            integration_options,
+            "100ms",
+        )
+        time.sleep(integration_wait_sec.get(integration_name, 0.12))
+        lux = sensor.lux
+        logger.info(
+            "Live TSL2591 lux for motion exposure: %s (gain=%s integration=%s)",
+            lux,
+            gain_name,
+            integration_name,
+        )
+        return lux
+    except RuntimeError as e:
+        if "Overflow reading light channels" in str(e):
+            logger.warning("Live TSL2591 lux overflow in current light")
+            return None
+        logger.warning("Live TSL2591 lux read failed: %s", e)
+        return None
+    except Exception as e:
+        logger.warning("Live TSL2591 lux read failed: %s", e)
+        return None
+
+
+def get_motion_lux(config):
+    camera_config = config.get("camera", {})
+    if camera_config.get("live_lux_on_motion", True):
+        live_lux = read_live_lux(config)
+        if live_lux is not None:
+            return live_lux
+
+    fallback_lux = get_latest_lux()
+    logger.info("Using latest logged lux fallback for motion exposure: %s", fallback_lux)
+    return fallback_lux
+
+
 def should_use_flash(camera_config, camera_capture, lux_value):
     if not camera_capture.flash_available:
         return False
@@ -667,7 +757,7 @@ def handle_motion(config, camera_capture):
     picture_config = camera_config.get("pictures", {})
     picture_mode = picture_config.get("mode", "before_video")
 
-    lux = get_latest_lux()
+    lux = get_motion_lux(config)
     camera_capture.set_lux_exposure(lux)
     flash_active = should_use_flash(camera_config, camera_capture, lux)
     if flash_active:

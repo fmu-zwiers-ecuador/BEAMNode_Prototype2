@@ -154,9 +154,10 @@ active.
 
 ## Lux-Based Exposure
 
-Before each motion event, `beam_motion_trigger.py` reads the latest TSL2591 lux
-value and asks `camera_motion_capture.py` to apply the matching
-`camera.lux_exposure_profiles` entry.
+Before each motion event, `beam_motion_trigger.py` can read the TSL2591 sensor
+directly using `camera.live_lux_on_motion`. This live read is only used for
+camera exposure/flash decisions and does not append a record to the TSL lux log.
+If the live read fails, it falls back to the latest logged TSL lux value.
 
 ```json
 "lux_exposure_profiles": [
