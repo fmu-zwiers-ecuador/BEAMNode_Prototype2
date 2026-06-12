@@ -43,6 +43,7 @@ ensure_dir /home/pi/data
 ensure_dir /home/pi/shipping
 ensure_dir /home/pi/logs
 ensure_dir /home/pi/usbmnt
+ensure_dir /home/pi/usbmnt/data
 
 echo
 echo "[2/4] Setting setup script permissions..."

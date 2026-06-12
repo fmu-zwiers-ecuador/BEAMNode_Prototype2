@@ -128,7 +128,18 @@ def run_cmd(cmd, label, **kwargs):
 
 def fix_local_permissions(path):
     """Make a local data path writable by the pi user when sudo is available."""
-    os.makedirs(path, exist_ok=True)
+    try:
+        os.makedirs(path, exist_ok=True)
+    except PermissionError:
+        parent = os.path.dirname(path)
+        log(f"WARNING: Permission denied creating {path}; trying sudo repair for {parent}.")
+        run_cmd(["sudo", "-n", "chown", "-R", f"{RUN_USER}:{RUN_USER}", parent], f"Fixing permissions for {parent}", stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        run_cmd(["sudo", "-n", "chmod", "-R", "u+rwX", parent], f"Fixing permissions for {parent}", stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        try:
+            os.makedirs(path, exist_ok=True)
+        except PermissionError:
+            log(f"WARNING: Could not create {path}. Run installation_bash/set_script_permissions.sh or installation_bash/set_retryservice.sh once with sudo.")
+            return False
     if os.access(path, os.R_OK | os.W_OK | os.X_OK):
         return True
 

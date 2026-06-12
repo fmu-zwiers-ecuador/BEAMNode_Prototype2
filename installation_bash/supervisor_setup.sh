@@ -361,14 +361,21 @@ sudo bash "$RETRY_SERVICE"
 sudo bash "$INTERNET_SERVICE"
 
 echo "[8/9] Configuring passwordless sudo rules for BEAM Drive and data permissions..."
+mkdir -p /home/pi/usbmnt/data
+chown -R pi:pi /home/pi/usbmnt 2>/dev/null || true
+chmod -R u+rwX /home/pi/usbmnt 2>/dev/null || true
 cat > /etc/sudoers.d/beamdrive-mount <<'EOF'
 pi ALL=(ALL) NOPASSWD: /bin/mount /dev/sda1 /home/pi/usbmnt
 pi ALL=(ALL) NOPASSWD: /bin/chown -R pi\:pi /home/pi/data
 pi ALL=(ALL) NOPASSWD: /bin/chmod -R u+rwX /home/pi/data
+pi ALL=(ALL) NOPASSWD: /bin/chown -R pi\:pi /home/pi/usbmnt
+pi ALL=(ALL) NOPASSWD: /bin/chmod -R u+rwX /home/pi/usbmnt
+pi ALL=(ALL) NOPASSWD: /bin/chown -R pi\:pi /home/pi/usbmnt/data
+pi ALL=(ALL) NOPASSWD: /bin/chmod -R u+rwX /home/pi/usbmnt/data
 EOF
 chmod 440 /etc/sudoers.d/beamdrive-mount
 visudo -cf /etc/sudoers.d/beamdrive-mount
-echo "  sudoers rules added: mount /dev/sda1 and chown/chmod /home/pi/data"
+echo "  sudoers rules added: mount /dev/sda1 and chown/chmod supervisor data folders"
 
 echo "[9/10] Quick checks:"
 ip -br a | grep -E "\b$MESH_IF\b" || true

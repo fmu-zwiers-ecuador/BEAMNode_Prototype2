@@ -9,13 +9,18 @@ SERVICE_NAME="retryqueue"
 LOG_DIR="/home/pi/logs"
 DATA_DIR="/home/pi/data"
 MOUNT_POINT="/home/pi/usbmnt"
+SUPERVISOR_DATA_DIR="$MOUNT_POINT/data"
 SUDOERS_FILE="/etc/sudoers.d/beamnode-usbmnt"
+RUN_USER="${SUDO_USER:-pi}"
 
 echo "[1/5] Preparing supervisor directories..."
 mkdir -p "$LOG_DIR"
 mkdir -p "$DATA_DIR"
+mkdir -p "$SUPERVISOR_DATA_DIR"
 mkdir -p "$MOUNT_POINT"
 mkdir -p "$PROJECT_ROOT/installation_bash"
+chown -R "$RUN_USER:$RUN_USER" "$LOG_DIR" "$MOUNT_POINT" 2>/dev/null || true
+chmod -R u+rwX "$LOG_DIR" "$MOUNT_POINT" 2>/dev/null || true
 
 # 2. Set Permissions
 echo "[2/5] Setting execution permissions..."
@@ -29,13 +34,20 @@ fi
 echo "[3/5] Allowing passwordless USB mount for retryqueue..."
 MOUNT_CMD="$(command -v mount)"
 CP_CMD="$(command -v cp)"
-if [ -z "$MOUNT_CMD" ] || [ -z "$CP_CMD" ]; then
+CHOWN_CMD="$(command -v chown)"
+CHMOD_CMD="$(command -v chmod)"
+if [ -z "$MOUNT_CMD" ] || [ -z "$CP_CMD" ] || [ -z "$CHOWN_CMD" ] || [ -z "$CHMOD_CMD" ]; then
     echo "ERROR: required command not found"
     exit 1
 fi
 sudo bash -c "cat > $SUDOERS_FILE <<EOF
+pi ALL=(root) NOPASSWD: $MOUNT_CMD /dev/sda1 $MOUNT_POINT
 pi ALL=(root) NOPASSWD: $MOUNT_CMD $MOUNT_POINT
 pi ALL=(root) NOPASSWD: $CP_CMD -r $DATA_DIR $MOUNT_POINT/
+pi ALL=(root) NOPASSWD: $CHOWN_CMD -R $RUN_USER\\:$RUN_USER $MOUNT_POINT
+pi ALL=(root) NOPASSWD: $CHMOD_CMD -R u+rwX $MOUNT_POINT
+pi ALL=(root) NOPASSWD: $CHOWN_CMD -R $RUN_USER\\:$RUN_USER $SUPERVISOR_DATA_DIR
+pi ALL=(root) NOPASSWD: $CHMOD_CMD -R u+rwX $SUPERVISOR_DATA_DIR
 EOF"
 sudo chmod 0440 "$SUDOERS_FILE"
 if ! sudo visudo -cf "$SUDOERS_FILE"; then
