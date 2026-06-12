@@ -4,19 +4,20 @@ retryqueue.py: Requests and queues data from nodes via mDNS.
 Path: /home/pi/shipping (on node) ==> /home/pi/data (on supervisor)
 
 Author: Gabriel Gonzalez, Noel Challa, Alex Lance, Jackson Roberts, and Jaylen Small
-Last Updated: 2-6-26 
+Last Updated: 6-12-26
 """
 
 import sys
 import subprocess
 import os
 import json
-from datetime import datetime
-from pathlib import Path
+import tempfile
 import shutil
 import pwd
+from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
-from dotenv import load_dotenv, dotenv_values 
+from dotenv import load_dotenv, dotenv_values
 load_dotenv()
 
 EASTERN_TZ = ZoneInfo("America/New_York")
@@ -25,6 +26,7 @@ EASTERN_TZ = ZoneInfo("America/New_York")
 # CONFIGURATION
 # ---------------------------------------------------
 JSON_FILEPATH = "/home/pi/BEAMNode_Prototype2/scripts/node/shipping_queuing/node_states.json"
+JSON_BACKUP_FILEPATH = JSON_FILEPATH + ".bak"
 SUPERVISOR_DATA_ROOT = "/home/pi/usbmnt/data"
 SUPERVISOR_USB_DEVICE = "/dev/sda1"
 SUPERVISOR_USB_MOUNT = "/home/pi/usbmnt"
@@ -50,6 +52,10 @@ SSH_OPTS = [
     "-o", "StrictHostKeyChecking=accept-new"
 ]
 
+# Cache of permission-fix results for this run so we don't repeat the same
+# failing chown/chmod/mount dance on every node and every retry round.
+_permission_fix_cache = {}
+
 # ---------------------------------------------------
 # LOGGING
 # ---------------------------------------------------
@@ -74,21 +80,80 @@ def log(msg):
 # ---------------------------------------------------
 # LOAD/SAVE NODE STATE
 # ---------------------------------------------------
-def load_nodes():
-    if not os.path.exists(JSON_FILEPATH):
-        log(f"ERROR: node state file missing: {JSON_FILEPATH}")
-        return {}
+def _read_json_file(path):
+    """Read and parse a JSON file. Returns (data, error) where error is
+    None on success, or a description of why it failed (including the
+    special case of an empty/zero-byte file)."""
+    if not os.path.exists(path):
+        return None, "missing"
     try:
-        with open(JSON_FILEPATH, "r") as f:
-            return json.load(f)
-    except Exception as e:
-        log(f"ERROR: Could not read JSON: {e}")
-        return {}
+        if os.path.getsize(path) == 0:
+            return None, "empty"
+    except OSError as e:
+        return None, f"stat failed: {e}"
+    try:
+        with open(path, "r") as f:
+            return json.load(f), None
+    except json.JSONDecodeError as e:
+        return None, f"invalid JSON: {e}"
+    except OSError as e:
+        return None, f"read failed: {e}"
+
+def load_nodes():
+    """Load node state, falling back to the backup copy if the primary
+    file is missing, empty, or corrupt (e.g. truncated by a prior
+    'No space left on device' write)."""
+    data, err = _read_json_file(JSON_FILEPATH)
+    if err is None:
+        return data
+
+    if err == "missing":
+        log(f"ERROR: node state file missing: {JSON_FILEPATH}")
+    else:
+        log(f"ERROR: Could not read JSON ({err}); trying backup {JSON_BACKUP_FILEPATH}")
+
+    backup_data, backup_err = _read_json_file(JSON_BACKUP_FILEPATH)
+    if backup_err is None:
+        log(f"Recovered node state from backup: {JSON_BACKUP_FILEPATH}")
+        # Re-write the primary file immediately so future runs don't need
+        # the backup again, and so it's no longer empty/corrupt.
+        save_nodes(backup_data)
+        return backup_data
+
+    if err != "missing":
+        log(f"ERROR: Backup also unusable ({backup_err}). Starting with empty node state.")
+    return {}
 
 def save_nodes(nodes):
+    """Write node state atomically: write to a temp file in the same
+    directory, fsync it, then rename it into place. This guarantees the
+    JSON file is never left empty/truncated even if the disk fills up or
+    the process is killed mid-write. A rolling backup is kept as well."""
+    json_dir = os.path.dirname(JSON_FILEPATH)
     try:
-        with open(JSON_FILEPATH, "w") as f:
-            json.dump(nodes, f, indent=4)
+        os.makedirs(json_dir, exist_ok=True)
+
+        fd, tmp_path = tempfile.mkstemp(prefix=".node_states.", suffix=".tmp", dir=json_dir)
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(nodes, f, indent=4)
+                f.flush()
+                os.fsync(f.fileno())
+
+            # Keep a backup of the last-known-good file before overwriting it.
+            if os.path.exists(JSON_FILEPATH) and os.path.getsize(JSON_FILEPATH) > 0:
+                try:
+                    shutil.copyfile(JSON_FILEPATH, JSON_BACKUP_FILEPATH)
+                except OSError as e:
+                    log(f"WARNING: Could not update node state backup: {e}")
+
+            os.replace(tmp_path, JSON_FILEPATH)
+        except Exception:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+            raise
     except Exception as e:
         log(f"ERROR: Could not save JSON: {e}")
 
@@ -137,6 +202,18 @@ def get_run_user_ids():
     except KeyError:
         return os.getuid(), os.getgid()
 
+def get_fstype(path):
+    """Return the filesystem type backing path (e.g. 'exfat', 'vfat',
+    'ext4'), or '' if it can't be determined."""
+    try:
+        result = subprocess.run(
+            ["findmnt", "-no", "FSTYPE", "--target", path],
+            capture_output=True, text=True, check=True
+        )
+        return result.stdout.strip().lower()
+    except Exception:
+        return ""
+
 def remount_supervisor_usb_for_pi():
     """Mount/remount supervisor USB storage so pi can write to FAT/exFAT drives."""
     run_uid, run_gid = get_run_user_ids()
@@ -172,8 +249,19 @@ def remount_supervisor_usb_for_pi():
     )
 
 def fix_local_permissions(path):
-    """Make a local data path writable by the pi user when sudo is available."""
-    if path == SUPERVISOR_USB_MOUNT or path.startswith(SUPERVISOR_USB_MOUNT + os.sep):
+    """Make a local data path writable by the pi user.
+
+    Results are cached per-path for the lifetime of the process: if we
+    already determined a path is writable (or already failed to make it
+    writable and logged guidance), don't repeat the whole chown/chmod/mount
+    dance on every node and every retry round.
+    """
+    if path in _permission_fix_cache:
+        return _permission_fix_cache[path]
+
+    on_usb = path == SUPERVISOR_USB_MOUNT or path.startswith(SUPERVISOR_USB_MOUNT + os.sep)
+
+    if on_usb:
         remount_supervisor_usb_for_pi()
 
     try:
@@ -181,16 +269,36 @@ def fix_local_permissions(path):
     except PermissionError:
         parent = os.path.dirname(path)
         log(f"WARNING: Permission denied creating {path}; trying sudo repair for {parent}.")
-        remount_supervisor_usb_for_pi()
+        if on_usb:
+            remount_supervisor_usb_for_pi()
         run_cmd(["sudo", "-n", "chown", "-R", f"{RUN_USER}:{RUN_USER}", parent], f"Fixing permissions for {parent}", stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
         run_cmd(["sudo", "-n", "chmod", "-R", "u+rwX", parent], f"Fixing permissions for {parent}", stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
         try:
             os.makedirs(path, exist_ok=True)
         except PermissionError:
-            log(f"WARNING: Could not create {path}. Run installation_bash/set_script_permissions.sh or installation_bash/set_retryservice.sh once with sudo.")
+            log(f"WARNING: Could not create {path}. Run installation_bash/set_node_usb_backup_permissions.sh once with sudo to fix this permanently.")
+            _permission_fix_cache[path] = False
             return False
+
     if os.access(path, os.R_OK | os.W_OK | os.X_OK):
+        _permission_fix_cache[path] = True
         return True
+
+    fstype = get_fstype(path)
+    if fstype in ("vfat", "exfat", "msdos"):
+        # chown/chmod are not meaningful on FAT/exFAT - ownership and
+        # permission bits are derived entirely from mount options
+        # (uid=/gid=/umask=). A chown here will always fail with
+        # "Operation not permitted", even as root, so don't bother.
+        log(
+            f"WARNING: {path} is on a {fstype} filesystem and is not writable by "
+            f"{RUN_USER} after remounting with uid/gid/umask. Run "
+            f"installation_bash/set_node_usb_backup_permissions.sh once with sudo "
+            f"to fix the mount options permanently (this also updates /etc/fstab "
+            f"so it persists across reboots)."
+        )
+        _permission_fix_cache[path] = False
+        return False
 
     commands = [
         ["sudo", "-n", "chown", "-R", f"{RUN_USER}:{RUN_USER}", path],
@@ -198,8 +306,15 @@ def fix_local_permissions(path):
     ]
     for cmd in commands:
         if not run_cmd(cmd, f"Fixing permissions for {path}", stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True):
-            log(f"WARNING: Could not auto-fix permissions for {path}. If sudo needs a password, run the permission fix once manually.")
+            log(
+                f"WARNING: Could not auto-fix permissions for {path}. Run "
+                f"installation_bash/set_node_usb_backup_permissions.sh once with sudo "
+                f"to fix this permanently."
+            )
+            _permission_fix_cache[path] = False
             return False
+
+    _permission_fix_cache[path] = True
     return True
 
 def fix_remote_permissions(full_hostname, path):
@@ -382,7 +497,6 @@ def rsync_pull(full_hostname):
     ]
     try:
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
-        fix_local_permissions(SUPERVISOR_DATA_ROOT)
         return True
     except subprocess.CalledProcessError:
         return False

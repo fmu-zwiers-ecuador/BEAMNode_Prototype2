@@ -87,4 +87,17 @@ chmod -R u+rwX \
   2>/dev/null || true
 
 echo
+echo "[5/5] Fixing supervisor USB drive (/home/pi/usbmnt) mount permissions..."
+USB_PERM_SCRIPT="$PROJECT_ROOT/installation_bash/set_node_usb_backup_permissions.sh"
+if [[ -f "$USB_PERM_SCRIPT" ]]; then
+  if [[ "${EUID}" -eq 0 ]]; then
+    bash "$USB_PERM_SCRIPT"
+  else
+    echo "SKIP: not running as root; re-run with sudo to also fix USB mount permissions."
+  fi
+else
+  echo "SKIP missing:  $USB_PERM_SCRIPT"
+fi
+
+echo
 echo "DONE. Core supervisor, retry queue, and Wi-Fi/ping scripts are executable."
