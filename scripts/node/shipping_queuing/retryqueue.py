@@ -24,7 +24,7 @@ EASTERN_TZ = ZoneInfo("America/New_York")
 # CONFIGURATION
 # ---------------------------------------------------
 JSON_FILEPATH = "/home/pi/BEAMNode_Prototype2/scripts/node/shipping_queuing/node_states.json"
-SUPERVISOR_DATA_ROOT = "/home/pi/data"
+SUPERVISOR_DATA_ROOT = "/home/pi/usbmnt/data"
 REMOTE_SHIP_DIR = "/home/pi/shipping"
 LOG_FILE = "/home/pi/logs/queue.log"
 NAS_PATH = os.getenv("NAS_PATH") + ":/BEAM_test_data/FEC/"
