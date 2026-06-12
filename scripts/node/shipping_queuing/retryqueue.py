@@ -14,6 +14,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 import shutil
+import pwd
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv, dotenv_values 
 load_dotenv()
@@ -25,6 +26,8 @@ EASTERN_TZ = ZoneInfo("America/New_York")
 # ---------------------------------------------------
 JSON_FILEPATH = "/home/pi/BEAMNode_Prototype2/scripts/node/shipping_queuing/node_states.json"
 SUPERVISOR_DATA_ROOT = "/home/pi/usbmnt/data"
+SUPERVISOR_USB_DEVICE = "/dev/sda1"
+SUPERVISOR_USB_MOUNT = "/home/pi/usbmnt"
 REMOTE_SHIP_DIR = "/home/pi/shipping"
 LOG_FILE = "/home/pi/logs/queue.log"
 NAS_PATH = os.getenv("NAS_PATH") + ":/BEAM_test_data/FEC/"
@@ -126,13 +129,59 @@ def run_cmd(cmd, label, **kwargs):
         log(f"{label}: command failed with exit code {e.returncode}{stderr}")
         return False
 
+def get_run_user_ids():
+    """Return numeric uid/gid for the runtime user."""
+    try:
+        user_info = pwd.getpwnam(RUN_USER)
+        return user_info.pw_uid, user_info.pw_gid
+    except KeyError:
+        return os.getuid(), os.getgid()
+
+def remount_supervisor_usb_for_pi():
+    """Mount/remount supervisor USB storage so pi can write to FAT/exFAT drives."""
+    run_uid, run_gid = get_run_user_ids()
+    mount_options = f"uid={run_uid},gid={run_gid},umask=0002"
+
+    try:
+        os.makedirs(SUPERVISOR_USB_MOUNT, exist_ok=True)
+    except PermissionError:
+        log(f"WARNING: Could not create USB mount point {SUPERVISOR_USB_MOUNT}")
+        return False
+
+    is_mounted = subprocess.run(
+        ["mountpoint", "-q", SUPERVISOR_USB_MOUNT],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    ).returncode == 0
+
+    if is_mounted:
+        return run_cmd(
+            ["sudo", "-n", "mount", "-o", f"remount,{mount_options}", SUPERVISOR_USB_MOUNT],
+            f"Remounting {SUPERVISOR_USB_MOUNT} writable by {RUN_USER}",
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+    return run_cmd(
+        ["sudo", "-n", "mount", "-o", mount_options, SUPERVISOR_USB_DEVICE, SUPERVISOR_USB_MOUNT],
+        f"Mounting {SUPERVISOR_USB_DEVICE} at {SUPERVISOR_USB_MOUNT}",
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True
+    )
+
 def fix_local_permissions(path):
     """Make a local data path writable by the pi user when sudo is available."""
+    if path == SUPERVISOR_USB_MOUNT or path.startswith(SUPERVISOR_USB_MOUNT + os.sep):
+        remount_supervisor_usb_for_pi()
+
     try:
         os.makedirs(path, exist_ok=True)
     except PermissionError:
         parent = os.path.dirname(path)
         log(f"WARNING: Permission denied creating {path}; trying sudo repair for {parent}.")
+        remount_supervisor_usb_for_pi()
         run_cmd(["sudo", "-n", "chown", "-R", f"{RUN_USER}:{RUN_USER}", parent], f"Fixing permissions for {parent}", stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
         run_cmd(["sudo", "-n", "chmod", "-R", "u+rwX", parent], f"Fixing permissions for {parent}", stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
         try:
@@ -325,7 +374,8 @@ def rsync_pull(full_hostname):
     remote_source = f"pi@{full_hostname}:{REMOTE_SHIP_DIR}/"
     ssh_cmd = "ssh " + " ".join(SSH_OPTS)
     cmd = [
-        "rsync", "-avz", "--partial", "--ignore-existing",
+        "rsync", "-rtvz", "--partial", "--ignore-existing",
+        "--no-owner", "--no-group", "--no-perms", "--omit-dir-times",
         "-e", ssh_cmd,
         remote_source,
         SUPERVISOR_DATA_ROOT

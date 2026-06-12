@@ -366,6 +366,8 @@ chown -R pi:pi /home/pi/usbmnt 2>/dev/null || true
 chmod -R u+rwX /home/pi/usbmnt 2>/dev/null || true
 cat > /etc/sudoers.d/beamdrive-mount <<'EOF'
 pi ALL=(ALL) NOPASSWD: /bin/mount /dev/sda1 /home/pi/usbmnt
+pi ALL=(ALL) NOPASSWD: /bin/mount -o uid=1000,gid=1000,umask=0002 /dev/sda1 /home/pi/usbmnt
+pi ALL=(ALL) NOPASSWD: /bin/mount -o remount,uid=1000,gid=1000,umask=0002 /home/pi/usbmnt
 pi ALL=(ALL) NOPASSWD: /bin/chown -R pi\:pi /home/pi/data
 pi ALL=(ALL) NOPASSWD: /bin/chmod -R u+rwX /home/pi/data
 pi ALL=(ALL) NOPASSWD: /bin/chown -R pi\:pi /home/pi/usbmnt

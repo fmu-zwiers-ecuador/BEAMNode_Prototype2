@@ -12,6 +12,10 @@ MOUNT_POINT="/home/pi/usbmnt"
 SUPERVISOR_DATA_DIR="$MOUNT_POINT/data"
 SUDOERS_FILE="/etc/sudoers.d/beamnode-usbmnt"
 RUN_USER="${SUDO_USER:-pi}"
+RUN_UID="$(id -u "$RUN_USER" 2>/dev/null || echo 1000)"
+RUN_GID="$(id -g "$RUN_USER" 2>/dev/null || echo 1000)"
+MOUNT_OPTIONS="uid=$RUN_UID,gid=$RUN_GID,umask=0002"
+REMOUNT_OPTIONS="remount,$MOUNT_OPTIONS"
 
 echo "[1/5] Preparing supervisor directories..."
 mkdir -p "$LOG_DIR"
@@ -43,6 +47,8 @@ fi
 sudo bash -c "cat > $SUDOERS_FILE <<EOF
 pi ALL=(root) NOPASSWD: $MOUNT_CMD /dev/sda1 $MOUNT_POINT
 pi ALL=(root) NOPASSWD: $MOUNT_CMD $MOUNT_POINT
+pi ALL=(root) NOPASSWD: $MOUNT_CMD -o $MOUNT_OPTIONS /dev/sda1 $MOUNT_POINT
+pi ALL=(root) NOPASSWD: $MOUNT_CMD -o $REMOUNT_OPTIONS $MOUNT_POINT
 pi ALL=(root) NOPASSWD: $CP_CMD -r $DATA_DIR $MOUNT_POINT/
 pi ALL=(root) NOPASSWD: $CHOWN_CMD -R $RUN_USER\\:$RUN_USER $MOUNT_POINT
 pi ALL=(root) NOPASSWD: $CHMOD_CMD -R u+rwX $MOUNT_POINT
