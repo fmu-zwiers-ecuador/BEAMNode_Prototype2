@@ -997,6 +997,8 @@ def main():
                 handle_motion(current_config, camera_capture)
                 logger.info("Cooling down for %s seconds", cooldown)
                 time.sleep(cooldown)
+                if pir.motion_detected:
+                    logger.info("PIR still active; waiting for motion to end before re-arming")
             elif not current_motion_state and last_motion_state:
                 logger.info("Motion ended")
 
