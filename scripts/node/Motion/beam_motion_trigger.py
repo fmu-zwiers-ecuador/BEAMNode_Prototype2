@@ -938,9 +938,6 @@ def main():
         warmup = float(motion_settings["pir_warmup_sec"])
         poll_interval = float(motion_settings["pir_poll_interval_sec"])
         cooldown = float(motion_settings["cooldown_sec"])
-        clear_timeout = float(camera_config.get("pir_clear_timeout_sec", 20.0))
-        if clear_timeout <= 0:
-            clear_timeout = None
     except ValueError as e:
         logger.error("%s", e)
         return
@@ -948,7 +945,6 @@ def main():
     logger.info("Starting 24/7 PIR motion trigger")
     logger.info("PIR GPIO pin: %s", pir_pin)
     logger.info("Warmup seconds: %s", warmup)
-    logger.info("PIR clear timeout: %s", clear_timeout if clear_timeout is not None else "disabled")
     logger.info(
         "Motion tuning: response_profile=%s, sensitivity_profile=%s, "
         "sample_rate=%s, queue_len=%s, threshold=%s, poll_interval=%s, cooldown=%s",
@@ -986,29 +982,21 @@ def main():
     logger.info("Camera and PIR are armed. Waiting for motion")
 
     try:
+        last_motion_state = pir.motion_detected
         while True:
             current_config = load_config()
             if not motion_capture_allowed(current_config):
                 break
 
-            if pir.motion_detected:
+            current_motion_state = pir.motion_detected
+            if current_motion_state and not last_motion_state:
                 handle_motion(current_config, camera_capture)
                 logger.info("Cooling down for %s seconds", cooldown)
                 time.sleep(cooldown)
-                logger.info("Waiting for motion to clear")
-                clear_wait_start = time.monotonic()
-                while pir.motion_detected:
-                    if (
-                        clear_timeout is not None
-                        and time.monotonic() - clear_wait_start >= clear_timeout
-                    ):
-                        logger.warning(
-                            "PIR still active after %.1fs; re-arming anyway",
-                            clear_timeout,
-                        )
-                        break
-                    time.sleep(0.2)
-                logger.info("Ready again")
+            elif not current_motion_state and last_motion_state:
+                logger.info("Motion ended")
+
+            last_motion_state = current_motion_state
             time.sleep(poll_interval)
     except KeyboardInterrupt:
         logger.info("Motion trigger stopped by user")
