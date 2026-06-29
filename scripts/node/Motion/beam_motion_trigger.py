@@ -979,10 +979,14 @@ def main():
             pir.close()
         return
 
-    logger.info("Camera and PIR are armed. Waiting for motion")
+    initial_motion_state = pir.motion_detected
+    logger.info(
+        "Camera and PIR are armed. Waiting for motion. Initial PIR state: %s",
+        "active" if initial_motion_state else "idle",
+    )
 
     try:
-        last_motion_state = pir.motion_detected
+        last_motion_state = False
         while True:
             current_config = load_config()
             if not motion_capture_allowed(current_config):
