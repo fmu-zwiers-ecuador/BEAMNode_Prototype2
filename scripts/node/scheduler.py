@@ -32,6 +32,10 @@ SCRIPT_DIR_OVERRIDES = {
 
 SUDO_SENSORS = {}
 
+DEFAULT_SENSOR_TIMEOUT_SEC = 30
+DEFAULT_AUDIO_DURATION_SEC = 10
+AUDIO_TIMEOUT_BUFFER_SEC = 30
+
 # log funciton
 def log(msg):
     ts = datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
@@ -89,8 +93,46 @@ def find_sensor_script(sensor):
     log(f"[WARN] No .py script found in '{sensor_dir}'")
     return None
 
-def run_sensor_once(sensor):
+def get_sensor_timeout(sensor, params):
+    """Return the maximum runtime for one scheduled sensor invocation."""
+    if sensor == "audio":
+        duration_sec = params.get("duration_sec", DEFAULT_AUDIO_DURATION_SEC)
+        if (
+            isinstance(duration_sec, bool)
+            or not isinstance(duration_sec, (int, float))
+            or duration_sec <= 0
+        ):
+            log(
+                f"[WARN] Invalid duration_sec for sensor '{sensor}': "
+                f"{duration_sec!r}; using {DEFAULT_AUDIO_DURATION_SEC} seconds"
+            )
+            duration_sec = DEFAULT_AUDIO_DURATION_SEC
+        default_timeout = duration_sec + AUDIO_TIMEOUT_BUFFER_SEC
+    else:
+        default_timeout = DEFAULT_SENSOR_TIMEOUT_SEC
+
+    configured_timeout = params.get("timeout_sec")
+    if configured_timeout is None:
+        return default_timeout
+
+    if (
+        isinstance(configured_timeout, bool)
+        or not isinstance(configured_timeout, (int, float))
+        or configured_timeout <= 0
+    ):
+        log(
+            f"[WARN] Invalid timeout_sec for sensor '{sensor}': "
+            f"{configured_timeout!r}; using {default_timeout} seconds"
+        )
+        return default_timeout
+
+    return configured_timeout
+
+def run_sensor_once(sensor, params=None):
     """Run the sensor’s Python script once."""
+    if params is None:
+        params = load_config().get(sensor, {})
+
     script_path = find_sensor_script(sensor)
     if not script_path:
         return
@@ -100,7 +142,20 @@ def run_sensor_once(sensor):
     if sensor in SUDO_SENSORS:
         cmd = ["sudo", "python3", script_path]
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    timeout_sec = get_sensor_timeout(sensor, params)
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout_sec,
+        )
+    except subprocess.TimeoutExpired:
+        log(
+            f"[ERROR] {sensor} timed out after {timeout_sec} seconds; "
+            "continuing scheduler."
+        )
+        return
 
     # You can log result.stdout/result.stderr here if needed
     if result.returncode == 0:
@@ -133,7 +188,7 @@ def scheduler_loop():
             next_run = last_run + timedelta(minutes=freq_min)
 
             if now >= next_run:
-                run_sensor_once(sensor)
+                run_sensor_once(sensor, params)
                 last_run_times[sensor] = datetime.now(EASTERN_TZ)
             time.sleep(1)  # brief sleep to avoid tight loop
     
