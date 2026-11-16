@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Author: Jackson Roberts | Atlas EZO DO calibration wizard (zero + optional atmospheric) over I2C."""
+"""Author: Jackson Roberts | Atlas EZO pH calibration wizard (mid + optional low and high) over I2C."""
 
 import io
 import fcntl
@@ -82,7 +82,7 @@ def set_config_flag(key, value):
     except Exception:
         cfg = {}
 
-    cfg.setdefault("atlas_do", {})[key] = value
+    cfg.setdefault("atlas_ph", {})[key] = value
 
     tmp_path = CONFIG_PATH + ".tmp"
     with open(tmp_path, "w") as f:
@@ -90,19 +90,19 @@ def set_config_flag(key, value):
     os.replace(tmp_path, CONFIG_PATH)
 
 
-def parse_do_i2c_settings(config):
-    do_config = config.get("atlas_do", {})
+def parse_ph_i2c_settings(config):
+    ph_config = config.get("atlas_ph", {})
     try:
-        addr_hex = do_config.get("address_hex") or "0x61"
-        i2c_bus = do_config.get("i2c_bus")
+        addr_hex = ph_config.get("address_hex") or "0x63"
+        i2c_bus = ph_config.get("i2c_bus")
         bus_num = int(i2c_bus) if i2c_bus is not None else 1
         addr = int(str(addr_hex), 16)
         return bus_num, addr
     except Exception as e:
         print(
-            f"Config Parse Error in atlas_do: "
-            f"address_hex={do_config.get('address_hex')!r}, "
-            f"i2c_bus={do_config.get('i2c_bus')!r} | {e}",
+            f"Config Parse Error in atlas_ph: "
+            f"address_hex={ph_config.get('address_hex')!r}, "
+            f"i2c_bus={ph_config.get('i2c_bus')!r} | {e}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -143,20 +143,41 @@ def maybe_step(label: str):
     return answer != "skip"
 
 
+def is_ph_circuit(identity: str):
+    """True when an ``I`` response such as ``?I,pH,2.16`` names a pH circuit."""
+    fields = identity.split(",")
+    return len(fields) >= 2 and fields[1].strip().upper() == "PH"
+
+
+def parse_cal_points(text: str):
+    """Return the point count from a ``Cal,?`` response such as ``?Cal,3``."""
+    match = re.search(r"cal,\s*(\d+)", text, re.IGNORECASE)
+    if not match:
+        raise ValueError(f"Could not parse calibration status from: {repr(text)}")
+    return int(match.group(1))
+
+
+def calibrate_point(dev, command: str):
+    """Send one calibration command and return True if the circuit accepted it."""
+    status, _, _ = run_command(dev, command, timeout=1.5)
+    run_command(dev, "Cal,?", timeout=0.9)
+    return status == 1
+
+
 def main():
     config = load_config()
-    bus_num, addr = parse_do_i2c_settings(config)
+    bus_num, addr = parse_ph_i2c_settings(config)
 
     print("=" * 70)
-    print(" Atlas Dissolved Oxygen Calibration Wizard")
+    print(" Atlas pH Calibration Wizard")
     print(f" I2C bus: {bus_num} | address: 0x{addr:02X}")
-    print(" Recommended with your supplies: zero-point calibration using zero DO solution")
+    print(" Needs pH 7.00 buffer; pH 4.00 and pH 10.00 buffers are optional")
     print("=" * 70)
 
     print("\nBefore continuing:")
     print("- remove storage cap")
     print("- rinse probe with DI/distilled water and blot dry")
-    print("- use fresh zero dissolved oxygen calibration solution")
+    print("- have fresh pH 7.00, 4.00 and 10.00 buffer solutions ready")
     choice = input("\nPress Enter to continue, or type 'q' to quit: ").strip().lower()
     if choice == "q":
         print("Aborted.")
@@ -166,64 +187,71 @@ def main():
         with AtlasI2CDevice(addr, bus=bus_num) as dev:
             print("\n1) Identity check")
             status, text, raw = dev.query("I", timeout=0.5)
-            text_norm = "".join(ch for ch in text.upper() if ch.isalnum())
             print(
                 f"   I -> status={status} ({STATUS_CODES.get(status, 'unknown')}), "
                 f"text='{text}'"
             )
-            if status != 1 or "DO" not in text_norm:
-                print("   WARNING: DO identity check was not clean.")
+            if status != 1 or not is_ph_circuit(text):
+                print("   ERROR: this circuit did not identify as pH. Nothing was changed.")
                 print(f"   raw: {raw}")
-                keep_going = input("   Continue anyway? [y/N]: ").strip().lower()
-                if keep_going not in ("y", "yes"):
-                    print("Stopped by user.")
-                    return
+                sys.exit(1)
 
             print("\n2) Existing calibration status")
             run_command(dev, "Cal,?", timeout=0.9)
 
-            clear_first = input("\n3) Clear previous calibration first? [Y/n]: ").strip().lower()
-            if clear_first in ("", "y", "yes"):
-                run_command(dev, "Cal,clear", timeout=1.0)
+            print("\n3) Mid-point calibration in pH 7.00 buffer (required)")
+            print("   This must come first: it clears any earlier low and high points.")
+            input("   Press Enter when the probe is in pH 7.00 buffer: ")
+            print("- avoid bubbles and let the reading stabilize")
+            countdown(90)
+            if not calibrate_point(dev, "Cal,mid,7.00"):
+                print("Mid-point calibration failed. atlas_ph was not enabled.", file=sys.stderr)
+                sys.exit(1)
+            expected_points = 1
 
-            print("\n4) Calibration mode")
-            print("   1 = Zero-point only (matches your available solution)")
-            print("   2 = Zero-point + atmospheric point")
-            cal_mode = input("Select [1/2] (default 1): ").strip() or "1"
-
-            if maybe_step("5) Zero-point calibration in zero dissolved oxygen solution"):
-                print("- place probe in zero DO solution")
-                print("- avoid bubbles and let probe stabilize")
+            if maybe_step("4) Low-point calibration in pH 4.00 buffer (optional)"):
+                print("- rinse the probe, then place it in pH 4.00 buffer")
+                print("- avoid bubbles and let the reading stabilize")
                 countdown(90)
-                run_command(dev, "Cal,0", timeout=1.5)
-                run_command(dev, "Cal,?", timeout=0.9)
+                if not calibrate_point(dev, "Cal,low,4.00"):
+                    print(
+                        "Low-point calibration failed. atlas_ph was not enabled.",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                expected_points += 1
 
-            if cal_mode == "2":
-                if maybe_step("6) Atmospheric calibration point"):
-                    print("- move probe to fully aerated water (or per Atlas procedure)")
-                    print("- let the reading stabilize before calibrating")
-                    countdown(90)
-                    run_command(dev, "Cal", timeout=1.5)
-                    run_command(dev, "Cal,?", timeout=0.9)
+            if maybe_step("5) High-point calibration in pH 10.00 buffer (optional)"):
+                print("- rinse the probe, then place it in pH 10.00 buffer")
+                print("- avoid bubbles and let the reading stabilize")
+                countdown(90)
+                if not calibrate_point(dev, "Cal,high,10.00"):
+                    print(
+                        "High-point calibration failed. atlas_ph was not enabled.",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                expected_points += 1
 
-            print("\n7) Final calibration status")
-            run_command(dev, "Cal,?", timeout=0.9)
+            print("\n6) Verify calibration")
+            status, text, raw = run_command(dev, "Cal,?", timeout=0.9)
+            points = parse_cal_points(text) if status == 1 else None
+            if points != expected_points:
+                print(
+                    f"Calibration check failed: expected {expected_points} point(s), "
+                    f"circuit reports {points}. atlas_ph was not enabled.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            print(f"   Circuit reports {points} calibration point(s).")
 
-            print("\n8) Live dissolved oxygen reading")
+            print("\n7) Live pH reading")
             status, text, raw = run_command(dev, "R", timeout=1.5)
             if status == 1 and text:
                 try:
-                    values = parse_float_values(text)
-                    mg_l = values[0]
-                    if len(values) > 1:
-                        print(
-                            f"   Live DO: {mg_l:.2f} mg/L "
-                            f"| saturation={values[1]:.2f}%"
-                        )
-                    else:
-                        print(f"   Live DO: {mg_l:.2f} mg/L")
+                    print(f"   Live pH: {parse_float_values(text)[0]:.3f}")
                 except Exception:
-                    print("   Note: could not parse numeric DO reading.")
+                    print("   Note: could not parse numeric pH reading.")
                     print(f"   raw: {raw}")
 
     except Exception as e:
@@ -234,7 +262,7 @@ def main():
     set_config_flag("i2c_bus", bus_num)
     set_config_flag("address_hex", f"0x{addr:02X}")
 
-    print("\nconfig.json updated: atlas_do.enabled = true")
+    print("\nconfig.json updated: atlas_ph.enabled = true")
     print("Calibration flow complete.")
 
 
